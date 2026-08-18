@@ -8,13 +8,14 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 > **Status:** working MVP. GraphQL-only API (auth included — no REST routes),
 > device provisioning with API keys, activity ingestion via stateless pings,
 > categories with manual assignment and regex auto-categorization rules, and
-> per-user authorization scoping.
+> per-user authorization scoping, and a web dashboard.
 
 ## Layout
 
 - `apps/server` — GraphQL Yoga + `@vantreeseba/drizzle-graphql` + Drizzle (1.0 RC) + Postgres,
   better-auth (sessions + device API keys), `@vantreeseba/graphql-casl` permissions.
 - `apps/desktop` — Electron tray-only agent (`@miniben90/x-win` + `powerMonitor`).
+- `apps/web` — Vite + vanilla-TS dashboard (sign-in, per-category/per-day/per-app views).
 - `packages/shared` — shared Zod schemas/types.
 
 ## Development
@@ -32,6 +33,10 @@ npm run dev:server                      # http://localhost:4000/graphql
 # config.json), then run the tray agent
 npm run provision -w @eunomia/desktop
 npm run dev:desktop
+
+# web dashboard (proxies /graphql to the server; set EUNOMIA_SERVER_URL to
+# point at a remote server instead)
+npm run dev:web                         # http://localhost:5173
 
 # checks
 npm run typecheck

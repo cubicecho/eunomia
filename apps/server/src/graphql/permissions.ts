@@ -24,6 +24,7 @@ export const permissions: PermissionsMap<any> = {
     activities: authenticated,
     categories: authenticated,
     categoryRules: authenticated,
+    categorySummary: authenticated,
     // Public by design: returns the caller's id or null.
     me: accept,
   },

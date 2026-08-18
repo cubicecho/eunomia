@@ -1,11 +1,13 @@
 import { buildSchema as buildDrizzleSchema } from '@vantreeseba/drizzle-graphql';
 import { applyPermissions } from '@vantreeseba/graphql-casl';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import {
   GraphQLBoolean,
   type GraphQLFieldConfig,
+  GraphQLFloat,
   type GraphQLInputObjectType,
   GraphQLInt,
+  GraphQLList,
   GraphQLNonNull,
   GraphQLObjectType,
   GraphQLSchema,
@@ -46,6 +48,19 @@ export function createSchema(db: Db, auth: AuthGateway) {
   const ownDeviceIds = (ctx: Context) =>
     ctx.db.select({ id: devices.id }).from(devices).where(eq(devices.userId, ctx.userId!));
 
+  // Dashboard aggregate row: active seconds per category per UTC day.
+  const categoryDaySummaryType = new GraphQLObjectType({
+    name: 'CategoryDaySummary',
+    fields: {
+      day: { type: new GraphQLNonNull(GraphQLString) },
+      // Null category = uncategorized time.
+      categoryId: { type: GraphQLString },
+      name: { type: GraphQLString },
+      color: { type: GraphQLString },
+      seconds: { type: new GraphQLNonNull(GraphQLFloat) },
+    },
+  });
+
   const query = new GraphQLObjectType({
     name: 'Query',
     fields: {
@@ -64,6 +79,46 @@ export function createSchema(db: Db, auth: AuthGateway) {
         'categoryRules',
         (ctx) => eq(categoryRules.userId, ctx.userId),
       ),
+      categorySummary: {
+        // Seconds of active time per category per day (UTC), for [from, to).
+        // Each activity's whole activeSeconds lands on the day it started —
+        // activities are short-lived (auto-closed after 15 min unfocused), so
+        // midnight-spanning error is negligible for a dashboard.
+        type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(categoryDaySummaryType))),
+        args: {
+          from: { type: new GraphQLNonNull(GraphQLString) },
+          to: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: async (_source, args: { from: string; to: string }, ctx: Context) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          const from = new Date(args.from);
+          const to = new Date(args.to);
+          if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+            throw new Error('Invalid date range');
+          }
+          const day = sql<string>`to_char(date_trunc('day', ${activities.startedAt}), 'YYYY-MM-DD')`;
+          return db
+            .select({
+              day,
+              categoryId: activities.categoryId,
+              name: categories.name,
+              color: categories.color,
+              seconds: sql<number>`sum(${activities.activeSeconds})::float`,
+            })
+            .from(activities)
+            .innerJoin(devices, eq(activities.deviceId, devices.id))
+            .leftJoin(categories, eq(activities.categoryId, categories.id))
+            .where(
+              and(
+                eq(devices.userId, ctx.userId),
+                gte(activities.startedAt, from),
+                lt(activities.startedAt, to),
+              ),
+            )
+            .groupBy(day, activities.categoryId, categories.name, categories.color)
+            .orderBy(day, activities.categoryId);
+        },
+      },
       me: {
         type: GraphQLString,
         resolve: (_source, _args, ctx: Context) => ctx.userId ?? null,
