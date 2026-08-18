@@ -1,0 +1,42 @@
+{
+  "name": "@eunomia/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "drizzle-kit push && tsx src/index.ts",
+    "db:push": "drizzle-kit push",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@better-auth/api-key": "^1.6.29",
+    "@casl/ability": "^6.7.0",
+    "@eunomia/shared": "*",
+    "@vantreeseba/drizzle-graphql": "^2.0.0",
+    "@vantreeseba/graphql-casl": "^1.0.0",
+    "better-auth": "^1.6.29",
+    "drizzle-orm": "1.0.0-rc.2-e38a2ba",
+    "graphql": "^16.11.0",
+    "graphql-middleware": "^6.1.35",
+    "graphql-parse-resolve-info": "^4.14.1",
+    "graphql-scalars": "^1.25.0",
+    "graphql-yoga": "^5.10.0",
+    "pg": "^8.16.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.5",
+    "@faker-js/faker": "^9.0.0",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.0",
+    "@vantreeseba/graphql-mocks": "^3.0.0",
+    "drizzle-kit": "1.0.0-rc.2-e38a2ba",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.0.0"
+  }
+}

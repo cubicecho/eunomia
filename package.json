@@ -1,0 +1,24 @@
+{
+  "name": "eunomia",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:server": "npm run dev -w @eunomia/server",
+    "dev:desktop": "npm run dev -w @eunomia/desktop"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  },
+  "overrides": {
+    "drizzle-orm": "1.0.0-rc.2-e38a2ba"
+  },
+  "allowScripts": {
+    "electron@43.4.0": true
+  }
+}

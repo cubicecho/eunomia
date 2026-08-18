@@ -1,0 +1,35 @@
+import { createServer } from 'node:http';
+import { createYoga } from 'graphql-yoga';
+import { createAuth, createAuthGateway, verifyDeviceKey } from './auth.ts';
+import { createDb } from './db/client.ts';
+import type { Context } from './graphql/context.ts';
+import { createSchema } from './graphql/schema.ts';
+
+const db = createDb();
+const auth = createAuth(db);
+
+// GraphQL is the only surface: no better-auth REST routes, no cookies. Auth
+// happens through signUp/signIn/signOut mutations; sessions ride the
+// `Authorization: Bearer <token>` header, device agents use `x-api-key`.
+const yoga = createYoga<Record<string, never>, Context>({
+  schema: createSchema(db, createAuthGateway(auth)),
+  context: async ({ request }) => {
+    const headers = request.headers;
+    const apiKey = headers.get('x-api-key');
+    if (apiKey) {
+      const creds = await verifyDeviceKey(auth, apiKey);
+      return { db, userId: creds?.userId, deviceId: creds?.deviceId, headers };
+    }
+    const session = await auth.api.getSession({ headers });
+    return { db, userId: session?.user.id, deviceId: undefined, headers };
+  },
+});
+
+const server = createServer((req, res) => {
+  void yoga(req, res);
+});
+
+const port = Number(process.env.PORT ?? 4000);
+server.listen(port, () => {
+  console.log(`eunomia server listening on http://localhost:${port}${yoga.graphqlEndpoint}`);
+});

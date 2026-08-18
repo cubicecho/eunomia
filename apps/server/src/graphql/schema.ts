@@ -1,0 +1,328 @@
+import { buildSchema as buildDrizzleSchema } from '@vantreeseba/drizzle-graphql';
+import { applyPermissions } from '@vantreeseba/graphql-casl';
+import { eq } from 'drizzle-orm';
+import {
+  GraphQLBoolean,
+  type GraphQLFieldConfig,
+  type GraphQLInputObjectType,
+  GraphQLInt,
+  GraphQLNonNull,
+  GraphQLObjectType,
+  GraphQLSchema,
+  GraphQLString,
+} from 'graphql';
+import { foldPing } from '../activity/fold.ts';
+import { applyRules, assertValidPattern, loadRules, sweepRules } from '../activity/rules.ts';
+import type { AuthGateway } from '../auth.ts';
+import type { Db } from '../db/client.ts';
+import { activities, categories, categoryRules, devices } from '../db/schema.ts';
+import type { Context } from './context.ts';
+import { permissions } from './permissions.ts';
+
+/**
+ * Assembles the executable schema: selected drizzle-graphql entities plus
+ * custom domain resolvers, with CASL permissions applied over the whole thing.
+ *
+ * The generated CRUD for auth tables and raw device mutations are deliberately
+ * NOT exposed — only what's picked here exists in the public schema. Auth is
+ * GraphQL too (signUp/signIn/signOut via the injected gateway): the server
+ * mounts no better-auth REST routes.
+ */
+export function createSchema(db: Db, auth: AuthGateway) {
+  // drizzle v1 RC types the db by its relations config, not its tables, so
+  // drizzle-graphql's entity keys can't be inferred statically — widen to
+  // string-keyed records (keys: queries.devices, types.Devices, ...).
+  const entities = buildDrizzleSchema(db).entities as unknown as {
+    queries: Record<string, GraphQLFieldConfig<unknown, Context>>;
+    mutations: Record<string, GraphQLFieldConfig<unknown, Context>>;
+    types: Record<string, GraphQLObjectType>;
+    inputs: Record<string, GraphQLInputObjectType>;
+  };
+
+  const query = new GraphQLObjectType({
+    name: 'Query',
+    fields: {
+      devices: entities.queries.devices!,
+      activities: entities.queries.activities!,
+      categories: entities.queries.categories!,
+      categoryRules: entities.queries.categoryRules!,
+      me: {
+        type: GraphQLString,
+        resolve: (_source, _args, ctx: Context) => ctx.userId ?? null,
+      },
+    },
+  });
+
+  // Session payload for signUp/signIn: the raw session token goes back as
+  // `Authorization: Bearer <token>` on every later request (bearer plugin).
+  const authSessionType = new GraphQLObjectType({
+    name: 'AuthSession',
+    fields: {
+      token: { type: new GraphQLNonNull(GraphQLString) },
+      userId: { type: new GraphQLNonNull(GraphQLString) },
+    },
+  });
+
+  const mutation = new GraphQLObjectType({
+    name: 'Mutation',
+    fields: {
+      signUp: {
+        type: new GraphQLNonNull(authSessionType),
+        args: {
+          email: { type: new GraphQLNonNull(GraphQLString) },
+          password: { type: new GraphQLNonNull(GraphQLString) },
+          name: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: (_source, args: { email: string; password: string; name: string }) =>
+          auth.signUp(args),
+      },
+      signIn: {
+        type: new GraphQLNonNull(authSessionType),
+        args: {
+          email: { type: new GraphQLNonNull(GraphQLString) },
+          password: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: (_source, args: { email: string; password: string }) => auth.signIn(args),
+      },
+      signOut: {
+        // True if a live session was revoked; false if the request had none.
+        type: new GraphQLNonNull(GraphQLBoolean),
+        resolve: (_source, _args, ctx: Context) => auth.signOut(ctx.headers),
+      },
+      registerDevice: {
+        // Custom payload type: the plaintext API key exists only in this
+        // response (the server stores a hash), so it rides along exactly once.
+        type: new GraphQLNonNull(
+          new GraphQLObjectType({
+            name: 'DeviceRegistration',
+            fields: {
+              device: { type: new GraphQLNonNull(entities.types.Devices!) },
+              apiKey: { type: new GraphQLNonNull(GraphQLString) },
+            },
+          }),
+        ),
+        args: {
+          name: { type: new GraphQLNonNull(GraphQLString) },
+          platform: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: async (_source, args: { name: string; platform: string }, ctx: Context) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          const [row] = await db
+            .insert(devices)
+            .values({
+              id: crypto.randomUUID(),
+              userId: ctx.userId,
+              name: args.name,
+              platform: args.platform as 'windows' | 'macos' | 'linux' | 'android',
+            })
+            .returning();
+          const apiKey = await auth.mintDeviceKey({
+            userId: ctx.userId,
+            deviceId: row!.id,
+            name: args.name,
+          });
+          return { device: row, apiKey };
+        },
+      },
+      createCategory: {
+        type: new GraphQLNonNull(entities.types.Categories!),
+        args: {
+          name: { type: new GraphQLNonNull(GraphQLString) },
+          color: { type: GraphQLString },
+        },
+        resolve: async (_source, args: { name: string; color?: string | null }, ctx: Context) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          const [row] = await db
+            .insert(categories)
+            .values({
+              id: crypto.randomUUID(),
+              userId: ctx.userId,
+              name: args.name,
+              color: args.color ?? null,
+            })
+            .returning();
+          return row;
+        },
+      },
+      deleteCategory: {
+        // True when a category was deleted. Assigned activities are kept and
+        // unassigned (FK set-null), never deleted with the bucket.
+        type: new GraphQLNonNull(GraphQLBoolean),
+        args: {
+          id: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: async (_source, args: { id: string }, ctx: Context) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          const [category] = await db
+            .select()
+            .from(categories)
+            .where(eq(categories.id, args.id))
+            .limit(1);
+          if (!category || category.userId !== ctx.userId) throw new Error('Unknown category');
+          await db.delete(categories).where(eq(categories.id, category.id));
+          return true;
+        },
+      },
+      assignActivity: {
+        // Sets (or, with a null categoryId, clears) an activity's category.
+        type: new GraphQLNonNull(entities.types.Activities!),
+        args: {
+          activityId: { type: new GraphQLNonNull(GraphQLString) },
+          categoryId: { type: GraphQLString },
+        },
+        resolve: async (
+          _source,
+          args: { activityId: string; categoryId?: string | null },
+          ctx: Context,
+        ) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          // Ownership runs through the device: activity -> device -> user.
+          const [found] = await db
+            .select({ activity: activities, ownerId: devices.userId })
+            .from(activities)
+            .innerJoin(devices, eq(activities.deviceId, devices.id))
+            .where(eq(activities.id, args.activityId))
+            .limit(1);
+          if (!found || found.ownerId !== ctx.userId) throw new Error('Unknown activity');
+          if (args.categoryId != null) {
+            const [category] = await db
+              .select()
+              .from(categories)
+              .where(eq(categories.id, args.categoryId))
+              .limit(1);
+            if (!category || category.userId !== ctx.userId) throw new Error('Unknown category');
+          }
+          // Manual assignment pins the choice against rules; clearing returns
+          // the row to the auto-categorization pool.
+          const [updated] = await db
+            .update(activities)
+            .set({
+              categoryId: args.categoryId ?? null,
+              categorySource: args.categoryId != null ? 'manual' : null,
+            })
+            .where(eq(activities.id, args.activityId))
+            .returning();
+          return updated;
+        },
+      },
+      createCategoryRule: {
+        type: new GraphQLNonNull(entities.types.CategoryRules!),
+        args: {
+          categoryId: { type: new GraphQLNonNull(GraphQLString) },
+          appPattern: { type: GraphQLString },
+          titlePattern: { type: GraphQLString },
+          priority: { type: GraphQLInt },
+        },
+        resolve: async (
+          _source,
+          args: {
+            categoryId: string;
+            appPattern?: string | null;
+            titlePattern?: string | null;
+            priority?: number | null;
+          },
+          ctx: Context,
+        ) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          if (args.appPattern == null && args.titlePattern == null) {
+            throw new Error('A rule needs an appPattern and/or a titlePattern');
+          }
+          if (args.appPattern != null) assertValidPattern(args.appPattern);
+          if (args.titlePattern != null) assertValidPattern(args.titlePattern);
+          const [category] = await db
+            .select()
+            .from(categories)
+            .where(eq(categories.id, args.categoryId))
+            .limit(1);
+          if (!category || category.userId !== ctx.userId) throw new Error('Unknown category');
+          const [row] = await db
+            .insert(categoryRules)
+            .values({
+              id: crypto.randomUUID(),
+              userId: ctx.userId,
+              categoryId: args.categoryId,
+              appPattern: args.appPattern ?? null,
+              titlePattern: args.titlePattern ?? null,
+              priority: args.priority ?? 0,
+            })
+            .returning();
+          return row;
+        },
+      },
+      deleteCategoryRule: {
+        // Existing rule-made assignments are cleared lazily (next ping or
+        // sweep), not here.
+        type: new GraphQLNonNull(GraphQLBoolean),
+        args: {
+          id: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: async (_source, args: { id: string }, ctx: Context) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          const [rule] = await db
+            .select()
+            .from(categoryRules)
+            .where(eq(categoryRules.id, args.id))
+            .limit(1);
+          if (!rule || rule.userId !== ctx.userId) throw new Error('Unknown rule');
+          await db.delete(categoryRules).where(eq(categoryRules.id, rule.id));
+          return true;
+        },
+      },
+      applyCategoryRules: {
+        // Retroactive sweep over every activity the caller owns (manual
+        // assignments excluded). Returns how many activities changed.
+        type: new GraphQLNonNull(GraphQLInt),
+        resolve: (_source, _args, ctx: Context) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          return sweepRules(db, ctx.userId);
+        },
+      },
+      recordPing: {
+        // Nullable: idle pings and pings with no detectable app touch nothing.
+        type: entities.types.Activities!,
+        args: {
+          // Optional: a device API key already identifies the device; sessions
+          // (or keys acting on another owned device) can pass it explicitly.
+          deviceId: { type: GraphQLString },
+          capturedAt: { type: new GraphQLNonNull(GraphQLString) },
+          app: { type: GraphQLString },
+          title: { type: GraphQLString },
+          idleSeconds: { type: new GraphQLNonNull(GraphQLInt) },
+        },
+        resolve: async (
+          _source,
+          args: {
+            deviceId?: string | null;
+            capturedAt: string;
+            app?: string | null;
+            title?: string | null;
+            idleSeconds: number;
+          },
+          ctx: Context,
+        ) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          const deviceId = args.deviceId ?? ctx.deviceId;
+          if (!deviceId) throw new Error('No device: pass deviceId or use a device API key');
+          const [device] = await db.select().from(devices).where(eq(devices.id, deviceId)).limit(1);
+          if (!device || device.userId !== ctx.userId) throw new Error('Unknown device');
+          const capturedAt = new Date(args.capturedAt);
+          if (Number.isNaN(capturedAt.getTime())) throw new Error('Invalid capturedAt');
+          const activity = await foldPing(db, device.id, {
+            capturedAt,
+            app: args.app ?? null,
+            title: args.title ?? null,
+            idleSeconds: args.idleSeconds,
+          });
+          if (!activity) return null;
+          // Lazy auto-categorization: every ping re-evaluates the touched row,
+          // so new rows, title churn, and rule changes all converge here.
+          return applyRules(db, await loadRules(db, device.userId), activity);
+        },
+      },
+    },
+  });
+
+  const schema = new GraphQLSchema({ query, mutation });
+
+  return applyPermissions(schema, permissions);
+}

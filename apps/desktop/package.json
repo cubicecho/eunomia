@@ -1,0 +1,19 @@
+{
+  "name": "@eunomia/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main.ts",
+  "scripts": {
+    "dev": "electron .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@miniben90/x-win": "^3.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^43.0.0",
+    "typescript": "^5.9.2"
+  }
+}
