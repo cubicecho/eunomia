@@ -28,7 +28,9 @@ cp .env.example .env
 npm run db:migrate -w @eunomia/server   # apply committed migrations
 npm run dev:server                      # http://localhost:4000/graphql
 
-# desktop agent
+# desktop agent — provision once (sign in, register this machine, write
+# config.json), then run the tray agent
+npm run provision -w @eunomia/desktop
 npm run dev:desktop
 
 # checks

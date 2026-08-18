@@ -6,6 +6,7 @@
   "main": "src/main.ts",
   "scripts": {
     "dev": "electron .",
+    "provision": "electron . --provision",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

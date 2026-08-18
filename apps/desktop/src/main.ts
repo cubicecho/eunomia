@@ -1,5 +1,4 @@
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { activeWindow } from '@miniben90/x-win';
 import { app, Menu, nativeImage, powerMonitor, Tray } from 'electron';
@@ -55,8 +54,12 @@ function loadConfig(dataDir: string): AgentConfig | null {
 /** Crash-safe FIFO of pending pings, mirrored to a JSONL file. */
 class Outbox {
   private queue: Ping[] = [];
+  // No TS parameter properties: electron runs this file with strip-only
+  // type stripping, which cannot rewrite them.
+  private readonly path: string;
 
-  constructor(private readonly path: string) {
+  constructor(path: string) {
+    this.path = path;
     if (existsSync(path)) {
       this.queue = readFileSync(path, 'utf8')
         .split('\n')
@@ -174,9 +177,26 @@ async function flushOnce(config: AgentConfig, outbox: Outbox): Promise<void> {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const dataDir = app.getPath('userData');
   mkdirSync(dataDir, { recursive: true });
+
+  // `--provision` (npm run provision): interactive one-shot that signs in,
+  // registers this machine, writes config.json, and exits — no tray.
+  if (process.argv.includes('--provision')) {
+    // Imported lazily: the module attaches readline to stdin on load, which
+    // the long-running tray path must never do.
+    const { runProvisioning } = await import('./provision.ts');
+    try {
+      await runProvisioning(dataDir);
+      app.exit(0);
+    } catch (error) {
+      console.error('provisioning failed:', error instanceof Error ? error.message : error);
+      app.exit(1);
+    }
+    return;
+  }
+
   const outbox = new Outbox(join(dataDir, 'outbox.jsonl'));
   const config = loadConfig(dataDir);
 
@@ -185,7 +205,9 @@ app.whenReady().then(() => {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
-        label: config ? `Uploading to ${config.serverUrl}` : 'Local only — no config.json/API key',
+        label: config
+          ? `Uploading to ${config.serverUrl}`
+          : 'Local only — run `npm run provision -w @eunomia/desktop`',
         enabled: false,
       },
       { label: `Outbox: ${join(dataDir, 'outbox.jsonl')}`, enabled: false },
@@ -201,8 +223,8 @@ app.whenReady().then(() => {
     console.log(`eunomia agent pinging, uploading to ${config.serverUrl}`);
   } else {
     console.log(
-      'eunomia agent pinging locally; set EUNOMIA_SERVER_URL + EUNOMIA_API_KEY ' +
-        `(or ${join(dataDir, 'config.json')}) to upload`,
+      'eunomia agent pinging locally; run `npm run provision -w @eunomia/desktop` ' +
+        `to create ${join(dataDir, 'config.json')} (or set EUNOMIA_SERVER_URL + EUNOMIA_API_KEY)`,
     );
   }
 });
