@@ -3,5 +3,4 @@ dist/
 *.tsbuildinfo
 .env
 .DS_Store
-apps/server/drizzle/
 coverage/

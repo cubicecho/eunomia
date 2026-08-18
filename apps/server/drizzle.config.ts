@@ -5,6 +5,7 @@ export default defineConfig({
   schema: './src/db/schema.ts',
   out: './drizzle',
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? 'postgres://eunomia:eunomia@localhost:5432/eunomia',
+    // Default matches the compose postgres published on host port 5433.
+    url: process.env.DATABASE_URL ?? 'postgres://eunomia:eunomia@localhost:5433/eunomia',
   },
 });

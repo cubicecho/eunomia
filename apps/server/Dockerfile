@@ -14,5 +14,5 @@ COPY apps/server apps/server
 
 WORKDIR /app/apps/server
 EXPOSE 4000
-# `start` pushes the drizzle schema (creates/updates tables) then boots the server.
+# `start` applies committed drizzle migrations, then boots the server.
 CMD ["npm", "run", "start"]

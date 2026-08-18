@@ -20,6 +20,11 @@ services:
       POSTGRES_USER: eunomia
       POSTGRES_PASSWORD: eunomia
       POSTGRES_DB: eunomia
+    ports:
+      # Loopback-only publish so local dev/migrations can reach the database
+      # without exposing it beyond the machine. Host port 5433 to stay clear
+      # of any locally running postgres.
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
