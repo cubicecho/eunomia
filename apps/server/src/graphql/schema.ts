@@ -1,6 +1,6 @@
 import { buildSchema as buildDrizzleSchema } from '@vantreeseba/drizzle-graphql';
 import { applyPermissions } from '@vantreeseba/graphql-casl';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
   GraphQLBoolean,
   type GraphQLFieldConfig,
@@ -18,6 +18,7 @@ import type { Db } from '../db/client.ts';
 import { activities, categories, categoryRules, devices } from '../db/schema.ts';
 import type { Context } from './context.ts';
 import { permissions } from './permissions.ts';
+import { scopedListField } from './scoped.ts';
 
 /**
  * Assembles the executable schema: selected drizzle-graphql entities plus
@@ -39,13 +40,30 @@ export function createSchema(db: Db, auth: AuthGateway) {
     inputs: Record<string, GraphQLInputObjectType>;
   };
 
+  // Every list query is fenced to the caller's rows in SQL — the generated
+  // resolvers themselves return whatever the filter args ask for. Activities
+  // carry no userId; ownership runs through the owning device.
+  const ownDeviceIds = (ctx: Context) =>
+    ctx.db.select({ id: devices.id }).from(devices).where(eq(devices.userId, ctx.userId!));
+
   const query = new GraphQLObjectType({
     name: 'Query',
     fields: {
-      devices: entities.queries.devices!,
-      activities: entities.queries.activities!,
-      categories: entities.queries.categories!,
-      categoryRules: entities.queries.categoryRules!,
+      devices: scopedListField(entities.queries.devices!, devices, 'devices', (ctx) =>
+        eq(devices.userId, ctx.userId),
+      ),
+      activities: scopedListField(entities.queries.activities!, activities, 'activities', (ctx) =>
+        inArray(activities.deviceId, ownDeviceIds(ctx)),
+      ),
+      categories: scopedListField(entities.queries.categories!, categories, 'categories', (ctx) =>
+        eq(categories.userId, ctx.userId),
+      ),
+      categoryRules: scopedListField(
+        entities.queries.categoryRules!,
+        categoryRules,
+        'categoryRules',
+        (ctx) => eq(categoryRules.userId, ctx.userId),
+      ),
       me: {
         type: GraphQLString,
         resolve: (_source, _args, ctx: Context) => ctx.userId ?? null,
