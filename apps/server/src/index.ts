@@ -30,6 +30,9 @@ const server = createServer((req, res) => {
 });
 
 const port = Number(process.env.PORT ?? 4000);
-server.listen(port, () => {
-  console.log(`eunomia server listening on http://localhost:${port}${yoga.graphqlEndpoint}`);
+// Bind all interfaces by default — the server typically runs in a container
+// or on a remote VM, where a localhost-only bind would be unreachable.
+const host = process.env.HOST ?? '0.0.0.0';
+server.listen(port, host, () => {
+  console.log(`eunomia server listening on http://${host}:${port}${yoga.graphqlEndpoint}`);
 });
