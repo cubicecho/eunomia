@@ -78,7 +78,7 @@ describe('graphql auth flow', () => {
 
     const result = await graphql({
       schema,
-      source: `mutation { signOut }`,
+      source: 'mutation { signOut }',
       contextValue: { ...anonymous(), headers: bearerHeaders(token) },
     });
 
@@ -90,7 +90,7 @@ describe('graphql auth flow', () => {
   it('signOut without a session reports false instead of erroring', async () => {
     const result = await graphql({
       schema,
-      source: `mutation { signOut }`,
+      source: 'mutation { signOut }',
       contextValue: anonymous(),
     });
 

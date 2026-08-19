@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
-import { drizzle } from 'drizzle-orm/pglite';
 import { pushSchema } from 'drizzle-kit/api-postgres';
+import { drizzle } from 'drizzle-orm/pglite';
 import * as schema from '../../src/db/schema.ts';
 
 /**

@@ -1,14 +1,25 @@
+import { randomUUID } from 'node:crypto';
 import { apiKey } from '@better-auth/api-key';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { bearer } from 'better-auth/plugins';
+import { bearer, magicLink } from 'better-auth/plugins';
 import type { Db } from './db/client.ts';
 import { account, apikey, session, user, verification } from './db/schema.ts';
+import { type MagicLinkMessage, sendMagicLinkEmail } from './email.ts';
 
 export interface AuthOptions {
   secret?: string | undefined;
   baseURL?: string | undefined;
+  /** Where the web dashboard lives; emailed magic links point here. */
+  appUrl?: string | undefined;
+  /** Delivery override (tests); defaults to SMTP-or-console email. */
+  sendMagicLink?: ((message: MagicLinkMessage) => Promise<void>) | undefined;
 }
+
+// One-slot mailboxes for UNSAFE_LOCAL_NETWORK mode: signInMagicLink awaits
+// sendMagicLink inline, so the gateway registers a captureId, the callback
+// deposits the token instead of emailing it, and the mutation returns it.
+const tokenCaptures = new Map<string, string>();
 
 export function createAuth(db: Db, options: AuthOptions = {}) {
   return betterAuth({
@@ -31,6 +42,23 @@ export function createAuth(db: Db, options: AuthOptions = {}) {
       // send it back as `Authorization: Bearer <token>`; this hook converts
       // that header into the session cookie getSession expects.
       bearer(),
+      // Primary login. The plugin's own `url` targets its REST verify route,
+      // which this server never mounts — links point at the web app instead,
+      // whose SPA calls the verifyMagicLink mutation with the token.
+      magicLink({
+        expiresIn: 15 * 60,
+        storeToken: 'hashed',
+        sendMagicLink: async ({ email, token, metadata }) => {
+          const captureId = metadata?.captureId;
+          if (typeof captureId === 'string' && tokenCaptures.has(captureId)) {
+            tokenCaptures.set(captureId, token);
+            return;
+          }
+          const appUrl = options.appUrl ?? process.env.APP_URL ?? 'http://localhost:3000';
+          const url = `${appUrl}/?token=${encodeURIComponent(token)}`;
+          await (options.sendMagicLink ?? sendMagicLinkEmail)({ email, url, token });
+        },
+      }),
     ],
   });
 }
@@ -94,13 +122,57 @@ export interface AuthGateway {
   mintDeviceKey(input: { userId: string; deviceId: string; name: string }): Promise<string>;
   signUp(input: { email: string; password: string; name: string }): Promise<AuthSession>;
   signIn(input: { email: string; password: string }): Promise<AuthSession>;
+  /**
+   * Emails a single-use sign-in link (creating the account on first use).
+   * Returns the raw magic token only in UNSAFE_LOCAL_NETWORK mode; null
+   * otherwise.
+   */
+  requestMagicLink(email: string): Promise<{ token: string | null }>;
+  /** Consumes a magic-link token and opens a session. */
+  verifyMagicLink(token: string): Promise<AuthSession>;
   /** Revokes the session carried by the request headers. False if there wasn't one. */
   signOut(headers: Headers): Promise<boolean>;
 }
 
-export function createAuthGateway(auth: Auth): AuthGateway {
+export interface AuthGatewayOptions {
+  /**
+   * UNSAFE_LOCAL_NETWORK: requestMagicLink returns the token in the GraphQL
+   * response instead of emailing it, so anyone who can reach the server can
+   * sign in as any email address. Only for trusted local networks.
+   */
+  exposeMagicLinkToken?: boolean;
+}
+
+export function createAuthGateway(
+  auth: Auth,
+  gatewayOptions: AuthGatewayOptions = {},
+): AuthGateway {
   return {
     mintDeviceKey: (input) => mintDeviceKey(auth, input),
+
+    async requestMagicLink(email) {
+      if (!gatewayOptions.exposeMagicLinkToken) {
+        await auth.api.signInMagicLink({ body: { email }, headers: new Headers() });
+        return { token: null };
+      }
+      const captureId = randomUUID();
+      tokenCaptures.set(captureId, '');
+      try {
+        await auth.api.signInMagicLink({
+          body: { email, metadata: { captureId } },
+          headers: new Headers(),
+        });
+        const token = tokenCaptures.get(captureId);
+        return { token: token ? token : null };
+      } finally {
+        tokenCaptures.delete(captureId);
+      }
+    },
+
+    async verifyMagicLink(token) {
+      const result = await auth.api.magicLinkVerify({ query: { token }, headers: new Headers() });
+      return { token: result.token, userId: result.user.id };
+    },
 
     async signUp(input) {
       const result = await auth.api.signUpEmail({ body: input });

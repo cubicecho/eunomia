@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { createSchema } from '../src/graphql/schema.ts';
+import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createTestDb } from './helpers/test-db.ts';
 
 describe('graphql schema', () => {
@@ -8,12 +9,7 @@ describe('graphql schema', () => {
     const db = createTestDb();
     // drizzle-graphql only inspects the drizzle schema, so the PGlite db works
     // for schema-shape assertions without any tables existing.
-    const schema = createSchema(db as never, {
-      mintDeviceKey: async () => 'test-key',
-      signUp: async () => ({ token: 't', userId: 'u' }),
-      signIn: async () => ({ token: 't', userId: 'u' }),
-      signOut: async () => true,
-    });
+    const schema = createSchema(db as never, stubAuthGateway());
 
     expect(Object.keys(schema.getQueryType()?.getFields() ?? {}).sort()).toEqual([
       'activities',
@@ -32,9 +28,11 @@ describe('graphql schema', () => {
       'deleteCategoryRule',
       'recordPing',
       'registerDevice',
+      'requestMagicLink',
       'signIn',
       'signOut',
       'signUp',
+      'verifyMagicLink',
     ]);
   });
 });

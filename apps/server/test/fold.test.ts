@@ -24,8 +24,12 @@ describe('foldPing', () => {
       .values({ id: deviceId, userId: 'user-1', name: 'laptop', platform: 'linux' });
   });
 
-  const ping = (seconds: number, app: string | null, title: string | null = null, idleSeconds = 0) =>
-    foldPing(db, deviceId, { capturedAt: at(seconds), app, title, idleSeconds });
+  const ping = (
+    seconds: number,
+    app: string | null,
+    title: string | null = null,
+    idleSeconds = 0,
+  ) => foldPing(db, deviceId, { capturedAt: at(seconds), app, title, idleSeconds });
 
   const allRows = () => db.select().from(activities).orderBy(asc(activities.startedAt));
 

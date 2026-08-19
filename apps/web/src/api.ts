@@ -39,12 +39,23 @@ export interface ActivityRow {
   activeSeconds: number;
 }
 
-export const signIn = async (email: string, password: string): Promise<void> => {
-  const data = await gql<{ signIn: { token: string } }>(
-    'mutation ($email: String!, $password: String!) { signIn(email: $email, password: $password) { token } }',
-    { email, password },
+/**
+ * Emails a single-use sign-in link. Returns the raw token only when the
+ * server runs with UNSAFE_LOCAL_NETWORK — then the caller can verify it
+ * immediately and skip the inbox round-trip.
+ */
+export const requestMagicLink = (email: string) =>
+  gql<{ requestMagicLink: { token: string | null } }>(
+    'mutation ($email: String!) { requestMagicLink(email: $email) { token } }',
+    { email },
+  ).then((d) => d.requestMagicLink.token);
+
+export const verifyMagicLink = async (token: string): Promise<void> => {
+  const data = await gql<{ verifyMagicLink: { token: string } }>(
+    'mutation ($token: String!) { verifyMagicLink(token: $token) { token } }',
+    { token },
   );
-  setToken(data.signIn.token);
+  setToken(data.verifyMagicLink.token);
 };
 
 export const signOut = async (): Promise<void> => {

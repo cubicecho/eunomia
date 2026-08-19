@@ -157,6 +157,34 @@ export function createSchema(db: Db, auth: AuthGateway) {
         },
         resolve: (_source, args: { email: string; password: string }) => auth.signIn(args),
       },
+      requestMagicLink: {
+        // Primary login: emails a single-use sign-in link (account created on
+        // first use). `token` is populated only under UNSAFE_LOCAL_NETWORK,
+        // letting clients on a trusted LAN sign in without an inbox.
+        type: new GraphQLNonNull(
+          new GraphQLObjectType({
+            name: 'MagicLinkRequest',
+            fields: {
+              ok: { type: new GraphQLNonNull(GraphQLBoolean) },
+              token: { type: GraphQLString },
+            },
+          }),
+        ),
+        args: {
+          email: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: async (_source, args: { email: string }) => {
+          const { token } = await auth.requestMagicLink(args.email.toLowerCase().trim());
+          return { ok: true, token };
+        },
+      },
+      verifyMagicLink: {
+        type: new GraphQLNonNull(authSessionType),
+        args: {
+          token: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: (_source, args: { token: string }) => auth.verifyMagicLink(args.token),
+      },
       signOut: {
         // True if a live session was revoked; false if the request had none.
         type: new GraphQLNonNull(GraphQLBoolean),

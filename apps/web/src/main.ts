@@ -5,8 +5,9 @@ import {
   fetchSummary,
   GraphQLError,
   getToken,
-  signIn,
+  requestMagicLink,
   signOut,
+  verifyMagicLink,
 } from './api.ts';
 
 const root = document.querySelector<HTMLDivElement>('#app');
@@ -50,24 +51,37 @@ function renderSignIn(error?: string): void {
   email.type = 'email';
   email.placeholder = 'email';
   email.required = true;
-  const password = el('input');
-  password.type = 'password';
-  password.placeholder = 'password';
-  password.required = true;
-  const submit = el('button', undefined, 'Sign in');
-  form.append(email, password, submit);
+  const submit = el('button', undefined, 'Send sign-in link');
+  form.append(email, submit);
   if (error) form.append(el('p', 'error', error));
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     submit.disabled = true;
     try {
-      await signIn(email.value, password.value);
-      await renderDashboard();
+      const token = await requestMagicLink(email.value);
+      if (token) {
+        // UNSAFE_LOCAL_NETWORK: the server handed the token straight back.
+        await verifyMagicLink(token);
+        await renderDashboard();
+        return;
+      }
+      renderLinkSent(email.value);
     } catch (err) {
       renderSignIn(err instanceof GraphQLError ? err.message : 'sign-in failed');
     }
   });
   app.append(form);
+}
+
+function renderLinkSent(email: string): void {
+  app.replaceChildren();
+  const box = el('div', 'signin');
+  box.append(el('h1', undefined, 'eunomia'));
+  box.append(el('p', undefined, `Sign-in link sent to ${email} — click it to finish signing in.`));
+  const back = el('button', 'ghost', 'Use a different email');
+  back.addEventListener('click', () => renderSignIn());
+  box.append(back);
+  app.append(box);
 }
 
 interface CategoryTotal {
@@ -200,8 +214,27 @@ async function renderDashboard(range = defaultRange()): Promise<void> {
   app.append(renderBars('Top apps', topApps(activities)));
 }
 
-if (getToken()) {
-  void renderDashboard();
-} else {
-  renderSignIn();
+// Emailed magic links land here as /?token=…; consume it, then clean the URL
+// so a reload doesn't retry the spent token.
+async function boot(): Promise<void> {
+  const params = new URLSearchParams(location.search);
+  const magicToken = params.get('token');
+  if (magicToken) {
+    history.replaceState(null, '', location.pathname);
+    try {
+      await verifyMagicLink(magicToken);
+    } catch {
+      renderSignIn('That sign-in link is invalid or expired — request a new one.');
+      return;
+    }
+    await renderDashboard();
+    return;
+  }
+  if (getToken()) {
+    await renderDashboard();
+  } else {
+    renderSignIn();
+  }
 }
+
+void boot();

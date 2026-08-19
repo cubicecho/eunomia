@@ -6,9 +6,10 @@ application is in use and sends it to a self-hosted, multi-user server.
 Research and architecture decisions: [.agents/research.md](.agents/research.md).
 
 > **Status:** working MVP. GraphQL-only API (auth included — no REST routes),
-> device provisioning with API keys, activity ingestion via stateless pings,
-> categories with manual assignment and regex auto-categorization rules, and
-> per-user authorization scoping, and a web dashboard.
+> magic-link login, device provisioning with API keys, activity ingestion via
+> stateless pings, categories with manual assignment and regex
+> auto-categorization rules, per-user authorization scoping, and a web
+> dashboard.
 
 ## Layout
 
@@ -42,6 +43,19 @@ npm run dev:web                         # http://localhost:5173
 npm run typecheck
 npm test
 ```
+
+### Login (magic link)
+
+Login is passwordless: `requestMagicLink(email)` emails a single-use link
+(printed to the server console when no `SMTP_HOST` is configured) that lands
+on the dashboard as `/?token=…`, which `verifyMagicLink` exchanges for a
+bearer session. Accounts are created on first login.
+
+Set `UNSAFE_LOCAL_NETWORK=true` on the server to skip the inbox round-trip:
+`requestMagicLink` then returns the token directly in the response, and both
+the dashboard and `npm run provision` log straight in from just an email
+address. **Anyone who can reach the server can sign in as any email** — only
+use it on a trusted local network.
 
 ## Self-hosting
 

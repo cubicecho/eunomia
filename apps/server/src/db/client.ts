@@ -3,7 +3,8 @@ import type { PgAsyncDatabase } from 'drizzle-orm/pg-core';
 import * as schema from './schema.ts';
 
 export function createDb(
-  connectionString = process.env.DATABASE_URL ?? 'postgres://eunomia:eunomia@localhost:5432/eunomia',
+  connectionString = process.env.DATABASE_URL ??
+    'postgres://eunomia:eunomia@localhost:5432/eunomia',
 ) {
   return drizzle({
     connection: connectionString,

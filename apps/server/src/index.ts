@@ -8,11 +8,19 @@ import { createSchema } from './graphql/schema.ts';
 const db = createDb();
 const auth = createAuth(db);
 
+// UNSAFE_LOCAL_NETWORK=true makes requestMagicLink return the sign-in token
+// directly in the response — anyone who can reach the server can log in as
+// any email. Only for trusted local networks / dev.
+const unsafeLocalNetwork = process.env.UNSAFE_LOCAL_NETWORK === 'true';
+if (unsafeLocalNetwork) {
+  console.warn('[auth] UNSAFE_LOCAL_NETWORK is on: magic-link tokens are returned to callers');
+}
+
 // GraphQL is the only surface: no better-auth REST routes, no cookies. Auth
 // happens through signUp/signIn/signOut mutations; sessions ride the
 // `Authorization: Bearer <token>` header, device agents use `x-api-key`.
 const yoga = createYoga<Record<string, never>, Context>({
-  schema: createSchema(db, createAuthGateway(auth)),
+  schema: createSchema(db, createAuthGateway(auth, { exposeMagicLinkToken: unsafeLocalNetwork })),
   context: async ({ request }) => {
     const headers = request.headers;
     const apiKey = headers.get('x-api-key');

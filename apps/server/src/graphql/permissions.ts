@@ -31,6 +31,9 @@ export const permissions: PermissionsMap<any> = {
   Mutation: {
     signUp: accept,
     signIn: accept,
+    // Public: these ARE the login flow.
+    requestMagicLink: accept,
+    verifyMagicLink: accept,
     // Public: reports false for sessionless calls rather than erroring.
     signOut: accept,
     registerDevice: authenticated,

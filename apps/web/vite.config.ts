@@ -8,6 +8,7 @@ export default defineConfig({
     // Listen on all interfaces — dev often runs on a VM/remote docker host,
     // where vite's localhost-only default would be unreachable.
     host: true,
+    port: 3000,
     proxy: {
       '/graphql': process.env.EUNOMIA_SERVER_URL ?? 'http://localhost:4000',
     },

@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm';
-import { activities } from '../db/schema.ts';
 import type { Db } from '../db/client.ts';
+import { activities } from '../db/schema.ts';
 
 /**
  * A stateless report from an agent: "this is what the device looks like right
@@ -65,10 +65,7 @@ export async function foldPing(db: Db, deviceId: string, ping: Ping): Promise<Ac
   );
   if (stale.length > 0) {
     for (const a of stale) {
-      await db
-        .update(activities)
-        .set({ closedAt: a.lastActiveAt })
-        .where(eq(activities.id, a.id));
+      await db.update(activities).set({ closedAt: a.lastActiveAt }).where(eq(activities.id, a.id));
     }
   }
   const live = open.filter((a) => !stale.includes(a));
@@ -86,9 +83,8 @@ export async function foldPing(db: Db, deviceId: string, ping: Ping): Promise<Ac
         .update(activities)
         .set({
           activeSeconds: Math.max(0, focused.activeSeconds - overcount),
-          lastActiveAt: idleStart.getTime() > focused.startedAt.getTime()
-            ? idleStart
-            : focused.startedAt,
+          lastActiveAt:
+            idleStart.getTime() > focused.startedAt.getTime() ? idleStart : focused.startedAt,
         })
         .where(eq(activities.id, focused.id));
     }

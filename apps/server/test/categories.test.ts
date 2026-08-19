@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { activities, categories, devices, user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
 describe('categories', () => {
@@ -18,12 +19,7 @@ describe('categories', () => {
 
   beforeEach(async () => {
     db = await createMigratedTestDb();
-    schema = createSchema(db as never, {
-      mintDeviceKey: async () => 'test-key',
-      signUp: async () => ({ token: 't', userId: 'u' }),
-      signIn: async () => ({ token: 't', userId: 'u' }),
-      signOut: async () => true,
-    });
+    schema = createSchema(db as never, stubAuthGateway());
     await db.insert(user).values([
       { id: 'user-1', name: 'u', email: 'u@example.com' },
       { id: 'user-2', name: 'v', email: 'v@example.com' },
