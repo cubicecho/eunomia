@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: apps/server/Dockerfile
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgres://eunomia:eunomia@postgres:5432/eunomia
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me}
@@ -16,6 +17,7 @@ services:
 
   postgres:
     image: postgres:17
+    restart: unless-stopped
     environment:
       POSTGRES_USER: eunomia
       POSTGRES_PASSWORD: eunomia
