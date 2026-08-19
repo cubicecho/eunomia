@@ -30,9 +30,9 @@ cp .env.example .env
 npm run db:migrate -w @eunomia/server   # apply committed migrations
 npm run dev:server                      # http://localhost:4000/graphql
 
-# desktop agent — provision once (sign in, register this machine, write
-# config.json), then run the tray agent
-npm run provision -w @eunomia/desktop
+# desktop agent — on first run it opens a setup window (server URL + email,
+# magic-link sign-in, registers this machine), then lives in the tray.
+# `npm run provision -w @eunomia/desktop` is the terminal equivalent.
 npm run dev:desktop
 
 # web dashboard (proxies /graphql to the server; set EUNOMIA_SERVER_URL to
@@ -52,8 +52,8 @@ on the dashboard as `/?token=…`, which `verifyMagicLink` exchanges for a
 bearer session. Accounts are created on first login.
 
 Set `UNSAFE_LOCAL_NETWORK=true` on the server to skip the inbox round-trip:
-`requestMagicLink` then returns the token directly in the response, and both
-the dashboard and `npm run provision` log straight in from just an email
+`requestMagicLink` then returns the token directly in the response, and the
+dashboard and the desktop setup window log straight in from just an email
 address. **Anyone who can reach the server can sign in as any email** — only
 use it on a trusted local network.
 

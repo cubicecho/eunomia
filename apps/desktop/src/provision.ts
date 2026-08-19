@@ -1,39 +1,18 @@
-import { writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
-import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
+import {
+  registerDevice,
+  requestMagicLink,
+  signOut,
+  verifyMagicLink,
+  writeAgentConfig,
+} from './api.ts';
 
 // One-shot terminal flow (run with --provision): sign in via magic link,
 // register this machine as a device, and write the userData config.json the
 // tray agent uploads with. The session token is only held for the two calls
 // and revoked at the end — the agent authenticates with the device API key.
-
-interface GraphQLResponse<T> {
-  data?: T;
-  errors?: { message: string }[];
-}
-
-async function gql<T>(
-  serverUrl: string,
-  query: string,
-  variables: Record<string, unknown>,
-  token?: string,
-): Promise<T> {
-  const response = await fetch(new URL('/graphql', serverUrl), {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status} from ${serverUrl}`);
-  const body = (await response.json()) as GraphQLResponse<T>;
-  if (body.errors?.length) throw new Error(body.errors[0]!.message);
-  if (!body.data) throw new Error('empty response');
-  return body.data;
-}
 
 // One shared readline interface for the whole flow: a fresh interface per
 // question would drop lines buffered on piped (non-tty) stdin. Hidden input
@@ -76,47 +55,17 @@ async function prompt(question: string, { hidden = false, fallback = '' } = {}):
   return answer.trim() || fallback;
 }
 
-const PLATFORMS: Record<string, string> = {
-  win32: 'windows',
-  darwin: 'macos',
-  linux: 'linux',
-};
-
-// Accepts either the full emailed link (…/?token=xyz) or the bare token.
-function extractMagicToken(input: string): string {
-  try {
-    const token = new URL(input).searchParams.get('token');
-    if (token) return token;
-  } catch {
-    // not a URL — treat as a raw token
-  }
-  return input;
-}
-
 /**
  * Magic-link sign-in: request a link for the email, then either verify the
  * token the server handed back directly (UNSAFE_LOCAL_NETWORK deployments) or
  * ask the user to paste the link from their inbox.
  */
 async function signInWithMagicLink(serverUrl: string, email: string): Promise<string> {
-  const { requestMagicLink } = await gql<{ requestMagicLink: { token: string | null } }>(
-    serverUrl,
-    'mutation ($email: String!) { requestMagicLink(email: $email) { token } }',
-    { email },
-  );
-
-  let token = requestMagicLink.token;
+  let token = await requestMagicLink(serverUrl, email);
   if (!token) {
-    const pasted = await prompt(`Sign-in link sent to ${email}. Paste the link (or token) here: `);
-    token = extractMagicToken(pasted);
+    token = await prompt(`Sign-in link sent to ${email}. Paste the link (or token) here: `);
   }
-
-  const { verifyMagicLink } = await gql<{ verifyMagicLink: { token: string } }>(
-    serverUrl,
-    'mutation ($token: String!) { verifyMagicLink(token: $token) { token } }',
-    { token },
-  );
-  return verifyMagicLink.token;
+  return verifyMagicLink(serverUrl, token);
 }
 
 export async function runProvisioning(dataDir: string): Promise<void> {
@@ -125,28 +74,14 @@ export async function runProvisioning(dataDir: string): Promise<void> {
   });
   const email = await prompt('Email: ');
   const name = await prompt(`Device name [${hostname()}]: `, { fallback: hostname() });
-  const platform = PLATFORMS[process.platform] ?? 'linux';
 
   const sessionToken = await signInWithMagicLink(serverUrl, email);
-
-  const { registerDevice } = await gql<{
-    registerDevice: { device: { id: string }; apiKey: string };
-  }>(
-    serverUrl,
-    'mutation ($name: String!, $platform: String!) { registerDevice(name: $name, platform: $platform) { device { id } apiKey } }',
-    { name, platform },
-    sessionToken,
-  );
-
-  const configPath = join(dataDir, 'config.json');
-  writeFileSync(
-    configPath,
-    `${JSON.stringify({ serverUrl, apiKey: registerDevice.apiKey }, null, 2)}\n`,
-  );
+  const { deviceId, apiKey } = await registerDevice(serverUrl, sessionToken, name);
+  const configPath = writeAgentConfig(dataDir, { serverUrl, apiKey });
 
   // The interactive session has done its job; the agent runs on the API key.
-  await gql(serverUrl, 'mutation { signOut }', {}, sessionToken).catch(() => {});
+  await signOut(serverUrl, sessionToken);
 
-  console.log(`device ${registerDevice.device.id} ("${name}") registered`);
+  console.log(`device ${deviceId} ("${name}") registered`);
   console.log(`config written to ${configPath} — start the agent normally to upload`);
 }

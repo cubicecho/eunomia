@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join } from 'node:path';
 import { activeWindow } from '@miniben90/x-win';
 import { app, Menu, nativeImage, powerMonitor, Tray } from 'electron';
+import type { AgentConfig } from './api.ts';
 
 // Tray-only background agent. Stateless by design: it observes the foreground
 // window + idle time and emits pings ("this is what the device looks like right
@@ -25,11 +26,6 @@ interface Ping {
   app: string | null;
   title: string | null;
   idleSeconds: number;
-}
-
-interface AgentConfig {
-  serverUrl: string;
-  apiKey: string;
 }
 
 /** Env vars win; otherwise config.json in userData: {"serverUrl": ..., "apiKey": ...}. */
@@ -198,34 +194,52 @@ app.whenReady().then(async () => {
   }
 
   const outbox = new Outbox(join(dataDir, 'outbox.jsonl'));
-  const config = loadConfig(dataDir);
+  let config = loadConfig(dataDir);
+
+  const startUploads = (cfg: AgentConfig): void => {
+    setInterval(() => void flushOnce(cfg, outbox), FLUSH_INTERVAL_MS);
+    void flushOnce(cfg, outbox); // drain whatever a previous run left behind
+    console.log(`eunomia agent pinging, uploading to ${cfg.serverUrl}`);
+  };
+
+  // Onboarding window (also reachable from the tray menu while unprovisioned).
+  // Uploads begin the moment it finishes — no restart needed.
+  const openSetup = async (): Promise<void> => {
+    // Imported lazily so the hot path never loads the window machinery.
+    const { runSetupWindow } = await import('./setup.ts');
+    const result = await runSetupWindow(dataDir);
+    if (result) {
+      config = result;
+      startUploads(result);
+      refreshTrayMenu();
+    }
+  };
+
+  const refreshTrayMenu = (): void => {
+    tray?.setContextMenu(
+      Menu.buildFromTemplate([
+        {
+          label: config ? `Uploading to ${config.serverUrl}` : 'Local only — not set up yet',
+          enabled: false,
+        },
+        { label: `Outbox: ${join(dataDir, 'outbox.jsonl')}`, enabled: false },
+        ...(config ? [] : [{ label: 'Set up uploads…', click: () => void openSetup() }]),
+        { type: 'separator' as const },
+        { label: 'Quit', click: () => app.quit() },
+      ]),
+    );
+  };
 
   tray = new Tray(nativeImage.createEmpty());
   tray.setToolTip('eunomia — tracking active window');
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      {
-        label: config
-          ? `Uploading to ${config.serverUrl}`
-          : 'Local only — run `npm run provision -w @eunomia/desktop`',
-        enabled: false,
-      },
-      { label: `Outbox: ${join(dataDir, 'outbox.jsonl')}`, enabled: false },
-      { type: 'separator' },
-      { label: 'Quit', click: () => app.quit() },
-    ]),
-  );
+  refreshTrayMenu();
 
   setInterval(() => checkOnce(outbox), CHECK_INTERVAL_MS);
   if (config) {
-    setInterval(() => void flushOnce(config, outbox), FLUSH_INTERVAL_MS);
-    void flushOnce(config, outbox); // drain whatever a previous run left behind
-    console.log(`eunomia agent pinging, uploading to ${config.serverUrl}`);
+    startUploads(config);
   } else {
-    console.log(
-      'eunomia agent pinging locally; run `npm run provision -w @eunomia/desktop` ' +
-        `to create ${join(dataDir, 'config.json')} (or set EUNOMIA_SERVER_URL + EUNOMIA_API_KEY)`,
-    );
+    console.log('eunomia agent pinging locally; opening setup window');
+    void openSetup();
   }
 });
 
