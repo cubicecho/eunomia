@@ -7,11 +7,13 @@
     "packages/*"
   ],
   "scripts": {
+    "codegen": "npm run schema:print -w @eunomia/server && npm run codegen -w @eunomia/agent",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "dev:server": "npm run dev -w @eunomia/server",
     "dev:desktop": "npm run dev -w @eunomia/desktop",
-    "dev:web": "npm run dev -w @eunomia/web"
+    "dev:web": "npm run dev -w @eunomia/web",
+    "dev:mobile": "npm run start -w @eunomia/mobile"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

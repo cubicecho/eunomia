@@ -1,0 +1,634 @@
+type Activities {
+  activeSeconds: Float!
+  app: String!
+  category(where: CategoriesFilters): Categories
+  categoryId: String
+  categorySource: ActivitiesCategorySourceEnum
+
+  """DateTime"""
+  closedAt: DateTime
+  context: String
+  device(where: DevicesFilters): Devices
+  deviceId: String!
+  id: String!
+
+  """DateTime"""
+  lastActiveAt: DateTime!
+
+  """DateTime"""
+  startedAt: DateTime!
+  title: String
+}
+
+enum ActivitiesCategorySourceEnum {
+  """Value: manual"""
+  manual
+
+  """Value: rule"""
+  rule
+}
+
+input ActivitiesCategorySourceEnumFilter {
+  OR: [ActivitiesCategorySourceEnumFilterOr!]
+  eq: ActivitiesCategorySourceEnum
+  gt: ActivitiesCategorySourceEnum
+  gte: ActivitiesCategorySourceEnum
+  ilike: String
+
+  """Array<undefined>"""
+  inArray: [ActivitiesCategorySourceEnum!]
+  isNotNull: Boolean
+  isNull: Boolean
+  like: String
+  lt: ActivitiesCategorySourceEnum
+  lte: ActivitiesCategorySourceEnum
+  ne: ActivitiesCategorySourceEnum
+  notIlike: String
+
+  """Array<undefined>"""
+  notInArray: [ActivitiesCategorySourceEnum!]
+  notLike: String
+}
+
+input ActivitiesCategorySourceEnumFilterOr {
+  eq: ActivitiesCategorySourceEnum
+  gt: ActivitiesCategorySourceEnum
+  gte: ActivitiesCategorySourceEnum
+  ilike: String
+
+  """Array<undefined>"""
+  inArray: [ActivitiesCategorySourceEnum!]
+  isNotNull: Boolean
+  isNull: Boolean
+  like: String
+  lt: ActivitiesCategorySourceEnum
+  lte: ActivitiesCategorySourceEnum
+  ne: ActivitiesCategorySourceEnum
+  notIlike: String
+
+  """Array<undefined>"""
+  notInArray: [ActivitiesCategorySourceEnum!]
+  notLike: String
+}
+
+input ActivitiesFilters {
+  OR: [ActivitiesFiltersOr!]
+  activeSeconds: StringFilter
+  app: StringFilter
+  categoryId: IdFilter
+  categorySource: ActivitiesCategorySourceEnumFilter
+  closedAt: DateTimeFilter
+  context: StringFilter
+  deviceId: IdFilter
+  id: IdFilter
+  lastActiveAt: DateTimeFilter
+  startedAt: DateTimeFilter
+  title: StringFilter
+}
+
+input ActivitiesFiltersOr {
+  activeSeconds: StringFilter
+  app: StringFilter
+  categoryId: IdFilter
+  categorySource: ActivitiesCategorySourceEnumFilter
+  closedAt: DateTimeFilter
+  context: StringFilter
+  deviceId: IdFilter
+  id: IdFilter
+  lastActiveAt: DateTimeFilter
+  startedAt: DateTimeFilter
+  title: StringFilter
+}
+
+input ActivitiesOrderBy {
+  activeSeconds: InnerOrder
+  app: InnerOrder
+  categoryId: InnerOrder
+  categorySource: InnerOrder
+  closedAt: InnerOrder
+  context: InnerOrder
+  deviceId: InnerOrder
+  id: InnerOrder
+  lastActiveAt: InnerOrder
+  startedAt: InnerOrder
+  title: InnerOrder
+}
+
+type AuthSession {
+  token: String!
+  userId: String!
+}
+
+input BooleanFilter {
+  OR: [BooleanFilterOr!]
+  eq: Boolean
+  gt: Boolean
+  gte: Boolean
+  ilike: String
+
+  """Array<undefined>"""
+  inArray: [Boolean!]
+  isNotNull: Boolean
+  isNull: Boolean
+  like: String
+  lt: Boolean
+  lte: Boolean
+  ne: Boolean
+  notIlike: String
+
+  """Array<undefined>"""
+  notInArray: [Boolean!]
+  notLike: String
+}
+
+input BooleanFilterOr {
+  eq: Boolean
+  gt: Boolean
+  gte: Boolean
+  ilike: String
+
+  """Array<undefined>"""
+  inArray: [Boolean!]
+  isNotNull: Boolean
+  isNull: Boolean
+  like: String
+  lt: Boolean
+  lte: Boolean
+  ne: Boolean
+  notIlike: String
+
+  """Array<undefined>"""
+  notInArray: [Boolean!]
+  notLike: String
+}
+
+type Categories {
+  activities(limit: Int, offset: Int, orderBy: ActivitiesOrderBy, where: ActivitiesFilters): [Activities!]!
+  color: String
+
+  """DateTime"""
+  createdAt: DateTime!
+  id: String!
+  name: String!
+  rules(limit: Int, offset: Int, orderBy: CategoryRulesOrderBy, where: CategoryRulesFilters): [CategoryRules!]!
+  user(where: UserFilters): User
+  userId: String!
+}
+
+input CategoriesFilters {
+  OR: [CategoriesFiltersOr!]
+  color: StringFilter
+  createdAt: DateTimeFilter
+  id: IdFilter
+  name: StringFilter
+  userId: IdFilter
+}
+
+input CategoriesFiltersOr {
+  color: StringFilter
+  createdAt: DateTimeFilter
+  id: IdFilter
+  name: StringFilter
+  userId: IdFilter
+}
+
+input CategoriesOrderBy {
+  color: InnerOrder
+  createdAt: InnerOrder
+  id: InnerOrder
+  name: InnerOrder
+  userId: InnerOrder
+}
+
+type CategoryDaySummary {
+  categoryId: String
+  color: String
+  day: String!
+  name: String
+  seconds: Float!
+}
+
+type CategoryRules {
+  appPattern: String
+  category(where: CategoriesFilters): Categories
+  categoryId: String!
+  contextPattern: String
+
+  """DateTime"""
+  createdAt: DateTime!
+  id: String!
+  priority: Int!
+  titlePattern: String
+  user(where: UserFilters): User
+  userId: String!
+}
+
+input CategoryRulesFilters {
+  OR: [CategoryRulesFiltersOr!]
+  appPattern: StringFilter
+  categoryId: IdFilter
+  contextPattern: StringFilter
+  createdAt: DateTimeFilter
+  id: IdFilter
+  priority: StringFilter
+  titlePattern: StringFilter
+  userId: IdFilter
+}
+
+input CategoryRulesFiltersOr {
+  appPattern: StringFilter
+  categoryId: IdFilter
+  contextPattern: StringFilter
+  createdAt: DateTimeFilter
+  id: IdFilter
+  priority: StringFilter
+  titlePattern: StringFilter
+  userId: IdFilter
+}
+
+input CategoryRulesOrderBy {
+  appPattern: InnerOrder
+  categoryId: InnerOrder
+  contextPattern: InnerOrder
+  createdAt: InnerOrder
+  id: InnerOrder
+  priority: InnerOrder
+  titlePattern: InnerOrder
+  userId: InnerOrder
+}
+
+type ContextRules {
+  appPattern: String
+
+  """DateTime"""
+  createdAt: DateTime!
+  id: String!
+  priority: Int!
+  titlePattern: String!
+  user(where: UserFilters): User
+  userId: String!
+}
+
+input ContextRulesFilters {
+  OR: [ContextRulesFiltersOr!]
+  appPattern: StringFilter
+  createdAt: DateTimeFilter
+  id: IdFilter
+  priority: StringFilter
+  titlePattern: StringFilter
+  userId: IdFilter
+}
+
+input ContextRulesFiltersOr {
+  appPattern: StringFilter
+  createdAt: DateTimeFilter
+  id: IdFilter
+  priority: StringFilter
+  titlePattern: StringFilter
+  userId: IdFilter
+}
+
+input ContextRulesOrderBy {
+  appPattern: InnerOrder
+  createdAt: InnerOrder
+  id: InnerOrder
+  priority: InnerOrder
+  titlePattern: InnerOrder
+  userId: InnerOrder
+}
+
+"""
+A date-time string at UTC, such as 2007-12-03T10:15:30Z, compliant with the `date-time` format outlined in section 5.6 of the RFC 3339 profile of the ISO 8601 standard for representation of dates and times using the Gregorian calendar.
+"""
+scalar DateTime
+
+input DateTimeFilter {
+  OR: [DateTimeFilterOr!]
+
+  """DateTime"""
+  eq: DateTime
+
+  """DateTime"""
+  gt: DateTime
+
+  """DateTime"""
+  gte: DateTime
+  ilike: String
+
+  """Array<DateTime>"""
+  inArray: [DateTime!]
+  isNotNull: Boolean
+  isNull: Boolean
+  like: String
+
+  """DateTime"""
+  lt: DateTime
+
+  """DateTime"""
+  lte: DateTime
+
+  """DateTime"""
+  ne: DateTime
+  notIlike: String
+
+  """Array<DateTime>"""
+  notInArray: [DateTime!]
+  notLike: String
+}
+
+input DateTimeFilterOr {
+  """DateTime"""
+  eq: DateTime
+
+  """DateTime"""
+  gt: DateTime
+
+  """DateTime"""
+  gte: DateTime
+  ilike: String
+
+  """Array<DateTime>"""
+  inArray: [DateTime!]
+  isNotNull: Boolean
+  isNull: Boolean
+  like: String
+
+  """DateTime"""
+  lt: DateTime
+
+  """DateTime"""
+  lte: DateTime
+
+  """DateTime"""
+  ne: DateTime
+  notIlike: String
+
+  """Array<DateTime>"""
+  notInArray: [DateTime!]
+  notLike: String
+}
+
+type DeviceRegistration {
+  apiKey: String!
+  device: Devices!
+}
+
+type Devices {
+  activities(limit: Int, offset: Int, orderBy: ActivitiesOrderBy, where: ActivitiesFilters): [Activities!]!
+
+  """DateTime"""
+  createdAt: DateTime!
+  id: String!
+  name: String!
+  platform: DevicesPlatformEnum!
+  user(where: UserFilters): User
+  userId: String!
+}
+
+input DevicesFilters {
+  OR: [DevicesFiltersOr!]
+  createdAt: DateTimeFilter
+  id: IdFilter
+  name: StringFilter
+  platform: DevicesPlatformEnumFilter
+  userId: IdFilter
+}
+
+input DevicesFiltersOr {
+  createdAt: DateTimeFilter
+  id: IdFilter
+  name: StringFilter
+  platform: DevicesPlatformEnumFilter
+  userId: IdFilter
+}
+
+input DevicesOrderBy {
+  createdAt: InnerOrder
+  id: InnerOrder
+  name: InnerOrder
+  platform: InnerOrder
+  userId: InnerOrder
+}
+
+enum DevicesPlatformEnum {
+  """Value: android"""
+  android
+
+  """Value: linux"""
+  linux
+
+  """Value: macos"""
+  macos
+
+  """Value: windows"""
+  windows
+}
+
+input DevicesPlatformEnumFilter {
+  OR: [DevicesPlatformEnumFilterOr!]
+  eq: DevicesPlatformEnum
+  gt: DevicesPlatformEnum
+  gte: DevicesPlatformEnum
+  ilike: String
+
+  """Array<undefined>"""
+  inArray: [DevicesPlatformEnum!]
+  isNotNull: Boolean
+  isNull: Boolean
+  like: String
+  lt: DevicesPlatformEnum
+  lte: DevicesPlatformEnum
+  ne: DevicesPlatformEnum
+  notIlike: String
+
+  """Array<undefined>"""
+  notInArray: [DevicesPlatformEnum!]
+  notLike: String
+}
+
+input DevicesPlatformEnumFilterOr {
+  eq: DevicesPlatformEnum
+  gt: DevicesPlatformEnum
+  gte: DevicesPlatformEnum
+  ilike: String
+
+  """Array<undefined>"""
+  inArray: [DevicesPlatformEnum!]
+  isNotNull: Boolean
+  isNull: Boolean
+  like: String
+  lt: DevicesPlatformEnum
+  lte: DevicesPlatformEnum
+  ne: DevicesPlatformEnum
+  notIlike: String
+
+  """Array<undefined>"""
+  notInArray: [DevicesPlatformEnum!]
+  notLike: String
+}
+
+input IdFilter {
+  OR: [IdFilterOr!]
+  eq: String
+  gt: String
+  gte: String
+
+  """Array<undefined>"""
+  inArray: [String!]
+  isNotNull: Boolean
+  isNull: Boolean
+  lt: String
+  lte: String
+  ne: String
+
+  """Array<undefined>"""
+  notInArray: [String!]
+}
+
+input IdFilterOr {
+  eq: String
+  gt: String
+  gte: String
+
+  """Array<undefined>"""
+  inArray: [String!]
+  isNotNull: Boolean
+  isNull: Boolean
+  lt: String
+  lte: String
+  ne: String
+
+  """Array<undefined>"""
+  notInArray: [String!]
+}
+
+input InnerOrder {
+  direction: OrderDirection!
+
+  """Priority of current field"""
+  priority: Int!
+}
+
+type MagicLinkRequest {
+  ok: Boolean!
+  token: String
+}
+
+type Mutation {
+  applyCategoryRules: Int!
+  assignActivity(activityId: String!, categoryId: String): Activities!
+  createCategory(color: String, name: String!): Categories!
+  createCategoryRule(appPattern: String, categoryId: String!, contextPattern: String, priority: Int, titlePattern: String): CategoryRules!
+  createContextRule(appPattern: String, priority: Int, titlePattern: String!): ContextRules!
+  deleteCategory(id: String!): Boolean!
+  deleteCategoryRule(id: String!): Boolean!
+  deleteContextRule(id: String!): Boolean!
+  recordPing(app: String, capturedAt: String!, context: String, deviceId: String, idleSeconds: Int!, title: String): Activities
+  registerDevice(name: String!, platform: String!): DeviceRegistration!
+  requestMagicLink(email: String!): MagicLinkRequest!
+  signIn(email: String!, password: String!): AuthSession!
+  signOut: Boolean!
+  signUp(email: String!, name: String!, password: String!): AuthSession!
+  verifyMagicLink(token: String!): AuthSession!
+}
+
+"""Order by direction"""
+enum OrderDirection {
+  """Ascending order"""
+  asc
+
+  """Descending order"""
+  desc
+}
+
+type Query {
+  activities(limit: Int, offset: Int, orderBy: ActivitiesOrderBy, where: ActivitiesFilters): [Activities!]!
+  categories(limit: Int, offset: Int, orderBy: CategoriesOrderBy, where: CategoriesFilters): [Categories!]!
+  categoryRules(limit: Int, offset: Int, orderBy: CategoryRulesOrderBy, where: CategoryRulesFilters): [CategoryRules!]!
+  categorySummary(from: String!, to: String!): [CategoryDaySummary!]!
+  contextRules(limit: Int, offset: Int, orderBy: ContextRulesOrderBy, where: ContextRulesFilters): [ContextRules!]!
+  devices(limit: Int, offset: Int, orderBy: DevicesOrderBy, where: DevicesFilters): [Devices!]!
+  me: String
+}
+
+input StringFilter {
+  OR: [StringFilterOr!]
+  eq: String
+  gt: String
+  gte: String
+  ilike: String
+
+  """Array<undefined>"""
+  inArray: [String!]
+  isNotNull: Boolean
+  isNull: Boolean
+  like: String
+  lt: String
+  lte: String
+  ne: String
+  notIlike: String
+
+  """Array<undefined>"""
+  notInArray: [String!]
+  notLike: String
+}
+
+input StringFilterOr {
+  eq: String
+  gt: String
+  gte: String
+  ilike: String
+
+  """Array<undefined>"""
+  inArray: [String!]
+  isNotNull: Boolean
+  isNull: Boolean
+  like: String
+  lt: String
+  lte: String
+  ne: String
+  notIlike: String
+
+  """Array<undefined>"""
+  notInArray: [String!]
+  notLike: String
+}
+
+type User {
+  categories(limit: Int, offset: Int, orderBy: CategoriesOrderBy, where: CategoriesFilters): [Categories!]!
+  categoryRules(limit: Int, offset: Int, orderBy: CategoryRulesOrderBy, where: CategoryRulesFilters): [CategoryRules!]!
+  contextRules(limit: Int, offset: Int, orderBy: ContextRulesOrderBy, where: ContextRulesFilters): [ContextRules!]!
+
+  """DateTime"""
+  createdAt: DateTime!
+  devices(limit: Int, offset: Int, orderBy: DevicesOrderBy, where: DevicesFilters): [Devices!]!
+  email: String!
+  emailVerified: Boolean!
+  id: String!
+  image: String
+  name: String!
+
+  """DateTime"""
+  updatedAt: DateTime!
+}
+
+input UserFilters {
+  OR: [UserFiltersOr!]
+  createdAt: DateTimeFilter
+  email: StringFilter
+  emailVerified: BooleanFilter
+  id: IdFilter
+  image: StringFilter
+  name: StringFilter
+  updatedAt: DateTimeFilter
+}
+
+input UserFiltersOr {
+  createdAt: DateTimeFilter
+  email: StringFilter
+  emailVerified: BooleanFilter
+  id: IdFilter
+  image: StringFilter
+  name: StringFilter
+  updatedAt: DateTimeFilter
+}

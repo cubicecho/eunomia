@@ -9,6 +9,7 @@
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "schema:print": "tsx scripts/print-schema.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

@@ -2,12 +2,14 @@ import { hostname } from 'node:os';
 import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
 import {
+  DEFAULT_SYNC_INTERVAL_SECONDS,
+  MIN_SYNC_INTERVAL_SECONDS,
   registerDevice,
   requestMagicLink,
   signOut,
   verifyMagicLink,
-  writeAgentConfig,
-} from './api.ts';
+} from '@eunomia/agent';
+import { platformName, writeAgentConfig } from './config.ts';
 
 // One-shot terminal flow (run with --provision): sign in via magic link,
 // register this machine as a device, and write the userData config.json the
@@ -74,10 +76,19 @@ export async function runProvisioning(dataDir: string): Promise<void> {
   });
   const email = await prompt('Email: ');
   const name = await prompt(`Device name [${hostname()}]: `, { fallback: hostname() });
+  const intervalAnswer = await prompt(
+    `Sync interval in seconds [${DEFAULT_SYNC_INTERVAL_SECONDS}]: `,
+    { fallback: String(DEFAULT_SYNC_INTERVAL_SECONDS) },
+  );
+  const parsedInterval = Number(intervalAnswer);
+  const syncIntervalSeconds =
+    Number.isFinite(parsedInterval) && parsedInterval > 0
+      ? Math.max(MIN_SYNC_INTERVAL_SECONDS, parsedInterval)
+      : DEFAULT_SYNC_INTERVAL_SECONDS;
 
   const sessionToken = await signInWithMagicLink(serverUrl, email);
-  const { deviceId, apiKey } = await registerDevice(serverUrl, sessionToken, name);
-  const configPath = writeAgentConfig(dataDir, { serverUrl, apiKey });
+  const { deviceId, apiKey } = await registerDevice(serverUrl, sessionToken, name, platformName());
+  const configPath = writeAgentConfig(dataDir, { serverUrl, apiKey, syncIntervalSeconds });
 
   // The interactive session has done its job; the agent runs on the API key.
   await signOut(serverUrl, sessionToken);

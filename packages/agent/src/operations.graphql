@@ -1,0 +1,28 @@
+# The static operations agents perform. Codegen validates these against
+# schema.graphql and emits the typed SDK in src/gql/sdk.ts — the batched
+# recordPing upload is assembled dynamically (aliased fields) in upload.ts.
+
+mutation RequestMagicLink($email: String!) {
+  requestMagicLink(email: $email) {
+    token
+  }
+}
+
+mutation VerifyMagicLink($token: String!) {
+  verifyMagicLink(token: $token) {
+    token
+  }
+}
+
+mutation RegisterDevice($name: String!, $platform: String!) {
+  registerDevice(name: $name, platform: $platform) {
+    device {
+      id
+    }
+    apiKey
+  }
+}
+
+mutation SignOut {
+  signOut
+}
