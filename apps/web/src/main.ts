@@ -106,8 +106,12 @@ function categoryTotals(summary: CategoryDaySummary[]): CategoryTotal[] {
 }
 
 function topApps(rows: ActivityRow[], count = 10): CategoryTotal[] {
+  // Context (site, project, book) subdivides an app into separate bars.
   const byApp = new Map<string, number>();
-  for (const row of rows) byApp.set(row.app, (byApp.get(row.app) ?? 0) + row.activeSeconds);
+  for (const row of rows) {
+    const key = row.context ? `${row.app} · ${row.context}` : row.app;
+    byApp.set(key, (byApp.get(key) ?? 0) + row.activeSeconds);
+  }
   return [...byApp.entries()]
     .map(([name, seconds]) => ({ name, color: FALLBACK_COLOR, seconds }))
     .sort((a, b) => b.seconds - a.seconds)

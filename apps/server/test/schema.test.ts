@@ -16,6 +16,7 @@ describe('graphql schema', () => {
       'categories',
       'categoryRules',
       'categorySummary',
+      'contextRules',
       'devices',
       'me',
     ]);
@@ -24,8 +25,10 @@ describe('graphql schema', () => {
       'assignActivity',
       'createCategory',
       'createCategoryRule',
+      'createContextRule',
       'deleteCategory',
       'deleteCategoryRule',
+      'deleteContextRule',
       'recordPing',
       'registerDevice',
       'requestMagicLink',

@@ -12,6 +12,13 @@ export interface Ping {
   app: string | null;
   /** Foreground window title. Null if unavailable. */
   title: string | null;
+  /**
+   * Sub-app division the activity is also keyed by: browser hostname
+   * (agent-supplied) or project/document extracted from the title by the
+   * user's context rules — resolved by the caller before folding. Null = no
+   * finer division than the app.
+   */
+  context?: string | null;
   /** Seconds since last input, as reported by the OS. */
   idleSeconds: number;
 }
@@ -39,7 +46,8 @@ export type Activity = typeof activities.$inferSelect;
 /**
  * Folds one ping into the device's open activities:
  *
- * - Each device has a SET of open activities (closedAt IS NULL), keyed by app.
+ * - Each device has a SET of open activities (closedAt IS NULL), keyed by
+ *   (app, context).
  * - The elapsed time since the device's last ping (capped at ACCRUE_CAP_SECONDS)
  *   accrues to the currently focused app's open activity — created on first
  *   focus, revived-by-match on every return to it. Titles churn in place.
@@ -93,15 +101,18 @@ export async function foldPing(db: Db, deviceId: string, ping: Ping): Promise<Ac
 
   if (!ping.app) return null;
 
+  const context = ping.context ?? null;
+  const sameKey = (a: Activity) => a.app === ping.app && a.context === context;
+
   // Duplicate or out-of-order delivery — nothing to accrue.
   if (lastSeenMs > 0 && now.getTime() <= lastSeenMs) {
-    return live.find((a) => a.app === ping.app) ?? null;
+    return live.find(sameKey) ?? null;
   }
 
   const delta =
     lastSeenMs > 0 ? Math.min((now.getTime() - lastSeenMs) / 1000, ACCRUE_CAP_SECONDS) : 0;
 
-  const match = live.find((a) => a.app === ping.app);
+  const match = live.find(sameKey);
   if (match) {
     const [updated] = await db
       .update(activities)
@@ -121,6 +132,7 @@ export async function foldPing(db: Db, deviceId: string, ping: Ping): Promise<Ac
       id: crypto.randomUUID(),
       deviceId,
       app: ping.app,
+      context,
       title: ping.title,
       startedAt: now,
       lastActiveAt: now,

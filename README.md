@@ -7,9 +7,9 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 
 > **Status:** working MVP. GraphQL-only API (auth included — no REST routes),
 > magic-link login, device provisioning with API keys, activity ingestion via
-> stateless pings, categories with manual assignment and regex
-> auto-categorization rules, per-user authorization scoping, and a web
-> dashboard.
+> stateless pings, per-app **contexts** (browser site, open project/book),
+> categories with manual assignment and regex auto-categorization rules,
+> per-user authorization scoping, and a web dashboard.
 
 ## Layout
 
@@ -56,6 +56,39 @@ Set `UNSAFE_LOCAL_NETWORK=true` on the server to skip the inbox round-trip:
 dashboard and the desktop setup window log straight in from just an email
 address. **Anyone who can reach the server can sign in as any email** — only
 use it on a trusted local network.
+
+### Contexts (sites, projects, books, workspaces)
+
+An activity is keyed by `(app, context)`, where **context** is an optional
+sub-app division: gmail and youtube in the same browser, two novels in
+novelWriter, or two Ableton projects each get their own activity row.
+
+Context comes from two sources:
+
+- **Browsers** — on Windows/macOS the agent reads the focused tab's URL and
+  sends only the **hostname** (`mail.google.com`); full URLs never leave the
+  machine.
+- **Everything else** — per-user `contextRules` evaluated server-side at fold
+  time. Each rule is a case-insensitive regex over the window title whose
+  **first capture group** becomes the context (optionally narrowed by an
+  `appPattern`); lower `priority` runs first, first non-empty capture wins.
+  Supporting a new app is a rule insert, not an agent update:
+
+  ```graphql
+  mutation {
+    novel: createContextRule(appPattern: "^novelwriter",
+      titlePattern: "^(.+?) - novelWriter") { id }
+    ableton: createContextRule(appPattern: "^ableton",
+      titlePattern: "^(.+?)\\*? - Ableton Live") { id }
+    vscode: createContextRule(appPattern: "^code",
+      titlePattern: "— (.+?) — Visual Studio Code") { id }
+  }
+  ```
+
+Category rules can match on context too (`contextPattern:
+"youtube\\.com"` → Distraction); a context pattern never matches an activity
+that has no context. Context is part of the row's identity, so rules apply
+**forward-only** — time already folded into a contextless row stays there.
 
 ## Self-hosting
 

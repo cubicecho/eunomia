@@ -28,19 +28,23 @@ export function assertValidPattern(pattern: string): void {
 }
 
 /**
- * First rule (by priority, then age) matching the activity's app/title, or
- * null. A rule with both patterns requires both to match; a title pattern
- * never matches an activity without a title.
+ * First rule (by priority, then age) matching the activity's app/title/context,
+ * or null. Every pattern a rule carries must match; a title or context pattern
+ * never matches an activity missing that field.
  */
 export function matchRule(
   rules: CategoryRule[],
   app: string,
   title: string | null,
+  context: string | null = null,
 ): CategoryRule | null {
   for (const rule of rules) {
-    if (!rule.appPattern && !rule.titlePattern) continue;
+    if (!rule.appPattern && !rule.titlePattern && !rule.contextPattern) continue;
     if (rule.appPattern && !compile(rule.appPattern)?.test(app)) continue;
     if (rule.titlePattern && (title === null || !compile(rule.titlePattern)?.test(title))) {
+      continue;
+    }
+    if (rule.contextPattern && (context === null || !compile(rule.contextPattern)?.test(context))) {
       continue;
     }
     return rule;
@@ -69,7 +73,7 @@ export async function applyRules(
   activity: Activity,
 ): Promise<Activity> {
   if (activity.categorySource === 'manual') return activity;
-  const matched = matchRule(rules, activity.app, activity.title);
+  const matched = matchRule(rules, activity.app, activity.title, activity.context);
   const categoryId = matched?.categoryId ?? null;
   if (categoryId === activity.categoryId) return activity;
   const [updated] = await db

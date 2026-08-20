@@ -25,7 +25,30 @@ interface Ping {
   capturedAt: string;
   app: string | null;
   title: string | null;
+  /** Browser hostname (from the window's URL) — the sub-app "context". */
+  context: string | null;
   idleSeconds: number;
+}
+
+// Apps whose window URL x-win can read (Windows/macOS; always empty on
+// Linux). Only these pay the accessibility round-trip for the url getter.
+const BROWSER_EXEC =
+  /^(chrome|chromium|msedge|firefox|librewolf|waterfox|zen|brave|opera|vivaldi|arc|safari)/i;
+
+/**
+ * Hostname of the focused browser window, or null. Hostname only — full URLs
+ * carry queries and tokens that should never leave the machine; the server
+ * subdivides browser time by site, nothing finer.
+ */
+function browserContext(win: ReturnType<typeof activeWindow>, app: string | null): string | null {
+  if (!app || !BROWSER_EXEC.test(app)) return null;
+  try {
+    const url = win.url;
+    if (!url) return null;
+    return new URL(url).hostname.toLowerCase() || null;
+  } catch {
+    return null; // unsupported browser build, or a non-URL address bar value
+  }
 }
 
 /** Env vars win; otherwise config.json in userData: {"serverUrl": ..., "apiKey": ...}. */
@@ -101,13 +124,14 @@ async function uploadBatch(config: AgentConfig, batch: Ping[]): Promise<boolean>
   const defs: string[] = [];
   const fields: string[] = [];
   batch.forEach((ping, i) => {
-    defs.push(`$c${i}: String!, $a${i}: String, $t${i}: String, $i${i}: Int!`);
+    defs.push(`$c${i}: String!, $a${i}: String, $t${i}: String, $x${i}: String, $i${i}: Int!`);
     fields.push(
-      `p${i}: recordPing(capturedAt: $c${i}, app: $a${i}, title: $t${i}, idleSeconds: $i${i}) { id }`,
+      `p${i}: recordPing(capturedAt: $c${i}, app: $a${i}, title: $t${i}, context: $x${i}, idleSeconds: $i${i}) { id }`,
     );
     vars[`c${i}`] = ping.capturedAt;
     vars[`a${i}`] = ping.app;
     vars[`t${i}`] = ping.title;
+    vars[`x${i}`] = ping.context;
     vars[`i${i}`] = ping.idleSeconds;
   });
 
@@ -135,25 +159,35 @@ async function uploadBatch(config: AgentConfig, batch: Ping[]): Promise<boolean>
 }
 
 let tray: Tray | undefined;
-let lastEmit = { app: null as string | null, title: null as string | null, at: 0 };
+let lastEmit = {
+  app: null as string | null,
+  title: null as string | null,
+  context: null as string | null,
+  at: 0,
+};
 let flushing = false;
 
 function checkOnce(outbox: Outbox): void {
   try {
     const win = activeWindow();
+    const app = win?.info?.execName || null;
     const ping: Ping = {
       capturedAt: new Date().toISOString(),
-      app: win?.info?.execName || null,
+      app,
       title: win?.title || null,
+      context: browserContext(win, app),
       idleSeconds: powerMonitor.getSystemIdleTime(),
     };
 
-    const changed = ping.app !== lastEmit.app || ping.title !== lastEmit.title;
+    const changed =
+      ping.app !== lastEmit.app ||
+      ping.title !== lastEmit.title ||
+      ping.context !== lastEmit.context;
     const due = Date.now() - lastEmit.at >= PING_INTERVAL_MS;
     if (!changed && !due) return;
 
     outbox.push(ping);
-    lastEmit = { app: ping.app, title: ping.title, at: Date.now() };
+    lastEmit = { app: ping.app, title: ping.title, context: ping.context, at: Date.now() };
   } catch (error) {
     console.error('ping failed', error);
   }

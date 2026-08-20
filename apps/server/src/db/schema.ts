@@ -136,10 +136,12 @@ export const categoryRules = pgTable(
     categoryId: text('category_id')
       .notNull()
       .references(() => categories.id, { onDelete: 'cascade' }),
-    // Case-insensitive regexes; both present = both must match, title rules
-    // never match a titleless activity. At least one is required.
+    // Case-insensitive regexes; every present pattern must match, and title/
+    // context rules never match an activity missing that field. At least one
+    // is required.
     appPattern: text('app_pattern'),
     titlePattern: text('title_pattern'),
+    contextPattern: text('context_pattern'),
     // Lower runs first; ties broken by creation time.
     priority: integer('priority').notNull().default(0),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -147,11 +149,37 @@ export const categoryRules = pgTable(
   (t) => [index('category_rules_user_idx').on(t.userId, t.priority)],
 );
 
+// Context extraction: per-user, priority-ordered rules that pull a sub-app
+// "context" out of the window title — the book open in novelWriter, the
+// Ableton project, the IDE workspace. First match wins; the title pattern's
+// first capture group becomes the context. Evaluated server-side at fold time
+// so supporting a new app is a rule insert, not an agent release. Browsers
+// bypass this: the agent supplies the hostname directly (from the URL, which
+// titles can't yield reliably), and an agent-supplied context always wins.
+export const contextRules = pgTable(
+  'context_rules',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    // Optional case-insensitive regex narrowing which apps the rule applies to.
+    appPattern: text('app_pattern'),
+    // Required case-insensitive regex with at least one capture group; capture
+    // group 1 (trimmed) is the extracted context.
+    titlePattern: text('title_pattern').notNull(),
+    // Lower runs first; ties broken by creation time.
+    priority: integer('priority').notNull().default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('context_rules_user_idx').on(t.userId, t.priority)],
+);
+
 // Activity model (decided 2026-08-16): stateless pings folded inline, with
 // MULTIPLE open activities per device so context switching doesn't shred the
 // data — alternating IDE/browser for an hour is two rows, not a hundred twenty.
-// An activity is keyed by app; each ping accrues the elapsed focus time to the
-// focused app's open activity, and an activity auto-closes only after going
+// An activity is keyed by (app, context); each ping accrues the elapsed focus
+// time to the focused open activity, and an activity auto-closes only after going
 // unfocused for CLOSE_AFTER_SECONDS. Idle time accrues to nothing. No raw ping
 // storage. See src/activity/fold.ts for the mechanics.
 export const activities = pgTable(
@@ -163,6 +191,11 @@ export const activities = pgTable(
       .references(() => devices.id, { onDelete: 'cascade' }),
     // Executable/app identifier the activity is keyed by.
     app: text('app').notNull(),
+    // Optional sub-app division the activity is ALSO keyed by: browser site
+    // (agent-supplied hostname), open project/document/workspace (extracted
+    // from the title by the user's context rules). Null = no finer division;
+    // gmail and youtube in the same browser are separate activity rows.
+    context: text('context'),
     // Most recently seen window title (titles churn — tabs, editors — while the
     // activity row stays put; only the latest is kept).
     title: text('title'),
@@ -194,15 +227,23 @@ export const activities = pgTable(
 // --- relations (drizzle v1 relational query builder; drizzle-graphql uses
 // these for eager-loaded nested queries) ---
 
-const r = createRelationsHelper({ user, devices, activities, categories, categoryRules });
+const r = createRelationsHelper({
+  user,
+  devices,
+  activities,
+  categories,
+  categoryRules,
+  contextRules,
+});
 
 export const relations = buildRelations(
-  { user, devices, activities, categories, categoryRules },
+  { user, devices, activities, categories, categoryRules, contextRules },
   {
     user: {
       devices: r.many.devices({ from: r.user.id, to: r.devices.userId }),
       categories: r.many.categories({ from: r.user.id, to: r.categories.userId }),
       categoryRules: r.many.categoryRules({ from: r.user.id, to: r.categoryRules.userId }),
+      contextRules: r.many.contextRules({ from: r.user.id, to: r.contextRules.userId }),
     },
     devices: {
       user: r.one.user({ from: r.devices.userId, to: r.user.id }),
@@ -220,6 +261,9 @@ export const relations = buildRelations(
     categoryRules: {
       user: r.one.user({ from: r.categoryRules.userId, to: r.user.id }),
       category: r.one.categories({ from: r.categoryRules.categoryId, to: r.categories.id }),
+    },
+    contextRules: {
+      user: r.one.user({ from: r.contextRules.userId, to: r.user.id }),
     },
   },
 );

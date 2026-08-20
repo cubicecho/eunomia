@@ -13,11 +13,16 @@ import {
   GraphQLSchema,
   GraphQLString,
 } from 'graphql';
+import {
+  assertValidContextPattern,
+  extractContext,
+  loadContextRules,
+} from '../activity/context.ts';
 import { foldPing } from '../activity/fold.ts';
 import { applyRules, assertValidPattern, loadRules, sweepRules } from '../activity/rules.ts';
 import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
-import { activities, categories, categoryRules, devices } from '../db/schema.ts';
+import { activities, categories, categoryRules, contextRules, devices } from '../db/schema.ts';
 import type { Context } from './context.ts';
 import { permissions } from './permissions.ts';
 import { scopedListField } from './scoped.ts';
@@ -78,6 +83,12 @@ export function createSchema(db: Db, auth: AuthGateway) {
         categoryRules,
         'categoryRules',
         (ctx) => eq(categoryRules.userId, ctx.userId),
+      ),
+      contextRules: scopedListField(
+        entities.queries.contextRules!,
+        contextRules,
+        'contextRules',
+        (ctx) => eq(contextRules.userId, ctx.userId),
       ),
       categorySummary: {
         // Seconds of active time per category per day (UTC), for [from, to).
@@ -312,6 +323,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
           categoryId: { type: new GraphQLNonNull(GraphQLString) },
           appPattern: { type: GraphQLString },
           titlePattern: { type: GraphQLString },
+          contextPattern: { type: GraphQLString },
           priority: { type: GraphQLInt },
         },
         resolve: async (
@@ -320,16 +332,18 @@ export function createSchema(db: Db, auth: AuthGateway) {
             categoryId: string;
             appPattern?: string | null;
             titlePattern?: string | null;
+            contextPattern?: string | null;
             priority?: number | null;
           },
           ctx: Context,
         ) => {
           if (!ctx.userId) throw new Error('Not authenticated');
-          if (args.appPattern == null && args.titlePattern == null) {
-            throw new Error('A rule needs an appPattern and/or a titlePattern');
+          if (args.appPattern == null && args.titlePattern == null && args.contextPattern == null) {
+            throw new Error('A rule needs an appPattern, titlePattern, and/or contextPattern');
           }
           if (args.appPattern != null) assertValidPattern(args.appPattern);
           if (args.titlePattern != null) assertValidPattern(args.titlePattern);
+          if (args.contextPattern != null) assertValidPattern(args.contextPattern);
           const [category] = await db
             .select()
             .from(categories)
@@ -344,6 +358,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
               categoryId: args.categoryId,
               appPattern: args.appPattern ?? null,
               titlePattern: args.titlePattern ?? null,
+              contextPattern: args.contextPattern ?? null,
               priority: args.priority ?? 0,
             })
             .returning();
@@ -378,6 +393,57 @@ export function createSchema(db: Db, auth: AuthGateway) {
           return sweepRules(db, ctx.userId);
         },
       },
+      createContextRule: {
+        // Context rules split time WITHIN an app (per book, per project, per
+        // site) by extracting the title pattern's first capture group at fold
+        // time. Identity-shaping: applies to rows created from now on only —
+        // churned titles are gone, so there is no retroactive sweep.
+        type: new GraphQLNonNull(entities.types.ContextRules!),
+        args: {
+          appPattern: { type: GraphQLString },
+          titlePattern: { type: new GraphQLNonNull(GraphQLString) },
+          priority: { type: GraphQLInt },
+        },
+        resolve: async (
+          _source,
+          args: { appPattern?: string | null; titlePattern: string; priority?: number | null },
+          ctx: Context,
+        ) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          if (args.appPattern != null) assertValidPattern(args.appPattern);
+          assertValidContextPattern(args.titlePattern);
+          const [row] = await db
+            .insert(contextRules)
+            .values({
+              id: crypto.randomUUID(),
+              userId: ctx.userId,
+              appPattern: args.appPattern ?? null,
+              titlePattern: args.titlePattern,
+              priority: args.priority ?? 0,
+            })
+            .returning();
+          return row;
+        },
+      },
+      deleteContextRule: {
+        // Existing rows keep the context they were created with; only future
+        // folds stop extracting.
+        type: new GraphQLNonNull(GraphQLBoolean),
+        args: {
+          id: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: async (_source, args: { id: string }, ctx: Context) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          const [rule] = await db
+            .select()
+            .from(contextRules)
+            .where(eq(contextRules.id, args.id))
+            .limit(1);
+          if (!rule || rule.userId !== ctx.userId) throw new Error('Unknown rule');
+          await db.delete(contextRules).where(eq(contextRules.id, rule.id));
+          return true;
+        },
+      },
       recordPing: {
         // Nullable: idle pings and pings with no detectable app touch nothing.
         type: entities.types.Activities!,
@@ -388,6 +454,9 @@ export function createSchema(db: Db, auth: AuthGateway) {
           capturedAt: { type: new GraphQLNonNull(GraphQLString) },
           app: { type: GraphQLString },
           title: { type: GraphQLString },
+          // Agent-supplied sub-app division (browser hostname). When absent,
+          // the user's context rules extract one from the title instead.
+          context: { type: GraphQLString },
           idleSeconds: { type: new GraphQLNonNull(GraphQLInt) },
         },
         resolve: async (
@@ -397,6 +466,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
             capturedAt: string;
             app?: string | null;
             title?: string | null;
+            context?: string | null;
             idleSeconds: number;
           },
           ctx: Context,
@@ -408,10 +478,18 @@ export function createSchema(db: Db, auth: AuthGateway) {
           if (!device || device.userId !== ctx.userId) throw new Error('Unknown device');
           const capturedAt = new Date(args.capturedAt);
           if (Number.isNaN(capturedAt.getTime())) throw new Error('Invalid capturedAt');
+          const context =
+            args.context ??
+            extractContext(
+              await loadContextRules(db, device.userId),
+              args.app ?? null,
+              args.title ?? null,
+            );
           const activity = await foldPing(db, device.id, {
             capturedAt,
             app: args.app ?? null,
             title: args.title ?? null,
+            context,
             idleSeconds: args.idleSeconds,
           });
           if (!activity) return null;

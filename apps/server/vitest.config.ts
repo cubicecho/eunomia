@@ -13,5 +13,9 @@ export default defineConfig({
     // Each test file boots its own in-process PGlite; under parallel file
     // execution cold starts can outrun the 5s default.
     testTimeout: 30_000,
+    // Unbounded workers each booting a PGlite exhaust memory once the suite
+    // grows past ~10 files (workers die with ERR_IPC_CHANNEL_CLOSED).
+    maxWorkers: 4,
+    minWorkers: 1,
   },
 });

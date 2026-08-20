@@ -71,6 +71,48 @@ describe('foldPing', () => {
     expect(updated?.title).toBe('tab two');
   });
 
+  it('splits the same app into one row per context', async () => {
+    const withContext = (seconds: number, context: string | null, title = 'tab') =>
+      foldPing(db, deviceId, {
+        capturedAt: at(seconds),
+        app: 'firefox',
+        title,
+        context,
+        idleSeconds: 0,
+      });
+
+    // gmail ↔ youtube every 10s: two rows, both open, time split between them.
+    for (let t = 0; t <= 60; t += 10) {
+      await withContext(t, (t / 10) % 2 === 0 ? 'mail.google.com' : 'youtube.com');
+    }
+
+    const rows = await allRows();
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.context).sort()).toEqual(['mail.google.com', 'youtube.com']);
+    expect(rows.every((r) => r.app === 'firefox' && r.closedAt === null)).toBe(true);
+    expect(rows.reduce((sum, r) => sum + r.activeSeconds, 0)).toBe(60);
+
+    // Returning to a context revives its row; titles churn within it.
+    const revived = await withContext(70, 'mail.google.com', 'Inbox (3)');
+    expect(await allRows()).toHaveLength(2);
+    expect(revived?.context).toBe('mail.google.com');
+    expect(revived?.title).toBe('Inbox (3)');
+  });
+
+  it('keeps contextless pings separate from context rows of the same app', async () => {
+    await ping(0, 'firefox', 'somewhere');
+    const withContext = await foldPing(db, deviceId, {
+      capturedAt: at(10),
+      app: 'firefox',
+      title: 'YouTube',
+      context: 'youtube.com',
+      idleSeconds: 0,
+    });
+
+    expect(await allRows()).toHaveLength(2);
+    expect(withContext?.context).toBe('youtube.com');
+  });
+
   it('caps accrual across silences', async () => {
     await ping(0, 'code');
     const resumed = await ping(ACCRUE_CAP_SECONDS + 300, 'code');

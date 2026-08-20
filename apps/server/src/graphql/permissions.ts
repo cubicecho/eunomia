@@ -24,6 +24,7 @@ export const permissions: PermissionsMap<any> = {
     activities: authenticated,
     categories: authenticated,
     categoryRules: authenticated,
+    contextRules: authenticated,
     categorySummary: authenticated,
     // Public by design: returns the caller's id or null.
     me: accept,
@@ -44,6 +45,8 @@ export const permissions: PermissionsMap<any> = {
     createCategoryRule: authenticated,
     deleteCategoryRule: authenticated,
     applyCategoryRules: authenticated,
+    createContextRule: authenticated,
+    deleteContextRule: authenticated,
     // No wildcard deny here: graphql-middleware validates every key against the
     // schema, and unexposed fields simply don't exist (createSchema assembles
     // only what's picked). New fields must get an explicit rule when added.
