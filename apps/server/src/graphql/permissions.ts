@@ -38,6 +38,8 @@ export const permissions: PermissionsMap<any> = {
     // Public: reports false for sessionless calls rather than erroring.
     signOut: accept,
     registerDevice: authenticated,
+    renameDevice: authenticated,
+    deleteDevice: authenticated,
     recordPing: authenticated,
     createCategory: authenticated,
     deleteCategory: authenticated,

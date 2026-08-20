@@ -22,10 +22,34 @@ import { foldPing } from '../activity/fold.ts';
 import { applyRules, assertValidPattern, loadRules, sweepRules } from '../activity/rules.ts';
 import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
-import { activities, categories, categoryRules, contextRules, devices } from '../db/schema.ts';
+import {
+  activities,
+  apikey,
+  categories,
+  categoryRules,
+  contextRules,
+  devices,
+} from '../db/schema.ts';
 import type { Context } from './context.ts';
 import { permissions } from './permissions.ts';
 import { scopedListField } from './scoped.ts';
+
+/**
+ * The deviceId a stored apikey row was minted for, or null. The better-auth
+ * plugin JSON-serializes the metadata column (double-encoded in some
+ * versions), so tolerate both encodings and anything unparseable.
+ */
+function keyMetadataDeviceId(metadata: string | null): string | null {
+  if (!metadata) return null;
+  try {
+    let parsed: unknown = JSON.parse(metadata);
+    if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+    const deviceId = (parsed as Record<string, unknown> | null)?.deviceId;
+    return typeof deviceId === 'string' ? deviceId : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Assembles the executable schema: selected drizzle-graphql entities plus
@@ -234,6 +258,51 @@ export function createSchema(db: Db, auth: AuthGateway) {
             name: args.name,
           });
           return { device: row, apiKey };
+        },
+      },
+      renameDevice: {
+        type: new GraphQLNonNull(entities.types.Devices!),
+        args: {
+          id: { type: new GraphQLNonNull(GraphQLString) },
+          name: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: async (_source, args: { id: string; name: string }, ctx: Context) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          const [device] = await db.select().from(devices).where(eq(devices.id, args.id)).limit(1);
+          if (!device || device.userId !== ctx.userId) throw new Error('Unknown device');
+          const [updated] = await db
+            .update(devices)
+            .set({ name: args.name })
+            .where(eq(devices.id, device.id))
+            .returning();
+          return updated;
+        },
+      },
+      deleteDevice: {
+        // True when the device was deleted. Its activities cascade away, and
+        // its API keys are revoked (only hashes are stored, so deleting the
+        // rows is a full revocation) — the agent's next upload gets rejected.
+        type: new GraphQLNonNull(GraphQLBoolean),
+        args: {
+          id: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: async (_source, args: { id: string }, ctx: Context) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          const [device] = await db.select().from(devices).where(eq(devices.id, args.id)).limit(1);
+          if (!device || device.userId !== ctx.userId) throw new Error('Unknown device');
+          // Keys are matched by the deviceId minted into their metadata. The
+          // plugin JSON-serializes that column, so match in JS rather than
+          // guessing its exact encoding in SQL.
+          const keys = await db
+            .select({ id: apikey.id, metadata: apikey.metadata })
+            .from(apikey)
+            .where(eq(apikey.referenceId, ctx.userId));
+          const stale = keys
+            .filter((key) => keyMetadataDeviceId(key.metadata) === device.id)
+            .map((key) => key.id);
+          if (stale.length > 0) await db.delete(apikey).where(inArray(apikey.id, stale));
+          await db.delete(devices).where(eq(devices.id, device.id));
+          return true;
         },
       },
       createCategory: {

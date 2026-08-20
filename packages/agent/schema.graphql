@@ -523,8 +523,10 @@ type Mutation {
   deleteCategory(id: String!): Boolean!
   deleteCategoryRule(id: String!): Boolean!
   deleteContextRule(id: String!): Boolean!
+  deleteDevice(id: String!): Boolean!
   recordPing(app: String, capturedAt: String!, context: String, deviceId: String, idleSeconds: Int!, title: String): Activities
   registerDevice(name: String!, platform: String!): DeviceRegistration!
+  renameDevice(id: String!, name: String!): Devices!
   requestMagicLink(email: String!): MagicLinkRequest!
   signIn(email: String!, password: String!): AuthSession!
   signOut: Boolean!

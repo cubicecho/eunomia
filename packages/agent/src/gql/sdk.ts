@@ -566,8 +566,10 @@ export type Mutation = {
   deleteCategory: Scalars['Boolean']['output'];
   deleteCategoryRule: Scalars['Boolean']['output'];
   deleteContextRule: Scalars['Boolean']['output'];
+  deleteDevice: Scalars['Boolean']['output'];
   recordPing?: Maybe<Activities>;
   registerDevice: DeviceRegistration;
+  renameDevice: Devices;
   requestMagicLink: MagicLinkRequest;
   signIn: AuthSession;
   signOut: Scalars['Boolean']['output'];
@@ -619,6 +621,11 @@ export type MutationDeleteContextRuleArgs = {
 };
 
 
+export type MutationDeleteDeviceArgs = {
+  id: Scalars['String']['input'];
+};
+
+
 export type MutationRecordPingArgs = {
   app?: InputMaybe<Scalars['String']['input']>;
   capturedAt: Scalars['String']['input'];
@@ -632,6 +639,12 @@ export type MutationRecordPingArgs = {
 export type MutationRegisterDeviceArgs = {
   name: Scalars['String']['input'];
   platform: Scalars['String']['input'];
+};
+
+
+export type MutationRenameDeviceArgs = {
+  id: Scalars['String']['input'];
+  name: Scalars['String']['input'];
 };
 
 
