@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
 import { activities, summaries } from '../db/schema.ts';
 import type { Activity } from './fold.ts';
@@ -131,6 +131,40 @@ export async function mergeCategorySummaries(db: Db, categoryId: string): Promis
   }
 }
 
+/**
+ * Deletes raw activities older than `retentionDays` that have already been
+ * folded into summaries — the aggregates (and so every dashboard view) are
+ * unaffected, but pruned time can no longer be re-categorized individually.
+ * Un-rolled and open rows are never touched at any age: their seconds only
+ * exist on the activity row. A non-positive `retentionDays` keeps everything.
+ * Returns how many rows were deleted.
+ */
+export async function pruneActivities(db: Db, retentionDays: number): Promise<number> {
+  if (!(retentionDays > 0)) return 0;
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const deleted = await db
+    .delete(activities)
+    .where(
+      and(
+        eq(activities.rolledUp, true),
+        isNotNull(activities.closedAt),
+        lt(activities.startedAt, cutoff),
+      ),
+    )
+    .returning({ id: activities.id });
+  return deleted.length;
+}
+
+/**
+ * Days of raw activities to keep. Summaries are never pruned, so history
+ * charts survive; only per-activity detail (titles, re-categorization) ages
+ * out. Set ACTIVITY_RETENTION_DAYS=0 to keep raw rows forever.
+ */
+export function retentionDays(): number {
+  const configured = Number(process.env.ACTIVITY_RETENTION_DAYS);
+  return Number.isFinite(configured) ? configured : 90;
+}
+
 /** How often the background rollup runs; also runs once at server start. */
 export const ROLLUP_INTERVAL_MS = 15 * 60 * 1000;
 
@@ -139,6 +173,10 @@ export function startRollupTimer(db: Db): void {
     try {
       const rolled = await rollupActivities(db);
       if (rolled > 0) console.log(`rolled up ${rolled} activities`);
+      // Prune only after rolling, so nothing is deleted before its seconds
+      // are safely in a summary row.
+      const pruned = await pruneActivities(db, retentionDays());
+      if (pruned > 0) console.log(`pruned ${pruned} raw activities past retention`);
     } catch (error) {
       console.error('rollup failed', error);
     }

@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { rollupActivities } from '../src/activity/rollup.ts';
+import { pruneActivities, rollupActivities } from '../src/activity/rollup.ts';
 import { activities, categories, categoryRules, devices, summaries, user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
@@ -172,6 +172,45 @@ describe('rollup', () => {
     expect(rows.filter((r) => r.seconds > 0)).toEqual([
       expect.objectContaining({ categoryId: 'work', seconds: 600 }),
     ]);
+  });
+
+  it('prunes old rolled activities without disturbing the summaries', async () => {
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+    await db.insert(activities).values([
+      activity('old', daysAgo(100), 600, { categoryId: 'work' }),
+      activity('recent', daysAgo(5), 300, { categoryId: 'work' }),
+      // Old but still open — its seconds live only on the activity row.
+      activity('open', daysAgo(100), 42, { open: true }),
+    ]);
+    await rollupActivities(db as never);
+
+    const totalBefore = await db
+      .select()
+      .from(summaries)
+      .then((rows) => rows.reduce((sum, row) => sum + row.seconds, 0));
+
+    expect(await pruneActivities(db as never, 90)).toBe(1);
+    const remaining = await db.select({ id: activities.id }).from(activities);
+    expect(remaining.map((r) => r.id).sort()).toEqual(['open', 'recent']);
+
+    // Aggregates are untouched: the dashboard sees the same totals.
+    const totalAfter = await db
+      .select()
+      .from(summaries)
+      .then((rows) => rows.reduce((sum, row) => sum + row.seconds, 0));
+    expect(totalAfter).toBe(totalBefore);
+  });
+
+  it('never prunes activities that have not been rolled up', async () => {
+    const longAgo = new Date(Date.now() - 500 * 86_400_000).toISOString();
+    await db.insert(activities).values([activity('a1', longAgo, 600)]);
+
+    // Not rolled yet — deleting would silently lose the time.
+    expect(await pruneActivities(db as never, 90)).toBe(0);
+    // Retention off keeps everything, however old.
+    await rollupActivities(db as never);
+    expect(await pruneActivities(db as never, 0)).toBe(0);
+    expect(await pruneActivities(db as never, 90)).toBe(1);
   });
 
   it('deleteCategory merges its summary rows into uncategorized', async () => {

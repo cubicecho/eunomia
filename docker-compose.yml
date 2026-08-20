@@ -10,6 +10,9 @@ services:
       # keep the day they were bucketed into.
       TZ: ${TZ:-UTC}
       DATABASE_URL: postgres://eunomia:eunomia@postgres:5432/eunomia
+      # Days of raw activities to keep; summaries (and so the charts) are
+      # kept forever. 0 keeps raw rows forever too.
+      ACTIVITY_RETENTION_DAYS: ${ACTIVITY_RETENTION_DAYS:-90}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:4000}
       PORT: "4000"

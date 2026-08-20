@@ -183,6 +183,14 @@ midnight instead of UTC's. Decide before real data accrues: rolled-up
 summaries keep the day they were bucketed into and won't re-bucket if the
 zone changes later.
 
+Every 15 minutes the server folds closed activities into precomputed
+per-day/app/category **summaries**, then deletes raw activity rows older
+than `ACTIVITY_RETENTION_DAYS` (default 90, `0` to keep them forever).
+Summaries are never pruned, so the charts keep full history — what ages out
+is per-activity detail: window titles, and the ability to re-categorize an
+individual old activity. Rows that haven't been rolled up yet are never
+deleted at any age.
+
 The app container applies committed drizzle migrations on startup
 (`drizzle-kit migrate`), so upgrades are `git pull && docker compose up
 --build`. After changing `src/db/schema.ts`, generate a new migration with
