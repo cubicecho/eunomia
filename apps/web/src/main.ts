@@ -105,17 +105,54 @@ function categoryTotals(summary: CategoryDaySummary[]): CategoryTotal[] {
   return [...byCategory.values()].sort((a, b) => b.seconds - a.seconds);
 }
 
-function topApps(rows: ActivityRow[], count = 10): CategoryTotal[] {
-  // Context (site, project, book) subdivides an app into separate bars.
-  const byApp = new Map<string, number>();
+interface AppTotal {
+  name: string;
+  seconds: number;
+  // Context (site, project, book) breakdown, nested under the app's own bar.
+  contexts: CategoryTotal[];
+}
+
+const MAX_CONTEXTS_PER_APP = 6;
+
+function topApps(rows: ActivityRow[], count = 10): AppTotal[] {
+  const byApp = new Map<string, { seconds: number; contexts: Map<string, number> }>();
   for (const row of rows) {
-    const key = row.context ? `${row.app} · ${row.context}` : row.app;
-    byApp.set(key, (byApp.get(key) ?? 0) + row.activeSeconds);
+    const entry = byApp.get(row.app) ?? { seconds: 0, contexts: new Map<string, number>() };
+    entry.seconds += row.activeSeconds;
+    if (row.context) {
+      entry.contexts.set(row.context, (entry.contexts.get(row.context) ?? 0) + row.activeSeconds);
+    }
+    byApp.set(row.app, entry);
   }
   return [...byApp.entries()]
-    .map(([name, seconds]) => ({ name, color: FALLBACK_COLOR, seconds }))
+    .map(([name, entry]) => {
+      const contexts = [...entry.contexts.entries()]
+        .map(([context, seconds]) => ({ name: context, color: FALLBACK_COLOR, seconds }))
+        .sort((a, b) => b.seconds - a.seconds)
+        .slice(0, MAX_CONTEXTS_PER_APP);
+      // Contextless time (plus any contexts beyond the cap) in an app that has
+      // contexts shows up as a remainder row so the sub-bars sum to the app bar.
+      const accounted = contexts.reduce((sum, c) => sum + c.seconds, 0);
+      const leftover = entry.seconds - accounted;
+      if (contexts.length > 0 && leftover >= 1) {
+        contexts.push({ name: '(other)', color: FALLBACK_COLOR, seconds: leftover });
+      }
+      return { name, seconds: entry.seconds, contexts };
+    })
     .sort((a, b) => b.seconds - a.seconds)
     .slice(0, count);
+}
+
+function barRow(total: CategoryTotal, max: number, sub = false): HTMLElement {
+  const row = el('div', sub ? 'bar-row sub' : 'bar-row');
+  row.append(el('span', 'bar-label', total.name));
+  const track = el('div', 'bar-track');
+  const fill = el('div', 'bar-fill');
+  fill.style.width = `${Math.max(2, (total.seconds / max) * 100)}%`;
+  fill.style.background = total.color;
+  track.append(fill);
+  row.append(track, el('span', 'bar-value', formatSeconds(total.seconds)));
+  return row;
 }
 
 function renderBars(title: string, totals: CategoryTotal[]): HTMLElement {
@@ -127,15 +164,27 @@ function renderBars(title: string, totals: CategoryTotal[]): HTMLElement {
   }
   const max = Math.max(...totals.map((t) => t.seconds));
   for (const total of totals) {
-    const row = el('div', 'bar-row');
-    row.append(el('span', 'bar-label', total.name));
-    const track = el('div', 'bar-track');
-    const fill = el('div', 'bar-fill');
-    fill.style.width = `${Math.max(2, (total.seconds / max) * 100)}%`;
-    fill.style.background = total.color;
-    track.append(fill);
-    row.append(track, el('span', 'bar-value', formatSeconds(total.seconds)));
-    section.append(row);
+    section.append(barRow(total, max));
+  }
+  return section;
+}
+
+function renderTopApps(apps: AppTotal[]): HTMLElement {
+  const section = el('section');
+  section.append(el('h2', undefined, 'Top apps'));
+  if (apps.length === 0) {
+    section.append(el('p', 'empty', 'No activity in this range.'));
+    return section;
+  }
+  // One shared scale so sub-bars stay comparable to their app bar.
+  const max = Math.max(...apps.map((a) => a.seconds));
+  for (const app of apps) {
+    const group = el('div', app.contexts.length > 0 ? 'bar-group' : undefined);
+    group.append(barRow({ name: app.name, color: FALLBACK_COLOR, seconds: app.seconds }, max));
+    for (const context of app.contexts) {
+      group.append(barRow(context, max, true));
+    }
+    section.append(group);
   }
   return section;
 }
@@ -215,7 +264,7 @@ async function renderDashboard(range = defaultRange()): Promise<void> {
 
   app.append(renderBars('By category', categoryTotals(summary)));
   app.append(renderDays(summary));
-  app.append(renderBars('Top apps', topApps(activities)));
+  app.append(renderTopApps(topApps(activities)));
 }
 
 // Emailed magic links land here as /?token=…; consume it, then clean the URL

@@ -128,6 +128,29 @@ button.ghost {
   border-radius: 4px;
 }
 
+.bar-group {
+  margin-bottom: 10px;
+}
+
+/* Context breakdown nested under an app bar. */
+.bar-row.sub {
+  margin-bottom: 4px;
+}
+
+.bar-row.sub .bar-label {
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.bar-row.sub .bar-track {
+  height: 8px;
+}
+
+.bar-row.sub .bar-fill {
+  opacity: 0.55;
+}
+
 .bar-value {
   color: var(--muted);
   text-align: right;
