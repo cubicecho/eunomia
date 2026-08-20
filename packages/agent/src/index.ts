@@ -19,6 +19,7 @@ export {
   type Ping,
   syncIntervalMs,
 } from './ping.ts';
+export { createSanitizer, type PingSanitizer, type PrivacyConfig } from './privacy.ts';
 export {
   initialSynthState,
   SYNTH_INTERVAL_MS,

@@ -4,8 +4,9 @@
 // Pure fetch — nothing here may touch node, electron, or react-native APIs.
 
 import { getSdk, type Requester, type Sdk } from './gql/sdk.ts';
+import type { PrivacyConfig } from './privacy.ts';
 
-export interface AgentConfig {
+export interface AgentConfig extends PrivacyConfig {
   serverUrl: string;
   apiKey: string;
   /** Seconds between server syncs. Defaults to DEFAULT_SYNC_INTERVAL_SECONDS (see ping.ts). */

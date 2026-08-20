@@ -85,6 +85,30 @@ default**. Per device:
 The floor everywhere is 10 seconds; nothing is lost at any interval — pings
 queue in the outbox until the next sync.
 
+### Privacy controls
+
+Sanitization is client-side and runs before a ping is queued, so filtered
+data never touches disk or the server. Two optional lists in the agent
+`config.json` (desktop userData dir; Android document dir), each holding
+case-insensitive regexes matched against the app identifier (executable name
+on desktop, package name on Android):
+
+```json
+{
+  "ignoreApps": ["^keepassxc", "signal"],
+  "redactApps": ["^firefox"]
+}
+```
+
+- **`ignoreApps`** — matching pings are dropped entirely; the time appears
+  nowhere.
+- **`redactApps`** — the time still accrues to the app, but its window title
+  and context (browser site) are stripped before anything leaves the device.
+
+Invalid regexes are skipped with a console warning rather than blocking
+tracking. Independently of these lists, browser tracking only ever reports
+the site's hostname — full URLs never leave the machine.
+
 ### Login (magic link)
 
 Login is passwordless: `requestMagicLink(email)` emails a single-use link

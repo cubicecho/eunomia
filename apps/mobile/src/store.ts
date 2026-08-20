@@ -31,6 +31,9 @@ function jsonFile<T>(name: string) {
 
 const configFile = jsonFile<Partial<AgentConfig>>('config.json');
 
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string');
+
 export function loadConfig(): AgentConfig | null {
   const parsed = configFile.read();
   if (parsed && typeof parsed.serverUrl === 'string' && typeof parsed.apiKey === 'string') {
@@ -38,6 +41,8 @@ export function loadConfig(): AgentConfig | null {
     if (typeof parsed.syncIntervalSeconds === 'number') {
       config.syncIntervalSeconds = parsed.syncIntervalSeconds;
     }
+    if (isStringArray(parsed.ignoreApps)) config.ignoreApps = parsed.ignoreApps;
+    if (isStringArray(parsed.redactApps)) config.redactApps = parsed.redactApps;
     return config;
   }
   return null;

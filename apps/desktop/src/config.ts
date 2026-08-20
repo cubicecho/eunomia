@@ -7,7 +7,8 @@ import type { AgentConfig } from '@eunomia/agent';
 
 /**
  * Env vars win; otherwise config.json in userData:
- * {"serverUrl": ..., "apiKey": ..., "syncIntervalSeconds"?: ...}.
+ * {"serverUrl": ..., "apiKey": ..., "syncIntervalSeconds"?: ...,
+ *  "ignoreApps"?: [regex...], "redactApps"?: [regex...]}.
  * EUNOMIA_SYNC_INTERVAL_SECONDS overrides the interval in either case.
  */
 export function loadConfig(dataDir: string): AgentConfig | null {
@@ -35,6 +36,8 @@ function fileConfig(dataDir: string): AgentConfig | null {
       if (typeof parsed.syncIntervalSeconds === 'number') {
         config.syncIntervalSeconds = parsed.syncIntervalSeconds;
       }
+      if (isStringArray(parsed.ignoreApps)) config.ignoreApps = parsed.ignoreApps;
+      if (isStringArray(parsed.redactApps)) config.redactApps = parsed.redactApps;
       return config;
     }
   } catch (error) {
@@ -42,6 +45,9 @@ function fileConfig(dataDir: string): AgentConfig | null {
   }
   return null;
 }
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string');
 
 export function writeAgentConfig(dataDir: string, config: AgentConfig): string {
   const configPath = join(dataDir, 'config.json');

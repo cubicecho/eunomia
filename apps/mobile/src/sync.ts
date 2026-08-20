@@ -1,4 +1,10 @@
-import { createUploader, synthesizePings, type UsageEvent } from '@eunomia/agent';
+import {
+  createSanitizer,
+  createUploader,
+  type Ping,
+  synthesizePings,
+  type UsageEvent,
+} from '@eunomia/agent';
 import UsageEvents, { type NativeUsageEvent } from '../modules/usage-events';
 import { getOutbox, loadConfig, loadSyncState, writeSyncState } from './store.ts';
 
@@ -47,21 +53,24 @@ export function performSync(): Promise<SyncResult> {
 async function syncOnce(): Promise<SyncResult> {
   const outbox = getOutbox();
   const state = loadSyncState();
+  const config = loadConfig();
   const now = Date.now();
 
   const events = UsageEvents.queryEvents(state.checkpoint, now)
     .map(toUsageEvent)
     .filter((e): e is UsageEvent => e !== null);
   const { pings, state: synth } = synthesizePings(state.synth, events, now);
+  // Privacy rules apply before pings ever hit disk (see @eunomia/agent).
+  const sanitize = createSanitizer(config ?? {});
+  const clean = pings.map(sanitize).filter((p): p is Ping => p !== null);
 
   // Outbox first, checkpoint second: a crash in between re-reads the same
   // window and duplicates some pings, which merely re-touch their activity —
   // the reverse order would silently drop the window.
-  outbox.pushMany(pings);
+  outbox.pushMany(clean);
   writeSyncState({ checkpoint: now, synth });
 
-  const config = loadConfig();
   if (config) await createUploader(config, outbox).flush();
 
-  return { synthesized: pings.length, pending: outbox.size, provisioned: config !== null };
+  return { synthesized: clean.length, pending: outbox.size, provisioned: config !== null };
 }

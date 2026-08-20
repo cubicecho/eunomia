@@ -2,11 +2,13 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join } from 'node:path';
 import {
   type AgentConfig,
+  createSanitizer,
   createUploader,
   Outbox,
   type OutboxStore,
   PING_INTERVAL_MS,
   type Ping,
+  type PingSanitizer,
   syncIntervalMs,
 } from '@eunomia/agent';
 import { activeWindow } from '@miniben90/x-win';
@@ -63,17 +65,20 @@ let lastEmit = {
   at: 0,
 };
 
-function checkOnce(outbox: Outbox): void {
+function checkOnce(outbox: Outbox, sanitize: PingSanitizer): void {
   try {
     const win = activeWindow();
     const app = win?.info?.execName || null;
-    const ping: Ping = {
+    // Sanitized before it exists anywhere: ignored/redacted data never
+    // reaches the outbox file, let alone the server.
+    const ping: Ping | null = sanitize({
       capturedAt: new Date().toISOString(),
       app,
       title: win?.title || null,
       context: browserContext(win, app),
       idleSeconds: powerMonitor.getSystemIdleTime(),
-    };
+    });
+    if (!ping) return;
 
     const changed =
       ping.app !== lastEmit.app ||
@@ -111,6 +116,7 @@ app.whenReady().then(async () => {
 
   const outbox = new Outbox(fileStore(join(dataDir, 'outbox.jsonl')));
   let config = loadConfig(dataDir);
+  let sanitize = createSanitizer(config ?? {});
 
   const startUploads = (cfg: AgentConfig): void => {
     const uploader = createUploader(cfg, outbox);
@@ -127,6 +133,7 @@ app.whenReady().then(async () => {
     const result = await runSetupWindow(dataDir);
     if (result) {
       config = result;
+      sanitize = createSanitizer(result);
       startUploads(result);
       refreshTrayMenu();
     }
@@ -151,7 +158,7 @@ app.whenReady().then(async () => {
   tray.setToolTip('eunomia — tracking active window');
   refreshTrayMenu();
 
-  setInterval(() => checkOnce(outbox), CHECK_INTERVAL_MS);
+  setInterval(() => checkOnce(outbox, sanitize), CHECK_INTERVAL_MS);
   if (config) {
     startUploads(config);
   } else {
