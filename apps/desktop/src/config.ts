@@ -5,13 +5,19 @@ import type { AgentConfig } from '@eunomia/agent';
 // Node-specific config plumbing — the server calls themselves live in
 // @eunomia/agent, shared with the mobile agent.
 
+/** Desktop-only knobs on top of the shared agent config. */
+export interface DesktopConfig extends AgentConfig {
+  /** Launch at login (packaged builds only). Default true. */
+  autostart?: boolean;
+}
+
 /**
  * Env vars win; otherwise config.json in userData:
  * {"serverUrl": ..., "apiKey": ..., "syncIntervalSeconds"?: ...,
- *  "ignoreApps"?: [regex...], "redactApps"?: [regex...]}.
+ *  "ignoreApps"?: [regex...], "redactApps"?: [regex...], "autostart"?: bool}.
  * EUNOMIA_SYNC_INTERVAL_SECONDS overrides the interval in either case.
  */
-export function loadConfig(dataDir: string): AgentConfig | null {
+export function loadConfig(dataDir: string): DesktopConfig | null {
   const config = envConfig() ?? fileConfig(dataDir);
   if (!config) return null;
   const envSeconds = Number(process.env.EUNOMIA_SYNC_INTERVAL_SECONDS);
@@ -26,13 +32,14 @@ function envConfig(): AgentConfig | null {
   return null;
 }
 
-function fileConfig(dataDir: string): AgentConfig | null {
+function fileConfig(dataDir: string): DesktopConfig | null {
   const configPath = join(dataDir, 'config.json');
   if (!existsSync(configPath)) return null;
   try {
-    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Partial<AgentConfig>;
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Partial<DesktopConfig>;
     if (typeof parsed.serverUrl === 'string' && typeof parsed.apiKey === 'string') {
-      const config: AgentConfig = { serverUrl: parsed.serverUrl, apiKey: parsed.apiKey };
+      const config: DesktopConfig = { serverUrl: parsed.serverUrl, apiKey: parsed.apiKey };
+      if (typeof parsed.autostart === 'boolean') config.autostart = parsed.autostart;
       if (typeof parsed.syncIntervalSeconds === 'number') {
         config.syncIntervalSeconds = parsed.syncIntervalSeconds;
       }

@@ -13,6 +13,7 @@ import {
 } from '@eunomia/agent';
 import { activeWindow } from '@miniben90/x-win';
 import { app, Menu, nativeImage, powerMonitor, Tray } from 'electron';
+import { syncAutostart } from './autostart.ts';
 import { loadConfig } from './config.ts';
 
 // Tray-only background agent. Stateless by design: it observes the foreground
@@ -118,6 +119,10 @@ app.whenReady().then(async () => {
   let config = loadConfig(dataDir);
   let sanitize = createSanitizer(config ?? {});
 
+  // Only provisioned installs register launch-at-login; {"autostart": false}
+  // in config.json opts out (and removes an earlier registration).
+  if (config) syncAutostart(config.autostart !== false);
+
   const startUploads = (cfg: AgentConfig): void => {
     const uploader = createUploader(cfg, outbox);
     setInterval(() => void uploader.flush(), syncIntervalMs(cfg));
@@ -134,6 +139,7 @@ app.whenReady().then(async () => {
     if (result) {
       config = result;
       sanitize = createSanitizer(result);
+      syncAutostart(true);
       startUploads(result);
       refreshTrayMenu();
     }

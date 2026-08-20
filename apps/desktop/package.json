@@ -10,19 +10,20 @@
     "typecheck": "tsc --noEmit",
     "build:main": "esbuild src/main.ts --bundle --platform=node --format=cjs --external:electron --external:@miniben90/x-win --outfile=dist/main.cjs",
     "fetch:win-native": "node scripts/fetch-win-native.mjs",
-    "dist:win": "npm run build:main && npm run fetch:win-native && electron-builder --win --x64"
+    "dist:win": "npm run build:main && npm run fetch:win-native && electron-builder --win --x64",
+    "dist:linux": "npm run build:main && electron-builder --linux --x64"
   },
   "build": {
     "appId": "com.cubicecho.eunomia",
     "productName": "eunomia-agent",
+    "publish": null,
     "electronVersion": "43.4.0",
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**",
-      "package.json",
-      "!**/node_modules/@miniben90/x-win-linux-x64-gnu/**"
+      "package.json"
     ],
     "asarUnpack": [
       "**/*.node"
@@ -34,7 +35,20 @@
       "target": [
         "zip"
       ],
+      "files": [
+        "!**/node_modules/@miniben90/x-win-linux-x64-gnu/**"
+      ],
       "signAndEditExecutable": false
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "executableName": "eunomia-agent",
+      "category": "Utility",
+      "files": [
+        "!**/node_modules/@miniben90/x-win/x-win.win32-x64-msvc.node"
+      ]
     }
   },
   "dependencies": {

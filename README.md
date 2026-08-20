@@ -109,6 +109,19 @@ Invalid regexes are skipped with a console warning rather than blocking
 tracking. Independently of these lists, browser tracking only ever reports
 the site's hostname — full URLs never leave the machine.
 
+### Packaging the desktop agent
+
+```bash
+npm run dist:linux -w @eunomia/desktop   # release/eunomia-agent-*.AppImage
+npm run dist:win -w @eunomia/desktop     # release/eunomia-agent-*-win.zip
+```
+
+Both cross-build from Linux (`dist:win` downloads the win32 `x-win`
+prebuild). Packaged agents **register themselves to launch at login** once
+provisioned — an XDG autostart entry on Linux, a login item on Windows/macOS.
+Opt out with `{"autostart": false}` in `config.json`; running from source
+(`npm run dev:desktop`) never touches login items.
+
 ### Login (magic link)
 
 Login is passwordless: `requestMagicLink(email)` emails a single-use link
