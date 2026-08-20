@@ -40,6 +40,16 @@ function formatSeconds(seconds: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+/** "just now" / "5m ago" / "3h ago" / "2d ago" from an elapsed duration. */
+function ago(elapsedMs: number): string {
+  const minutes = Math.floor(elapsedMs / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 /** Default range: the last 7 days, inclusive of today. */
 function defaultRange(): { from: string; to: string } {
   const to = new Date();
@@ -562,6 +572,15 @@ async function renderDevices(): Promise<void> {
       'muted',
       `${device.platform} · added ${new Date(device.createdAt).toISOString().slice(0, 10)}`,
     );
+    // The dead-agent tell: mobile background sync can lag 15+ minutes, so
+    // only longer silences get the warning treatment.
+    const seenMs = device.lastSeenAt ? Date.now() - new Date(device.lastSeenAt).getTime() : null;
+    const stale = seenMs === null || seenMs > 30 * 60 * 1000;
+    const seen = el(
+      'span',
+      stale ? 'stale' : 'muted',
+      seenMs === null ? '⚠ never seen' : `${stale ? '⚠ ' : ''}seen ${ago(seenMs)}`,
+    );
     const del = el('button', 'ghost danger', 'Delete');
     del.addEventListener('click', () => {
       const sure = confirm(
@@ -569,7 +588,7 @@ async function renderDevices(): Promise<void> {
       );
       if (sure) void runAction(status, () => deleteDevice(device.id), reload);
     });
-    row.append(name, rename, meta, del);
+    row.append(name, rename, meta, seen, del);
     section.append(row);
   }
   app.append(section, status);

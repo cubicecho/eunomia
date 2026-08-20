@@ -104,6 +104,8 @@ export interface Device {
   name: string;
   platform: string;
   createdAt: string;
+  /** Receipt time of the device's last ping; null until its first upload. */
+  lastSeenAt: string | null;
 }
 
 export const fetchCategories = () =>
@@ -122,7 +124,7 @@ export const fetchContextRules = () =>
   ).then((d) => d.contextRules);
 
 export const fetchDevices = () =>
-  gql<{ devices: Device[] }>('query { devices { id name platform createdAt } }').then(
+  gql<{ devices: Device[] }>('query { devices { id name platform createdAt lastSeenAt } }').then(
     (d) => d.devices,
   );
 

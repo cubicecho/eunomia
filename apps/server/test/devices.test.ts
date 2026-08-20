@@ -1,7 +1,8 @@
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createAuth, createAuthGateway, verifyDeviceKey } from '../src/auth.ts';
-import { activities, user } from '../src/db/schema.ts';
+import { eq } from 'drizzle-orm';
+import { activities, devices, user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
@@ -57,6 +58,24 @@ describe('device management', () => {
       variableValues: { id: deviceId },
       contextValue: asUser(userId),
     });
+
+  it('stamps lastSeenAt when a ping arrives', async () => {
+    const { deviceId } = await register('user-1');
+    const before = new Date();
+    const result = await graphql({
+      schema,
+      source: `mutation ($id: String!) {
+        recordPing(deviceId: $id, capturedAt: "2026-08-10T09:00:00Z", app: "code", idleSeconds: 0) { id }
+      }`,
+      variableValues: { id: deviceId },
+      contextValue: asUser('user-1'),
+    });
+    expect(result.errors).toBeUndefined();
+
+    const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
+    // Receipt time, not the (retroactive) capturedAt.
+    expect(device?.lastSeenAt?.getTime()).toBeGreaterThanOrEqual(before.getTime());
+  });
 
   it('renames an owned device', async () => {
     const { deviceId } = await register('user-1');

@@ -669,6 +669,13 @@ export function createSchema(db: Db, auth: AuthGateway) {
           if (!device || device.userId !== ctx.userId) throw new Error('Unknown device');
           const capturedAt = new Date(args.capturedAt);
           if (Number.isNaN(capturedAt.getTime())) throw new Error('Invalid capturedAt');
+          // Liveness marker for the dashboard. Receipt time, not capturedAt:
+          // a retroactive mobile sync means the agent is alive NOW. Throttled
+          // — within one batched upload only the first ping writes.
+          const now = new Date();
+          if (!device.lastSeenAt || now.getTime() - device.lastSeenAt.getTime() > 60_000) {
+            await db.update(devices).set({ lastSeenAt: now }).where(eq(devices.id, device.id));
+          }
           const context =
             args.context ??
             extractContext(

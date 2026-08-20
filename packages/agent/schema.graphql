@@ -389,6 +389,9 @@ type Devices {
   """DateTime"""
   createdAt: DateTime!
   id: String!
+
+  """DateTime"""
+  lastSeenAt: DateTime
   name: String!
   platform: DevicesPlatformEnum!
   summaries(limit: Int, offset: Int, orderBy: SummariesOrderBy, where: SummariesFilters): [Summaries!]!
@@ -400,6 +403,7 @@ input DevicesFilters {
   OR: [DevicesFiltersOr!]
   createdAt: DateTimeFilter
   id: IdFilter
+  lastSeenAt: DateTimeFilter
   name: StringFilter
   platform: DevicesPlatformEnumFilter
   userId: IdFilter
@@ -408,6 +412,7 @@ input DevicesFilters {
 input DevicesFiltersOr {
   createdAt: DateTimeFilter
   id: IdFilter
+  lastSeenAt: DateTimeFilter
   name: StringFilter
   platform: DevicesPlatformEnumFilter
   userId: IdFilter
@@ -416,6 +421,7 @@ input DevicesFiltersOr {
 input DevicesOrderBy {
   createdAt: InnerOrder
   id: InnerOrder
+  lastSeenAt: InnerOrder
   name: InnerOrder
   platform: InnerOrder
   userId: InnerOrder

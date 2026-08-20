@@ -431,6 +431,8 @@ export type Devices = {
   /** DateTime */
   createdAt: Scalars['DateTime']['output'];
   id: Scalars['String']['output'];
+  /** DateTime */
+  lastSeenAt?: Maybe<Scalars['DateTime']['output']>;
   name: Scalars['String']['output'];
   platform: DevicesPlatformEnum;
   summaries: Array<Summaries>;
@@ -463,6 +465,7 @@ export type DevicesFilters = {
   OR?: InputMaybe<Array<DevicesFiltersOr>>;
   createdAt?: InputMaybe<DateTimeFilter>;
   id?: InputMaybe<IdFilter>;
+  lastSeenAt?: InputMaybe<DateTimeFilter>;
   name?: InputMaybe<StringFilter>;
   platform?: InputMaybe<DevicesPlatformEnumFilter>;
   userId?: InputMaybe<IdFilter>;
@@ -471,6 +474,7 @@ export type DevicesFilters = {
 export type DevicesFiltersOr = {
   createdAt?: InputMaybe<DateTimeFilter>;
   id?: InputMaybe<IdFilter>;
+  lastSeenAt?: InputMaybe<DateTimeFilter>;
   name?: InputMaybe<StringFilter>;
   platform?: InputMaybe<DevicesPlatformEnumFilter>;
   userId?: InputMaybe<IdFilter>;
@@ -479,6 +483,7 @@ export type DevicesFiltersOr = {
 export type DevicesOrderBy = {
   createdAt?: InputMaybe<InnerOrder>;
   id?: InputMaybe<InnerOrder>;
+  lastSeenAt?: InputMaybe<InnerOrder>;
   name?: InputMaybe<InnerOrder>;
   platform?: InputMaybe<InnerOrder>;
   userId?: InputMaybe<InnerOrder>;

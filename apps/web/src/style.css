@@ -188,6 +188,11 @@ form.grid {
   color: var(--muted);
 }
 
+/* A device that hasn't pinged in a while — the agent is probably dead. */
+.stale {
+  color: #f0883e;
+}
+
 .status {
   color: var(--accent);
   min-height: 1.5em;

@@ -104,6 +104,10 @@ export const devices = pgTable('devices', {
   name: text('name').notNull(),
   platform: text('platform', { enum: ['windows', 'macos', 'linux', 'android'] }).notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+  // Receipt time of the device's last ping (not capturedAt — retroactive
+  // syncs shouldn't look stale). Null until the agent's first upload. The
+  // dashboard uses this to surface silently dead agents.
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
 });
 
 // User-defined buckets activities get assigned to ("Work", "Gaming", ...).
