@@ -5,6 +5,10 @@ services:
       dockerfile: apps/server/Dockerfile
     restart: unless-stopped
     environment:
+      # Day boundaries on the dashboard follow this zone (e.g.
+      # America/Chicago). Decide before data accrues — rolled-up summaries
+      # keep the day they were bucketed into.
+      TZ: ${TZ:-UTC}
       DATABASE_URL: postgres://eunomia:eunomia@postgres:5432/eunomia
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:4000}

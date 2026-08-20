@@ -165,6 +165,11 @@ The app container serves the built web dashboard at `/` and GraphQL at
 `/graphql` — one origin, so magic links default to the server's own URL
 (override with `APP_URL` only if the dashboard is hosted elsewhere).
 
+Set `TZ` (IANA name, e.g. `America/Chicago`) so dashboard days split at your
+midnight instead of UTC's. Decide before real data accrues: rolled-up
+summaries keep the day they were bucketed into and won't re-bucket if the
+zone changes later.
+
 The app container applies committed drizzle migrations on startup
 (`drizzle-kit migrate`), so upgrades are `git pull && docker compose up
 --build`. After changing `src/db/schema.ts`, generate a new migration with

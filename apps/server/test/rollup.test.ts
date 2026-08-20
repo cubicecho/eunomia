@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { rollupActivities } from '../src/activity/rollup.ts';
@@ -85,6 +86,20 @@ describe('rollup', () => {
     expect(await rollupActivities(db as never)).toBe(1);
     const after = await db.select().from(summaries);
     expect(after.find((r) => r.day === '2026-08-11')?.seconds).toBe(100);
+  });
+
+  it('buckets days in the session time zone', async () => {
+    // 02:00 UTC on the 11th is still the evening of the 10th in Chicago —
+    // prod sets the zone via the TZ env (see db/client.ts).
+    await db.execute(sql`set time zone 'America/Chicago'`);
+    try {
+      await db.insert(activities).values([activity('a1', '2026-08-11T02:00:00Z', 600)]);
+      await rollupActivities(db as never);
+      const rows = await db.select().from(summaries);
+      expect(rows.map((r) => r.day)).toEqual(['2026-08-10']);
+    } finally {
+      await db.execute(sql`set time zone 'UTC'`);
+    }
   });
 
   it('categorySummary and appSummary merge rolled and live time', async () => {
