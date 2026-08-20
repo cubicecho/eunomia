@@ -9,7 +9,9 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:4000}
       PORT: "4000"
-      APP_URL: ${APP_URL:-http://localhost:3000}
+      # Where magic links point. Empty = same as BETTER_AUTH_URL, since this
+      # container serves the web dashboard itself.
+      APP_URL: ${APP_URL:-}
       # See .env.example — returns magic-link tokens to callers when true.
       UNSAFE_LOCAL_NETWORK: ${UNSAFE_LOCAL_NETWORK:-false}
       SMTP_HOST: ${SMTP_HOST:-}

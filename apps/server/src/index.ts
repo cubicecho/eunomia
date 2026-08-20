@@ -5,6 +5,7 @@ import { createAuth, createAuthGateway, verifyDeviceKey } from './auth.ts';
 import { createDb } from './db/client.ts';
 import type { Context } from './graphql/context.ts';
 import { createSchema } from './graphql/schema.ts';
+import { createStaticHandler } from './static.ts';
 
 const db = createDb();
 const auth = createAuth(db);
@@ -37,7 +38,20 @@ const yoga = createYoga<Record<string, never>, Context>({
   },
 });
 
+// WEB_DIST points at the built dashboard (set in the container image); the
+// server then serves it on every non-/graphql path, so one origin hosts both
+// and the SPA's relative /graphql calls need no proxy. Unset in dev, where
+// vite serves the dashboard itself.
+const webDist = process.env.WEB_DIST;
+const serveStatic = webDist ? createStaticHandler(webDist) : null;
+if (webDist) console.log(`serving web dashboard from ${webDist}`);
+
 const server = createServer((req, res) => {
+  const path = (req.url ?? '/').split('?')[0];
+  if (serveStatic && path !== yoga.graphqlEndpoint) {
+    serveStatic(req, res);
+    return;
+  }
   void yoga(req, res);
 });
 

@@ -161,6 +161,10 @@ that has no context. Context is part of the row's identity, so rules apply
 docker compose up --build   # app on :4000 + postgres 17
 ```
 
+The app container serves the built web dashboard at `/` and GraphQL at
+`/graphql` — one origin, so magic links default to the server's own URL
+(override with `APP_URL` only if the dashboard is hosted elsewhere).
+
 The app container applies committed drizzle migrations on startup
 (`drizzle-kit migrate`), so upgrades are `git pull && docker compose up
 --build`. After changing `src/db/schema.ts`, generate a new migration with

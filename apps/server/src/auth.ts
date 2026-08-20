@@ -54,7 +54,12 @@ export function createAuth(db: Db, options: AuthOptions = {}) {
             tokenCaptures.set(captureId, token);
             return;
           }
-          const appUrl = options.appUrl ?? process.env.APP_URL ?? 'http://localhost:3000';
+          // The server serves the dashboard itself in deployments, so its own
+          // URL is the right default; APP_URL only matters when the dashboard
+          // lives elsewhere (e.g. the vite dev server on :3000).
+          const appUrl =
+            options.appUrl ??
+            (process.env.APP_URL || process.env.BETTER_AUTH_URL || 'http://localhost:4000');
           const url = `${appUrl}/?token=${encodeURIComponent(token)}`;
           await (options.sendMagicLink ?? sendMagicLinkEmail)({ email, url, token });
         },
