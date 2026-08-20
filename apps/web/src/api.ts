@@ -34,11 +34,11 @@ export interface CategoryDaySummary {
   seconds: number;
 }
 
-export interface ActivityRow {
+export interface AppSummaryRow {
   app: string;
   // Sub-app division: browser site, open project/book — null when undivided.
   context: string | null;
-  activeSeconds: number;
+  seconds: number;
 }
 
 /**
@@ -71,12 +71,11 @@ export const fetchSummary = (from: string, to: string) =>
     { from, to },
   ).then((d) => d.categorySummary);
 
-export const fetchActivities = (from: string, to: string) =>
-  gql<{ activities: ActivityRow[] }>(
-    // startedAt is the generated DateTime scalar, not String.
-    'query ($from: DateTime!, $to: DateTime!) { activities(where: { startedAt: { gte: $from, lt: $to } }) { app context activeSeconds } }',
+export const fetchAppSummary = (from: string, to: string) =>
+  gql<{ appSummary: AppSummaryRow[] }>(
+    'query ($from: String!, $to: String!) { appSummary(from: $from, to: $to) { app context seconds } }',
     { from, to },
-  ).then((d) => d.activities);
+  ).then((d) => d.appSummary);
 
 export interface Category {
   id: string;

@@ -13,6 +13,7 @@ describe('graphql schema', () => {
 
     expect(Object.keys(schema.getQueryType()?.getFields() ?? {}).sort()).toEqual([
       'activities',
+      'appSummary',
       'categories',
       'categoryRules',
       'categorySummary',

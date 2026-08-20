@@ -7,6 +7,7 @@ import {
   real,
   text,
   timestamp,
+  unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
@@ -217,10 +218,45 @@ export const activities = pgTable(
     // again) or 'rule' (auto; re-evaluated on later pings/sweeps). Null when
     // unassigned, leaving the row open to auto-categorization.
     categorySource: text('category_source', { enum: ['manual', 'rule'] }),
+    // Whether this (closed) activity's seconds have been folded into the
+    // summaries table. Category changes on rolled rows must move their seconds
+    // between summary rows (see src/activity/rollup.ts).
+    rolledUp: boolean('rolled_up').notNull().default(false),
   },
   (t) => [
     index('activities_device_closed_idx').on(t.deviceId, t.closedAt),
     index('activities_category_idx').on(t.categoryId),
+  ],
+);
+
+// Precomputed aggregates: active seconds per (device, UTC day of start, app,
+// context, category), folded from closed activities by the rollup job so
+// dashboards read a few summary rows instead of every raw activity. Raw rows
+// are kept (marked rolledUp) for drill-down; summaries are the fast path and
+// would survive a future retention sweep of old raw activities.
+export const summaries = pgTable(
+  'summaries',
+  {
+    id: text('id').primaryKey(),
+    deviceId: text('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    // 'YYYY-MM-DD' of the activity's startedAt (server-timezone day, same
+    // date_trunc the live summary queries use).
+    day: text('day').notNull(),
+    app: text('app').notNull(),
+    context: text('context'),
+    // Deleting a category merges its summary rows into the uncategorized ones
+    // in the resolver, so this FK's action never has rows left to touch.
+    categoryId: text('category_id').references(() => categories.id, { onDelete: 'set null' }),
+    seconds: real('seconds').notNull().default(0),
+  },
+  (t) => [
+    // NULLS NOT DISTINCT so the upsert's ON CONFLICT treats "no context" /
+    // "no category" as one row instead of accumulating duplicates.
+    unique('summaries_key_idx')
+      .on(t.deviceId, t.day, t.app, t.context, t.categoryId)
+      .nullsNotDistinct(),
   ],
 );
 
@@ -234,10 +270,11 @@ const r = createRelationsHelper({
   categories,
   categoryRules,
   contextRules,
+  summaries,
 });
 
 export const relations = buildRelations(
-  { user, devices, activities, categories, categoryRules, contextRules },
+  { user, devices, activities, categories, categoryRules, contextRules, summaries },
   {
     user: {
       devices: r.many.devices({ from: r.user.id, to: r.devices.userId }),
@@ -248,6 +285,10 @@ export const relations = buildRelations(
     devices: {
       user: r.one.user({ from: r.devices.userId, to: r.user.id }),
       activities: r.many.activities({ from: r.devices.id, to: r.activities.deviceId }),
+      summaries: r.many.summaries({ from: r.devices.id, to: r.summaries.deviceId }),
+    },
+    summaries: {
+      device: r.one.devices({ from: r.summaries.deviceId, to: r.devices.id }),
     },
     activities: {
       device: r.one.devices({ from: r.activities.deviceId, to: r.devices.id }),

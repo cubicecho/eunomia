@@ -37,6 +37,7 @@ export type Activities = {
   id: Scalars['String']['output'];
   /** DateTime */
   lastActiveAt: Scalars['DateTime']['output'];
+  rolledUp: Scalars['Boolean']['output'];
   /** DateTime */
   startedAt: Scalars['DateTime']['output'];
   title?: Maybe<Scalars['String']['output']>;
@@ -108,6 +109,7 @@ export type ActivitiesFilters = {
   deviceId?: InputMaybe<IdFilter>;
   id?: InputMaybe<IdFilter>;
   lastActiveAt?: InputMaybe<DateTimeFilter>;
+  rolledUp?: InputMaybe<BooleanFilter>;
   startedAt?: InputMaybe<DateTimeFilter>;
   title?: InputMaybe<StringFilter>;
 };
@@ -122,6 +124,7 @@ export type ActivitiesFiltersOr = {
   deviceId?: InputMaybe<IdFilter>;
   id?: InputMaybe<IdFilter>;
   lastActiveAt?: InputMaybe<DateTimeFilter>;
+  rolledUp?: InputMaybe<BooleanFilter>;
   startedAt?: InputMaybe<DateTimeFilter>;
   title?: InputMaybe<StringFilter>;
 };
@@ -136,8 +139,16 @@ export type ActivitiesOrderBy = {
   deviceId?: InputMaybe<InnerOrder>;
   id?: InputMaybe<InnerOrder>;
   lastActiveAt?: InputMaybe<InnerOrder>;
+  rolledUp?: InputMaybe<InnerOrder>;
   startedAt?: InputMaybe<InnerOrder>;
   title?: InputMaybe<InnerOrder>;
+};
+
+export type AppContextSummary = {
+  __typename?: 'AppContextSummary';
+  app: Scalars['String']['output'];
+  context?: Maybe<Scalars['String']['output']>;
+  seconds: Scalars['Float']['output'];
 };
 
 export type AuthSession = {
@@ -422,6 +433,7 @@ export type Devices = {
   id: Scalars['String']['output'];
   name: Scalars['String']['output'];
   platform: DevicesPlatformEnum;
+  summaries: Array<Summaries>;
   user?: Maybe<User>;
   userId: Scalars['String']['output'];
 };
@@ -432,6 +444,14 @@ export type DevicesActivitiesArgs = {
   offset?: InputMaybe<Scalars['Int']['input']>;
   orderBy?: InputMaybe<ActivitiesOrderBy>;
   where?: InputMaybe<ActivitiesFilters>;
+};
+
+
+export type DevicesSummariesArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  orderBy?: InputMaybe<SummariesOrderBy>;
+  where?: InputMaybe<SummariesFilters>;
 };
 
 
@@ -680,6 +700,7 @@ export type OrderDirection =
 export type Query = {
   __typename?: 'Query';
   activities: Array<Activities>;
+  appSummary: Array<AppContextSummary>;
   categories: Array<Categories>;
   categoryRules: Array<CategoryRules>;
   categorySummary: Array<CategoryDaySummary>;
@@ -694,6 +715,12 @@ export type QueryActivitiesArgs = {
   offset?: InputMaybe<Scalars['Int']['input']>;
   orderBy?: InputMaybe<ActivitiesOrderBy>;
   where?: InputMaybe<ActivitiesFilters>;
+};
+
+
+export type QueryAppSummaryArgs = {
+  from: Scalars['String']['input'];
+  to: Scalars['String']['input'];
 };
 
 
@@ -771,6 +798,54 @@ export type StringFilterOr = {
   /** Array<undefined> */
   notInArray?: InputMaybe<Array<Scalars['String']['input']>>;
   notLike?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type Summaries = {
+  __typename?: 'Summaries';
+  app: Scalars['String']['output'];
+  categoryId?: Maybe<Scalars['String']['output']>;
+  context?: Maybe<Scalars['String']['output']>;
+  day: Scalars['String']['output'];
+  device?: Maybe<Devices>;
+  deviceId: Scalars['String']['output'];
+  id: Scalars['String']['output'];
+  seconds: Scalars['Float']['output'];
+};
+
+
+export type SummariesDeviceArgs = {
+  where?: InputMaybe<DevicesFilters>;
+};
+
+export type SummariesFilters = {
+  OR?: InputMaybe<Array<SummariesFiltersOr>>;
+  app?: InputMaybe<StringFilter>;
+  categoryId?: InputMaybe<IdFilter>;
+  context?: InputMaybe<StringFilter>;
+  day?: InputMaybe<StringFilter>;
+  deviceId?: InputMaybe<IdFilter>;
+  id?: InputMaybe<IdFilter>;
+  seconds?: InputMaybe<StringFilter>;
+};
+
+export type SummariesFiltersOr = {
+  app?: InputMaybe<StringFilter>;
+  categoryId?: InputMaybe<IdFilter>;
+  context?: InputMaybe<StringFilter>;
+  day?: InputMaybe<StringFilter>;
+  deviceId?: InputMaybe<IdFilter>;
+  id?: InputMaybe<IdFilter>;
+  seconds?: InputMaybe<StringFilter>;
+};
+
+export type SummariesOrderBy = {
+  app?: InputMaybe<InnerOrder>;
+  categoryId?: InputMaybe<InnerOrder>;
+  context?: InputMaybe<InnerOrder>;
+  day?: InputMaybe<InnerOrder>;
+  deviceId?: InputMaybe<InnerOrder>;
+  id?: InputMaybe<InnerOrder>;
+  seconds?: InputMaybe<InnerOrder>;
 };
 
 export type User = {

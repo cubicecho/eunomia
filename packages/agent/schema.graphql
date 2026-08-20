@@ -14,6 +14,7 @@ type Activities {
 
   """DateTime"""
   lastActiveAt: DateTime!
+  rolledUp: Boolean!
 
   """DateTime"""
   startedAt: DateTime!
@@ -82,6 +83,7 @@ input ActivitiesFilters {
   deviceId: IdFilter
   id: IdFilter
   lastActiveAt: DateTimeFilter
+  rolledUp: BooleanFilter
   startedAt: DateTimeFilter
   title: StringFilter
 }
@@ -96,6 +98,7 @@ input ActivitiesFiltersOr {
   deviceId: IdFilter
   id: IdFilter
   lastActiveAt: DateTimeFilter
+  rolledUp: BooleanFilter
   startedAt: DateTimeFilter
   title: StringFilter
 }
@@ -110,8 +113,15 @@ input ActivitiesOrderBy {
   deviceId: InnerOrder
   id: InnerOrder
   lastActiveAt: InnerOrder
+  rolledUp: InnerOrder
   startedAt: InnerOrder
   title: InnerOrder
+}
+
+type AppContextSummary {
+  app: String!
+  context: String
+  seconds: Float!
 }
 
 type AuthSession {
@@ -381,6 +391,7 @@ type Devices {
   id: String!
   name: String!
   platform: DevicesPlatformEnum!
+  summaries(limit: Int, offset: Int, orderBy: SummariesOrderBy, where: SummariesFilters): [Summaries!]!
   user(where: UserFilters): User
   userId: String!
 }
@@ -545,6 +556,7 @@ enum OrderDirection {
 
 type Query {
   activities(limit: Int, offset: Int, orderBy: ActivitiesOrderBy, where: ActivitiesFilters): [Activities!]!
+  appSummary(from: String!, to: String!): [AppContextSummary!]!
   categories(limit: Int, offset: Int, orderBy: CategoriesOrderBy, where: CategoriesFilters): [Categories!]!
   categoryRules(limit: Int, offset: Int, orderBy: CategoryRulesOrderBy, where: CategoryRulesFilters): [CategoryRules!]!
   categorySummary(from: String!, to: String!): [CategoryDaySummary!]!
@@ -594,6 +606,48 @@ input StringFilterOr {
   """Array<undefined>"""
   notInArray: [String!]
   notLike: String
+}
+
+type Summaries {
+  app: String!
+  categoryId: String
+  context: String
+  day: String!
+  device(where: DevicesFilters): Devices
+  deviceId: String!
+  id: String!
+  seconds: Float!
+}
+
+input SummariesFilters {
+  OR: [SummariesFiltersOr!]
+  app: StringFilter
+  categoryId: IdFilter
+  context: StringFilter
+  day: StringFilter
+  deviceId: IdFilter
+  id: IdFilter
+  seconds: StringFilter
+}
+
+input SummariesFiltersOr {
+  app: StringFilter
+  categoryId: IdFilter
+  context: StringFilter
+  day: StringFilter
+  deviceId: IdFilter
+  id: IdFilter
+  seconds: StringFilter
+}
+
+input SummariesOrderBy {
+  app: InnerOrder
+  categoryId: InnerOrder
+  context: InnerOrder
+  day: InnerOrder
+  deviceId: InnerOrder
+  id: InnerOrder
+  seconds: InnerOrder
 }
 
 type User {

@@ -19,6 +19,7 @@ import {
   loadContextRules,
 } from '../activity/context.ts';
 import { foldPing } from '../activity/fold.ts';
+import { mergeCategorySummaries, moveRolledSeconds } from '../activity/rollup.ts';
 import { applyRules, assertValidPattern, loadRules, sweepRules } from '../activity/rules.ts';
 import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
@@ -29,6 +30,7 @@ import {
   categoryRules,
   contextRules,
   devices,
+  summaries,
 } from '../db/schema.ts';
 import type { Context } from './context.ts';
 import { permissions } from './permissions.ts';
@@ -90,6 +92,53 @@ export function createSchema(db: Db, auth: AuthGateway) {
     },
   });
 
+  // Dashboard aggregate row: active seconds per app (and per context within
+  // it) over a range.
+  const appContextSummaryType = new GraphQLObjectType({
+    name: 'AppContextSummary',
+    fields: {
+      app: { type: new GraphQLNonNull(GraphQLString) },
+      // Null = the app's time with no finer division.
+      context: { type: GraphQLString },
+      seconds: { type: new GraphQLNonNull(GraphQLFloat) },
+    },
+  });
+
+  const parseRange = (args: { from: string; to: string }): { from: Date; to: Date } => {
+    const from = new Date(args.from);
+    const to = new Date(args.to);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      throw new Error('Invalid date range');
+    }
+    return { from, to };
+  };
+
+  // Summary-row day filter matching the live queries' [from, to) on startedAt:
+  // rolled rows only know their day, so the exclusive upper bound backs off one
+  // microsecond — a midnight `to` excludes that day, any other time includes it.
+  const summaryDayBounds = (from: Date, to: Date) => [
+    sql`${summaries.day} >= to_char(date_trunc('day', ${from.toISOString()}::timestamptz), 'YYYY-MM-DD')`,
+    sql`${summaries.day} <= to_char(date_trunc('day', ${to.toISOString()}::timestamptz - interval '1 microsecond'), 'YYYY-MM-DD')`,
+  ];
+
+  /** Merges rolled and live aggregate rows sharing a key, summing seconds. */
+  const mergeSummaries = <T extends { seconds: number }>(
+    rows: T[],
+    keyOf: (row: T) => string,
+  ): T[] => {
+    const merged = new Map<string, T>();
+    for (const row of rows) {
+      const existing = merged.get(keyOf(row));
+      if (existing) {
+        existing.seconds += row.seconds;
+      } else {
+        merged.set(keyOf(row), { ...row });
+      }
+    }
+    // Category moves can leave zeroed summary rows behind — not worth a bar.
+    return [...merged.values()].filter((row) => row.seconds > 0);
+  };
+
   const query = new GraphQLObjectType({
     name: 'Query',
     fields: {
@@ -118,7 +167,9 @@ export function createSchema(db: Db, auth: AuthGateway) {
         // Seconds of active time per category per day (UTC), for [from, to).
         // Each activity's whole activeSeconds lands on the day it started —
         // activities are short-lived (auto-closed after 15 min unfocused), so
-        // midnight-spanning error is negligible for a dashboard.
+        // midnight-spanning error is negligible for a dashboard. Served from
+        // the precomputed summaries plus a live aggregation over whatever
+        // hasn't been rolled up yet.
         type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(categoryDaySummaryType))),
         args: {
           from: { type: new GraphQLNonNull(GraphQLString) },
@@ -126,13 +177,22 @@ export function createSchema(db: Db, auth: AuthGateway) {
         },
         resolve: async (_source, args: { from: string; to: string }, ctx: Context) => {
           if (!ctx.userId) throw new Error('Not authenticated');
-          const from = new Date(args.from);
-          const to = new Date(args.to);
-          if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
-            throw new Error('Invalid date range');
-          }
+          const { from, to } = parseRange(args);
+          const rolled = await db
+            .select({
+              day: summaries.day,
+              categoryId: summaries.categoryId,
+              name: categories.name,
+              color: categories.color,
+              seconds: sql<number>`sum(${summaries.seconds})::float`,
+            })
+            .from(summaries)
+            .innerJoin(devices, eq(summaries.deviceId, devices.id))
+            .leftJoin(categories, eq(summaries.categoryId, categories.id))
+            .where(and(eq(devices.userId, ctx.userId), ...summaryDayBounds(from, to)))
+            .groupBy(summaries.day, summaries.categoryId, categories.name, categories.color);
           const day = sql<string>`to_char(date_trunc('day', ${activities.startedAt}), 'YYYY-MM-DD')`;
-          return db
+          const live = await db
             .select({
               day,
               categoryId: activities.categoryId,
@@ -146,12 +206,64 @@ export function createSchema(db: Db, auth: AuthGateway) {
             .where(
               and(
                 eq(devices.userId, ctx.userId),
+                eq(activities.rolledUp, false),
                 gte(activities.startedAt, from),
                 lt(activities.startedAt, to),
               ),
             )
-            .groupBy(day, activities.categoryId, categories.name, categories.color)
-            .orderBy(day, activities.categoryId);
+            .groupBy(day, activities.categoryId, categories.name, categories.color);
+          return mergeSummaries([...rolled, ...live], (row) =>
+            `${row.day}\n${row.categoryId ?? ''}`,
+          ).sort(
+            (a, b) =>
+              a.day.localeCompare(b.day) ||
+              // Uncategorized last within a day, like SQL's default nulls-last.
+              (a.categoryId ?? '￿').localeCompare(b.categoryId ?? '￿'),
+          );
+        },
+      },
+      appSummary: {
+        // Seconds of active time per (app, context) for [from, to), largest
+        // first — the dashboard's top-apps list without shipping raw
+        // activities. Same rolled + live merge as categorySummary.
+        type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(appContextSummaryType))),
+        args: {
+          from: { type: new GraphQLNonNull(GraphQLString) },
+          to: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: async (_source, args: { from: string; to: string }, ctx: Context) => {
+          if (!ctx.userId) throw new Error('Not authenticated');
+          const { from, to } = parseRange(args);
+          const rolled = await db
+            .select({
+              app: summaries.app,
+              context: summaries.context,
+              seconds: sql<number>`sum(${summaries.seconds})::float`,
+            })
+            .from(summaries)
+            .innerJoin(devices, eq(summaries.deviceId, devices.id))
+            .where(and(eq(devices.userId, ctx.userId), ...summaryDayBounds(from, to)))
+            .groupBy(summaries.app, summaries.context);
+          const live = await db
+            .select({
+              app: activities.app,
+              context: activities.context,
+              seconds: sql<number>`sum(${activities.activeSeconds})::float`,
+            })
+            .from(activities)
+            .innerJoin(devices, eq(activities.deviceId, devices.id))
+            .where(
+              and(
+                eq(devices.userId, ctx.userId),
+                eq(activities.rolledUp, false),
+                gte(activities.startedAt, from),
+                lt(activities.startedAt, to),
+              ),
+            )
+            .groupBy(activities.app, activities.context);
+          return mergeSummaries([...rolled, ...live], (row) =>
+            `${row.app}\n${row.context ?? ''}`,
+          ).sort((a, b) => b.seconds - a.seconds);
         },
       },
       me: {
@@ -340,6 +452,9 @@ export function createSchema(db: Db, auth: AuthGateway) {
             .where(eq(categories.id, args.id))
             .limit(1);
           if (!category || category.userId !== ctx.userId) throw new Error('Unknown category');
+          // Summary rows can't ride the FK's set-null (it would collide with
+          // existing uncategorized rows) — merge them first.
+          await mergeCategorySummaries(db, category.id);
           await db.delete(categories).where(eq(categories.id, category.id));
           return true;
         },
@@ -383,6 +498,13 @@ export function createSchema(db: Db, auth: AuthGateway) {
             })
             .where(eq(activities.id, args.activityId))
             .returning();
+          // If the activity's seconds are already summarized, carry them over.
+          await moveRolledSeconds(
+            db,
+            found.activity,
+            found.activity.categoryId,
+            args.categoryId ?? null,
+          );
           return updated;
         },
       },

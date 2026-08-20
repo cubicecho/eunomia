@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { createYoga } from 'graphql-yoga';
+import { startRollupTimer } from './activity/rollup.ts';
 import { createAuth, createAuthGateway, verifyDeviceKey } from './auth.ts';
 import { createDb } from './db/client.ts';
 import type { Context } from './graphql/context.ts';
@@ -7,6 +8,9 @@ import { createSchema } from './graphql/schema.ts';
 
 const db = createDb();
 const auth = createAuth(db);
+
+// Fold closed activities into the summaries table (once now, then periodic).
+startRollupTimer(db);
 
 // UNSAFE_LOCAL_NETWORK=true makes requestMagicLink return the sign-in token
 // directly in the response — anyone who can reach the server can log in as

@@ -1,6 +1,6 @@
 import {
-  type ActivityRow,
   applyCategoryRules,
+  type AppSummaryRow,
   type Category,
   type CategoryDaySummary,
   type CategoryRule,
@@ -13,7 +13,7 @@ import {
   deleteContextRule,
   deleteDevice,
   type Device,
-  fetchActivities,
+  fetchAppSummary,
   fetchCategories,
   fetchCategoryRules,
   fetchContextRules,
@@ -131,13 +131,14 @@ interface AppTotal {
 
 const MAX_CONTEXTS_PER_APP = 6;
 
-function topApps(rows: ActivityRow[], count = 10): AppTotal[] {
+function topApps(rows: AppSummaryRow[], count = 10): AppTotal[] {
+  // Rows arrive pre-aggregated per (app, context) — group them under their app.
   const byApp = new Map<string, { seconds: number; contexts: Map<string, number> }>();
   for (const row of rows) {
     const entry = byApp.get(row.app) ?? { seconds: 0, contexts: new Map<string, number>() };
-    entry.seconds += row.activeSeconds;
+    entry.seconds += row.seconds;
     if (row.context) {
-      entry.contexts.set(row.context, (entry.contexts.get(row.context) ?? 0) + row.activeSeconds);
+      entry.contexts.set(row.context, (entry.contexts.get(row.context) ?? 0) + row.seconds);
     }
     byApp.set(row.app, entry);
   }
@@ -285,11 +286,11 @@ async function renderDashboard(range = defaultRange()): Promise<void> {
   const data = await guarded(
     Promise.all([
       fetchSummary(range.from, range.to),
-      fetchActivities(new Date(range.from).toISOString(), new Date(range.to).toISOString()),
+      fetchAppSummary(range.from, range.to),
     ]),
   );
   if (!data) return;
-  const [summary, activities]: [CategoryDaySummary[], ActivityRow[]] = data;
+  const [summary, apps]: [CategoryDaySummary[], AppSummaryRow[]] = data;
 
   app.replaceChildren(renderHeader('dashboard'));
 
@@ -311,7 +312,7 @@ async function renderDashboard(range = defaultRange()): Promise<void> {
 
   app.append(renderBars('By category', categoryTotals(summary)));
   app.append(renderDays(summary));
-  app.append(renderTopApps(topApps(activities)));
+  app.append(renderTopApps(topApps(apps)));
 }
 
 /** Trimmed input value, or null for the optional-pattern args. */

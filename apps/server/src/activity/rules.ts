@@ -2,6 +2,7 @@ import { and, asc, eq, isNull, ne, or } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
 import { activities, categoryRules, devices } from '../db/schema.ts';
 import type { Activity } from './fold.ts';
+import { moveRolledSeconds } from './rollup.ts';
 
 export type CategoryRule = typeof categoryRules.$inferSelect;
 
@@ -81,6 +82,9 @@ export async function applyRules(
     .set({ categoryId, categorySource: matched ? 'rule' : null })
     .where(eq(activities.id, activity.id))
     .returning();
+  // Already-summarized activities carry their seconds along (no-op when
+  // un-rolled, i.e. for every open activity the ping path re-evaluates).
+  await moveRolledSeconds(db, activity, activity.categoryId, categoryId);
   return updated!;
 }
 
