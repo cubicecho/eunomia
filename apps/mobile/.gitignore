@@ -1,0 +1,11 @@
+# Expo
+.expo/
+dist/
+web-build/
+
+# Native prebuild output (continuous native generation — `npx expo prebuild`).
+# The local native module source lives in modules/, which IS committed.
+android/
+ios/
+
+node_modules/

@@ -16,8 +16,27 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 - `apps/server` — GraphQL Yoga + `@vantreeseba/drizzle-graphql` + Drizzle (1.0 RC) + Postgres,
   better-auth (sessions + device API keys), `@vantreeseba/graphql-casl` permissions.
 - `apps/desktop` — Electron tray-only agent (`@miniben90/x-win` + `powerMonitor`).
+- `apps/mobile` — Expo (Android-only for now) agent: a local Kotlin module reads
+  Android's `UsageStatsManager` event log and the shared synthesizer turns it
+  into pings retroactively — no live sampling service needed.
 - `apps/web` — Vite + vanilla-TS dashboard (sign-in, per-category/per-day/per-app views).
+- `packages/agent` — agent core shared by desktop and mobile: the generated
+  GraphQL SDK (committed codegen output), crash-safe outbox, batch uploader,
+  and usage-event → ping synthesizer.
 - `packages/shared` — shared Zod schemas/types.
+
+### GraphQL contract
+
+`packages/agent/schema.graphql` and `packages/agent/src/gql/sdk.ts` are
+generated and committed — they are the typed contract every agent builds
+against. After changing the server schema, run:
+
+```bash
+npm run codegen   # prints server SDL, regenerates the agent SDK
+```
+
+A schema change that breaks an agent then fails `npm run typecheck` in that
+package instead of failing at runtime.
 
 ## Development
 
@@ -38,6 +57,12 @@ npm run dev:desktop
 # web dashboard (proxies /graphql to the server; set EUNOMIA_SERVER_URL to
 # point at a remote server instead)
 npm run dev:web                         # http://localhost:5173
+
+# mobile agent (Android) — needs a dev build (native module), not Expo Go:
+#   cd apps/mobile && npx expo run:android
+# then grant "Usage access" from the in-app prompt. Set up mirrors desktop:
+# server URL + email magic link. Syncs on foreground + ~15 min in background.
+npm run dev:mobile
 
 # checks
 npm run typecheck

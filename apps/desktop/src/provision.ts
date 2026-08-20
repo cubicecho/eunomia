@@ -1,13 +1,8 @@
 import { hostname } from 'node:os';
 import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
-import {
-  registerDevice,
-  requestMagicLink,
-  signOut,
-  verifyMagicLink,
-  writeAgentConfig,
-} from './api.ts';
+import { registerDevice, requestMagicLink, signOut, verifyMagicLink } from '@eunomia/agent';
+import { platformName, writeAgentConfig } from './config.ts';
 
 // One-shot terminal flow (run with --provision): sign in via magic link,
 // register this machine as a device, and write the userData config.json the
@@ -76,7 +71,7 @@ export async function runProvisioning(dataDir: string): Promise<void> {
   const name = await prompt(`Device name [${hostname()}]: `, { fallback: hostname() });
 
   const sessionToken = await signInWithMagicLink(serverUrl, email);
-  const { deviceId, apiKey } = await registerDevice(serverUrl, sessionToken, name);
+  const { deviceId, apiKey } = await registerDevice(serverUrl, sessionToken, name, platformName());
   const configPath = writeAgentConfig(dataDir, { serverUrl, apiKey });
 
   // The interactive session has done its job; the agent runs on the API key.

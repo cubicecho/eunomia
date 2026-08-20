@@ -6,8 +6,8 @@ import {
   requestMagicLink,
   signOut,
   verifyMagicLink,
-  writeAgentConfig,
-} from './api.ts';
+} from '@eunomia/agent';
+import { platformName, writeAgentConfig } from './config.ts';
 
 // Onboarding window shown when the agent starts unprovisioned: server URL +
 // email + device name, magic-link sign-in, then registerDevice writes
@@ -154,7 +154,12 @@ export function runSetupWindow(dataDir: string): Promise<AgentConfig | null> {
       async (_event, args: { serverUrl: string; name: string; tokenOrLink: string }) => {
         try {
           const session = await verifyMagicLink(args.serverUrl, args.tokenOrLink);
-          const { deviceId, apiKey } = await registerDevice(args.serverUrl, session, args.name);
+          const { deviceId, apiKey } = await registerDevice(
+            args.serverUrl,
+            session,
+            args.name,
+            platformName(),
+          );
           const config: AgentConfig = { serverUrl: args.serverUrl, apiKey };
           const configPath = writeAgentConfig(dataDir, config);
           await signOut(args.serverUrl, session);
