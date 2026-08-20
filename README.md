@@ -69,6 +69,22 @@ npm run typecheck
 npm test
 ```
 
+### Sync interval
+
+Agents sync (drain their ping outbox to the server) **once per minute by
+default**. Per device:
+
+- **Desktop** — set during setup (window or `npm run provision`), stored as
+  `syncIntervalSeconds` in the userData `config.json`; the
+  `EUNOMIA_SYNC_INTERVAL_SECONDS` env var overrides both.
+- **Android** — "Sync every" field on the status screen. Applies to
+  foreground syncs; background syncs can't run more often than Android's
+  15-minute WorkManager floor (a *longer* configured interval slows the
+  background task down too).
+
+The floor everywhere is 10 seconds; nothing is lost at any interval — pings
+queue in the outbox until the next sync.
+
 ### Login (magic link)
 
 Login is passwordless: `requestMagicLink(email)` emails a single-use link

@@ -15,9 +15,10 @@ import { loadConfig } from './src/store.ts';
 export default function App() {
   const [config, setConfig] = useState<AgentConfig | null>(() => loadConfig());
 
+  // Re-registering on config change also picks up a new sync interval.
   useEffect(() => {
     if (config) {
-      registerBackgroundSync().catch((error) =>
+      registerBackgroundSync(config).catch((error) =>
         console.error('background sync registration failed', error),
       );
     }
@@ -26,7 +27,11 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
-        {config ? <StatusScreen config={config} /> : <SetupScreen onDone={setConfig} />}
+        {config ? (
+          <StatusScreen config={config} onConfigChange={setConfig} />
+        ) : (
+          <SetupScreen onDone={setConfig} />
+        )}
         <StatusBar style="auto" />
       </SafeAreaView>
     </SafeAreaProvider>

@@ -8,6 +8,8 @@ import { getSdk, type Requester, type Sdk } from './gql/sdk.ts';
 export interface AgentConfig {
   serverUrl: string;
   apiKey: string;
+  /** Seconds between server syncs. Defaults to DEFAULT_SYNC_INTERVAL_SECONDS (see ping.ts). */
+  syncIntervalSeconds?: number;
 }
 
 export interface GraphQLTransportError {

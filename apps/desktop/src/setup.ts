@@ -2,6 +2,8 @@ import { hostname } from 'node:os';
 import { BrowserWindow, ipcMain } from 'electron';
 import {
   type AgentConfig,
+  DEFAULT_SYNC_INTERVAL_SECONDS,
+  MIN_SYNC_INTERVAL_SECONDS,
   registerDevice,
   requestMagicLink,
   signOut,
@@ -50,6 +52,8 @@ function setupHtml(defaults: { serverUrl: string; deviceName: string }): string 
     <input id="email" type="email" placeholder="you@example.com" required autofocus>
     <label for="name">Device name</label>
     <input id="name" value="${esc(defaults.deviceName)}" required>
+    <label for="interval">Sync interval (seconds)</label>
+    <input id="interval" type="number" min="${MIN_SYNC_INTERVAL_SECONDS}" value="${DEFAULT_SYNC_INTERVAL_SECONDS}" required>
     <button id="go">Sign in &amp; register device</button>
   </form>
   <form id="link" class="hidden">
@@ -74,11 +78,12 @@ function setupHtml(defaults: { serverUrl: string; deviceName: string }): string 
     serverUrl: $('server').value.trim().replace(/\\/+$/, ''),
     email: $('email').value.trim().toLowerCase(),
     name: $('name').value.trim(),
+    syncIntervalSeconds: Number($('interval').value),
   });
 
   async function finish(form, tokenOrLink) {
-    const { serverUrl, name } = details();
-    const res = await ipcRenderer.invoke('setup:finish', { serverUrl, name, tokenOrLink });
+    const { serverUrl, name, syncIntervalSeconds } = details();
+    const res = await ipcRenderer.invoke('setup:finish', { serverUrl, name, syncIntervalSeconds, tokenOrLink });
     busy(form, false);
     if (res.error) return error(res.error);
     $('details').classList.add('hidden');
@@ -151,7 +156,10 @@ export function runSetupWindow(dataDir: string): Promise<AgentConfig | null> {
 
     ipcMain.handle(
       'setup:finish',
-      async (_event, args: { serverUrl: string; name: string; tokenOrLink: string }) => {
+      async (
+        _event,
+        args: { serverUrl: string; name: string; syncIntervalSeconds: number; tokenOrLink: string },
+      ) => {
         try {
           const session = await verifyMagicLink(args.serverUrl, args.tokenOrLink);
           const { deviceId, apiKey } = await registerDevice(
@@ -160,7 +168,14 @@ export function runSetupWindow(dataDir: string): Promise<AgentConfig | null> {
             args.name,
             platformName(),
           );
-          const config: AgentConfig = { serverUrl: args.serverUrl, apiKey };
+          const config: AgentConfig = {
+            serverUrl: args.serverUrl,
+            apiKey,
+            syncIntervalSeconds:
+              Number.isFinite(args.syncIntervalSeconds) && args.syncIntervalSeconds > 0
+                ? Math.max(MIN_SYNC_INTERVAL_SECONDS, args.syncIntervalSeconds)
+                : DEFAULT_SYNC_INTERVAL_SECONDS,
+          };
           const configPath = writeAgentConfig(dataDir, config);
           await signOut(args.serverUrl, session);
           console.log(`device ${deviceId} ("${args.name}") registered, config at ${configPath}`);

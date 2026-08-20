@@ -3,11 +3,11 @@ import { join } from 'node:path';
 import {
   type AgentConfig,
   createUploader,
-  FLUSH_INTERVAL_MS,
   Outbox,
   type OutboxStore,
   PING_INTERVAL_MS,
   type Ping,
+  syncIntervalMs,
 } from '@eunomia/agent';
 import { activeWindow } from '@miniben90/x-win';
 import { app, Menu, nativeImage, powerMonitor, Tray } from 'electron';
@@ -83,7 +83,7 @@ app.whenReady().then(async () => {
 
   const startUploads = (cfg: AgentConfig): void => {
     const uploader = createUploader(cfg, outbox);
-    setInterval(() => void uploader.flush(), FLUSH_INTERVAL_MS);
+    setInterval(() => void uploader.flush(), syncIntervalMs(cfg));
     void uploader.flush(); // drain whatever a previous run left behind
     console.log(`eunomia agent pinging, uploading to ${cfg.serverUrl}`);
   };

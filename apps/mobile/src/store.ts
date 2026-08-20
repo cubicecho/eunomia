@@ -34,7 +34,11 @@ const configFile = jsonFile<Partial<AgentConfig>>('config.json');
 export function loadConfig(): AgentConfig | null {
   const parsed = configFile.read();
   if (parsed && typeof parsed.serverUrl === 'string' && typeof parsed.apiKey === 'string') {
-    return { serverUrl: parsed.serverUrl, apiKey: parsed.apiKey };
+    const config: AgentConfig = { serverUrl: parsed.serverUrl, apiKey: parsed.apiKey };
+    if (typeof parsed.syncIntervalSeconds === 'number') {
+      config.syncIntervalSeconds = parsed.syncIntervalSeconds;
+    }
+    return config;
   }
   return null;
 }

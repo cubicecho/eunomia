@@ -1,24 +1,34 @@
-import type { AgentConfig } from '@eunomia/agent';
+import {
+  type AgentConfig,
+  DEFAULT_SYNC_INTERVAL_SECONDS,
+  MIN_SYNC_INTERVAL_SECONDS,
+  syncIntervalMs,
+} from '@eunomia/agent';
 import { useCallback, useEffect, useState } from 'react';
-import { AppState, Button, StyleSheet, Text, View } from 'react-native';
+import { AppState, Button, StyleSheet, Text, TextInput, View } from 'react-native';
 import UsageEvents from '../modules/usage-events';
-import { getOutbox } from './store.ts';
+import { getOutbox, writeConfig } from './store.ts';
 import { performSync, type SyncResult } from './sync.ts';
 
 // Main screen once provisioned: usage-access gate, outbox status, manual
-// sync. Also syncs whenever the app returns to the foreground — the
+// sync, sync-interval setting. Syncs on the configured interval while the
+// app is in the foreground (plus on every return to the foreground) — the
 // background task covers the stretches in between.
 
 interface Props {
   config: AgentConfig;
+  onConfigChange: (config: AgentConfig) => void;
 }
 
-export function StatusScreen({ config }: Props) {
+export function StatusScreen({ config, onConfigChange }: Props) {
   const [usageAccess, setUsageAccess] = useState(() => UsageEvents.isUsageAccessGranted());
   const [pending, setPending] = useState(() => getOutbox().size);
   const [lastSync, setLastSync] = useState<{ at: Date; result: SyncResult } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
+  const [intervalText, setIntervalText] = useState(() =>
+    String(config.syncIntervalSeconds ?? DEFAULT_SYNC_INTERVAL_SECONDS),
+  );
 
   const sync = useCallback(async (): Promise<void> => {
     if (!UsageEvents.isUsageAccessGranted()) {
@@ -49,6 +59,30 @@ export function StatusScreen({ config }: Props) {
     return () => subscription.remove();
   }, [sync]);
 
+  // Periodic sync while the app stays in the foreground. Backgrounded, timers
+  // are throttled/frozen — the WorkManager task takes over there.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (AppState.currentState === 'active') void sync();
+    }, syncIntervalMs(config));
+    return () => clearInterval(id);
+  }, [config, sync]);
+
+  const saveInterval = (): void => {
+    const current = config.syncIntervalSeconds ?? DEFAULT_SYNC_INTERVAL_SECONDS;
+    const parsed = Number.parseInt(intervalText, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setIntervalText(String(current));
+      return;
+    }
+    const seconds = Math.max(MIN_SYNC_INTERVAL_SECONDS, parsed);
+    setIntervalText(String(seconds));
+    if (seconds === current) return;
+    const next = { ...config, syncIntervalSeconds: seconds };
+    writeConfig(next);
+    onConfigChange(next);
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>eunomia</Text>
@@ -76,6 +110,19 @@ export function StatusScreen({ config }: Props) {
             ? `${lastSync.at.toLocaleTimeString()} — ${lastSync.result.synthesized} new`
             : 'never'}
         </Text>
+      </View>
+      <View style={styles.row}>
+        <Text style={styles.rowLabel}>Sync every</Text>
+        <View style={styles.intervalEdit}>
+          <TextInput
+            style={styles.intervalInput}
+            value={intervalText}
+            onChangeText={setIntervalText}
+            onEndEditing={saveInterval}
+            keyboardType="number-pad"
+          />
+          <Text>seconds</Text>
+        </View>
       </View>
 
       <View style={styles.button}>
@@ -114,6 +161,16 @@ const styles = StyleSheet.create({
     borderBottomColor: '#ccc',
   },
   rowLabel: { fontWeight: '600' },
+  intervalEdit: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  intervalInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    minWidth: 60,
+    textAlign: 'right',
+  },
   button: { marginTop: 22 },
   error: { color: '#d33', marginTop: 12 },
 });
