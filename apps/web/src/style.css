@@ -98,6 +98,105 @@ button.ghost {
   margin: 0;
 }
 
+nav {
+  display: flex;
+  gap: 4px;
+}
+
+button.tab {
+  background: none;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+button.tab.active {
+  background: var(--panel);
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.row .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  flex: none;
+}
+
+input[type='color'] {
+  padding: 2px;
+  width: 36px;
+  height: 32px;
+}
+
+.grid {
+  display: grid;
+  gap: 6px 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.rules-grid {
+  grid-template-columns: minmax(90px, 1fr) 2fr 2fr 2fr 64px 32px;
+}
+
+.ctx-grid {
+  grid-template-columns: 2fr 3fr 64px 32px;
+}
+
+.grid-head {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.grid code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.grid input,
+.grid select {
+  min-width: 0;
+}
+
+form.grid {
+  margin-top: 4px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.status {
+  color: var(--accent);
+  min-height: 1.5em;
+}
+
+button.danger {
+  color: #f85149;
+}
+
 .empty {
   color: var(--muted);
 }

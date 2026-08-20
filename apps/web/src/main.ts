@@ -1,10 +1,27 @@
 import {
   type ActivityRow,
+  applyCategoryRules,
+  type Category,
   type CategoryDaySummary,
+  type CategoryRule,
+  type ContextRule,
+  createCategory,
+  createCategoryRule,
+  createContextRule,
+  deleteCategory,
+  deleteCategoryRule,
+  deleteContextRule,
+  deleteDevice,
+  type Device,
   fetchActivities,
+  fetchCategories,
+  fetchCategoryRules,
+  fetchContextRules,
+  fetchDevices,
   fetchSummary,
   GraphQLError,
   getToken,
+  renameDevice,
   requestMagicLink,
   signOut,
   verifyMagicLink,
@@ -220,25 +237,61 @@ function renderDays(summary: CategoryDaySummary[]): HTMLElement {
   return section;
 }
 
-async function renderDashboard(range = defaultRange()): Promise<void> {
-  let summary: CategoryDaySummary[];
-  let activities: ActivityRow[];
+type View = 'dashboard' | 'rules' | 'devices';
+
+function renderView(view: View): Promise<void> {
+  if (view === 'rules') return renderRules();
+  if (view === 'devices') return renderDevices();
+  return renderDashboard();
+}
+
+function renderHeader(active: View): HTMLElement {
+  const header = el('header');
+  header.append(el('h1', undefined, 'eunomia'));
+  const nav = el('nav');
+  const tabs: [View, string][] = [
+    ['dashboard', 'Dashboard'],
+    ['rules', 'Categories & rules'],
+    ['devices', 'Devices'],
+  ];
+  for (const [view, label] of tabs) {
+    const tab = el('button', view === active ? 'tab active' : 'tab', label);
+    tab.addEventListener('click', () => void renderView(view));
+    nav.append(tab);
+  }
+  const out = el('button', 'ghost', 'Sign out');
+  out.addEventListener('click', async () => {
+    await signOut();
+    renderSignIn();
+  });
+  header.append(nav, out);
+  return header;
+}
+
+/** Awaits a view's data, falling back to the sign-in screen on auth expiry. */
+async function guarded<T>(data: Promise<T>): Promise<T | null> {
   try {
-    [summary, activities] = await Promise.all([
-      fetchSummary(range.from, range.to),
-      fetchActivities(new Date(range.from).toISOString(), new Date(range.to).toISOString()),
-    ]);
+    return await data;
   } catch (error) {
     if (error instanceof GraphQLError && error.message === 'Not authenticated') {
       renderSignIn('session expired — sign in again');
-      return;
+      return null;
     }
     throw error;
   }
+}
 
-  app.replaceChildren();
-  const header = el('header');
-  header.append(el('h1', undefined, 'eunomia'));
+async function renderDashboard(range = defaultRange()): Promise<void> {
+  const data = await guarded(
+    Promise.all([
+      fetchSummary(range.from, range.to),
+      fetchActivities(new Date(range.from).toISOString(), new Date(range.to).toISOString()),
+    ]),
+  );
+  if (!data) return;
+  const [summary, activities]: [CategoryDaySummary[], ActivityRow[]] = data;
+
+  app.replaceChildren(renderHeader('dashboard'));
 
   const controls = el('div', 'controls');
   const fromInput = el('input');
@@ -253,18 +306,272 @@ async function renderDashboard(range = defaultRange()): Promise<void> {
       void renderDashboard({ from: fromInput.value, to: toInput.value });
     }
   });
-  const out = el('button', 'ghost', 'Sign out');
-  out.addEventListener('click', async () => {
-    await signOut();
-    renderSignIn();
-  });
-  controls.append(fromInput, el('span', undefined, '→'), toInput, apply, out);
-  header.append(controls);
-  app.append(header);
+  controls.append(fromInput, el('span', undefined, '→'), toInput, apply);
+  app.append(controls);
 
   app.append(renderBars('By category', categoryTotals(summary)));
   app.append(renderDays(summary));
   app.append(renderTopApps(topApps(activities)));
+}
+
+/** Trimmed input value, or null for the optional-pattern args. */
+const orNull = (value: string): string | null => value.trim() || null;
+
+/**
+ * Runs a mutation and re-renders the view; server-side validation errors
+ * (e.g. an invalid regex) land in the status line instead of blowing up.
+ */
+async function runAction(
+  status: HTMLElement,
+  action: () => Promise<unknown>,
+  reload: () => Promise<void>,
+): Promise<void> {
+  try {
+    await action();
+    await reload();
+  } catch (error) {
+    if (error instanceof GraphQLError && error.message === 'Not authenticated') {
+      renderSignIn('session expired — sign in again');
+      return;
+    }
+    status.textContent = error instanceof GraphQLError ? error.message : 'request failed';
+    status.className = 'status error';
+  }
+}
+
+function patternCell(pattern: string | null): HTMLElement {
+  return pattern === null ? el('span', 'muted', '—') : el('code', undefined, pattern);
+}
+
+async function renderRules(): Promise<void> {
+  const data = await guarded(
+    Promise.all([fetchCategories(), fetchCategoryRules(), fetchContextRules()]),
+  );
+  if (!data) return;
+  const [cats, catRules, ctxRules]: [Category[], CategoryRule[], ContextRule[]] = data;
+  const catById = new Map(cats.map((c) => [c.id, c]));
+  const reload = () => renderRules();
+
+  app.replaceChildren(renderHeader('rules'));
+  const status = el('p', 'status');
+
+  // --- categories ---
+  const catSection = el('section');
+  catSection.append(el('h2', undefined, 'Categories'));
+  for (const cat of [...cats].sort((a, b) => a.name.localeCompare(b.name))) {
+    const row = el('div', 'row');
+    const swatch = el('span', 'swatch');
+    swatch.style.background = cat.color ?? FALLBACK_COLOR;
+    const del = el('button', 'ghost', '✕');
+    del.title = 'Delete category (its activities are kept, uncategorized)';
+    del.addEventListener('click', () => void runAction(status, () => deleteCategory(cat.id), reload));
+    row.append(swatch, el('span', 'grow', cat.name), del);
+    catSection.append(row);
+  }
+  {
+    const form = el('form', 'row');
+    const name = el('input');
+    name.placeholder = 'new category';
+    name.required = true;
+    name.className = 'grow';
+    const color = el('input');
+    color.type = 'color';
+    color.value = '#3fb950';
+    form.append(name, color, el('button', undefined, 'Add'));
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      void runAction(status, () => createCategory(name.value.trim(), color.value), reload);
+    });
+    catSection.append(form);
+  }
+  app.append(catSection);
+
+  // --- category rules ---
+  const ruleSection = el('section');
+  ruleSection.append(el('h2', undefined, 'Category rules'));
+  ruleSection.append(
+    el(
+      'p',
+      'hint',
+      'Regexes matched against each activity; the first matching rule (lowest priority first) sets the category. Manual assignments always win.',
+    ),
+  );
+  const ruleGrid = el('div', 'grid rules-grid');
+  for (const label of ['Category', 'App', 'Title', 'Context', 'Priority', '']) {
+    ruleGrid.append(el('span', 'grid-head', label));
+  }
+  for (const rule of [...catRules].sort((a, b) => a.priority - b.priority)) {
+    const cat = catById.get(rule.categoryId);
+    const name = el('span', undefined, cat?.name ?? '?');
+    name.style.color = cat?.color ?? FALLBACK_COLOR;
+    const del = el('button', 'ghost', '✕');
+    del.addEventListener('click', () =>
+      void runAction(status, () => deleteCategoryRule(rule.id), reload),
+    );
+    ruleGrid.append(
+      name,
+      patternCell(rule.appPattern),
+      patternCell(rule.titlePattern),
+      patternCell(rule.contextPattern),
+      el('span', 'muted', String(rule.priority)),
+      del,
+    );
+  }
+  ruleSection.append(ruleGrid);
+  if (cats.length === 0) {
+    ruleSection.append(el('p', 'empty', 'Create a category first, then add rules for it.'));
+  } else {
+    const form = el('form', 'grid rules-grid');
+    const category = el('select');
+    for (const cat of cats) {
+      const option = el('option', undefined, cat.name);
+      option.value = cat.id;
+      category.append(option);
+    }
+    const appPattern = el('input');
+    appPattern.placeholder = 'app regex';
+    const titlePattern = el('input');
+    titlePattern.placeholder = 'title regex';
+    const contextPattern = el('input');
+    contextPattern.placeholder = 'context regex';
+    const priority = el('input');
+    priority.type = 'number';
+    priority.value = '0';
+    form.append(category, appPattern, titlePattern, contextPattern, priority);
+    form.append(el('button', undefined, 'Add'));
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      void runAction(
+        status,
+        () =>
+          createCategoryRule({
+            categoryId: category.value,
+            appPattern: orNull(appPattern.value),
+            titlePattern: orNull(titlePattern.value),
+            contextPattern: orNull(contextPattern.value),
+            priority: Number(priority.value) || 0,
+          }),
+        reload,
+      );
+    });
+    ruleSection.append(form);
+
+    const applyRow = el('div', 'row');
+    const apply = el('button', undefined, 'Apply rules to existing activities');
+    apply.addEventListener('click', async () => {
+      apply.disabled = true;
+      try {
+        const changed = await applyCategoryRules();
+        status.textContent = `Re-categorized ${changed} ${changed === 1 ? 'activity' : 'activities'}.`;
+        status.className = 'status';
+      } catch (error) {
+        status.textContent = error instanceof GraphQLError ? error.message : 'request failed';
+        status.className = 'status error';
+      } finally {
+        apply.disabled = false;
+      }
+    });
+    applyRow.append(apply);
+    ruleSection.append(applyRow);
+  }
+  app.append(ruleSection);
+
+  // --- context rules ---
+  const ctxSection = el('section');
+  ctxSection.append(el('h2', undefined, 'Context rules'));
+  ctxSection.append(
+    el(
+      'p',
+      'hint',
+      'Server-side context extraction for pings without one: the title regex’s first capture group becomes the context (e.g. the project in an editor title). Contexts reported by the agent itself are never overridden.',
+    ),
+  );
+  const ctxGrid = el('div', 'grid ctx-grid');
+  for (const label of ['App', 'Title', 'Priority', '']) {
+    ctxGrid.append(el('span', 'grid-head', label));
+  }
+  for (const rule of [...ctxRules].sort((a, b) => a.priority - b.priority)) {
+    const del = el('button', 'ghost', '✕');
+    del.addEventListener('click', () =>
+      void runAction(status, () => deleteContextRule(rule.id), reload),
+    );
+    ctxGrid.append(
+      patternCell(rule.appPattern),
+      patternCell(rule.titlePattern),
+      el('span', 'muted', String(rule.priority)),
+      del,
+    );
+  }
+  ctxSection.append(ctxGrid);
+  {
+    const form = el('form', 'grid ctx-grid');
+    const appPattern = el('input');
+    appPattern.placeholder = 'app regex';
+    const titlePattern = el('input');
+    titlePattern.placeholder = 'title regex with (capture)';
+    titlePattern.required = true;
+    const priority = el('input');
+    priority.type = 'number';
+    priority.value = '0';
+    form.append(appPattern, titlePattern, priority, el('button', undefined, 'Add'));
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      void runAction(
+        status,
+        () =>
+          createContextRule({
+            appPattern: orNull(appPattern.value),
+            titlePattern: titlePattern.value,
+            priority: Number(priority.value) || 0,
+          }),
+        reload,
+      );
+    });
+    ctxSection.append(form);
+  }
+  app.append(ctxSection, status);
+}
+
+async function renderDevices(): Promise<void> {
+  const devices = await guarded(fetchDevices());
+  if (!devices) return;
+  const reload = () => renderDevices();
+
+  app.replaceChildren(renderHeader('devices'));
+  const status = el('p', 'status');
+
+  const section = el('section');
+  section.append(el('h2', undefined, 'Devices'));
+  if (devices.length === 0) {
+    section.append(el('p', 'empty', 'No devices yet — run an agent and register it.'));
+  }
+  for (const device of devices as Device[]) {
+    const row = el('div', 'row');
+    const name = el('input');
+    name.value = device.name;
+    name.className = 'grow';
+    const rename = el('button', undefined, 'Rename');
+    rename.addEventListener('click', () => {
+      if (name.value.trim() && name.value.trim() !== device.name) {
+        void runAction(status, () => renameDevice(device.id, name.value.trim()), reload);
+      }
+    });
+    const meta = el(
+      'span',
+      'muted',
+      `${device.platform} · added ${new Date(device.createdAt).toISOString().slice(0, 10)}`,
+    );
+    const del = el('button', 'ghost danger', 'Delete');
+    del.addEventListener('click', () => {
+      const sure = confirm(
+        `Delete "${device.name}"? Its recorded activity is deleted and its API key stops working.`,
+      );
+      if (sure) void runAction(status, () => deleteDevice(device.id), reload);
+    });
+    row.append(name, rename, meta, del);
+    section.append(row);
+  }
+  app.append(section, status);
 }
 
 // Emailed magic links land here as /?token=…; consume it, then clean the URL

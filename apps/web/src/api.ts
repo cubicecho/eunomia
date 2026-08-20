@@ -77,3 +77,108 @@ export const fetchActivities = (from: string, to: string) =>
     'query ($from: DateTime!, $to: DateTime!) { activities(where: { startedAt: { gte: $from, lt: $to } }) { app context activeSeconds } }',
     { from, to },
   ).then((d) => d.activities);
+
+export interface Category {
+  id: string;
+  name: string;
+  color: string | null;
+}
+
+export interface CategoryRule {
+  id: string;
+  categoryId: string;
+  appPattern: string | null;
+  titlePattern: string | null;
+  contextPattern: string | null;
+  priority: number;
+}
+
+export interface ContextRule {
+  id: string;
+  appPattern: string | null;
+  titlePattern: string;
+  priority: number;
+}
+
+export interface Device {
+  id: string;
+  name: string;
+  platform: string;
+  createdAt: string;
+}
+
+export const fetchCategories = () =>
+  gql<{ categories: Category[] }>('query { categories { id name color } }').then(
+    (d) => d.categories,
+  );
+
+export const fetchCategoryRules = () =>
+  gql<{ categoryRules: CategoryRule[] }>(
+    'query { categoryRules { id categoryId appPattern titlePattern contextPattern priority } }',
+  ).then((d) => d.categoryRules);
+
+export const fetchContextRules = () =>
+  gql<{ contextRules: ContextRule[] }>(
+    'query { contextRules { id appPattern titlePattern priority } }',
+  ).then((d) => d.contextRules);
+
+export const fetchDevices = () =>
+  gql<{ devices: Device[] }>('query { devices { id name platform createdAt } }').then(
+    (d) => d.devices,
+  );
+
+export const createCategory = (name: string, color: string | null) =>
+  gql(
+    'mutation ($name: String!, $color: String) { createCategory(name: $name, color: $color) { id } }',
+    { name, color },
+  );
+
+export const deleteCategory = (id: string) =>
+  gql('mutation ($id: String!) { deleteCategory(id: $id) }', { id });
+
+export const createCategoryRule = (rule: {
+  categoryId: string;
+  appPattern: string | null;
+  titlePattern: string | null;
+  contextPattern: string | null;
+  priority: number;
+}) =>
+  gql(
+    `mutation ($categoryId: String!, $appPattern: String, $titlePattern: String, $contextPattern: String, $priority: Int) {
+      createCategoryRule(categoryId: $categoryId, appPattern: $appPattern, titlePattern: $titlePattern, contextPattern: $contextPattern, priority: $priority) { id }
+    }`,
+    rule,
+  );
+
+export const deleteCategoryRule = (id: string) =>
+  gql('mutation ($id: String!) { deleteCategoryRule(id: $id) }', { id });
+
+export const createContextRule = (rule: {
+  appPattern: string | null;
+  titlePattern: string;
+  priority: number;
+}) =>
+  gql(
+    `mutation ($appPattern: String, $titlePattern: String!, $priority: Int) {
+      createContextRule(appPattern: $appPattern, titlePattern: $titlePattern, priority: $priority) { id }
+    }`,
+    rule,
+  );
+
+export const deleteContextRule = (id: string) =>
+  gql('mutation ($id: String!) { deleteContextRule(id: $id) }', { id });
+
+/** Re-runs category rules over past activities; resolves to the number changed. */
+export const applyCategoryRules = () =>
+  gql<{ applyCategoryRules: number }>('mutation { applyCategoryRules }').then(
+    (d) => d.applyCategoryRules,
+  );
+
+export const renameDevice = (id: string, name: string) =>
+  gql('mutation ($id: String!, $name: String!) { renameDevice(id: $id, name: $name) { id } }', {
+    id,
+    name,
+  });
+
+export const deleteDevice = (id: string) =>
+  gql('mutation ($id: String!) { deleteDevice(id: $id) }', { id });
