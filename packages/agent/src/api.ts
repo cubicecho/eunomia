@@ -15,6 +15,24 @@ export interface AgentConfig extends PrivacyConfig {
 
 export interface GraphQLTransportError {
   message: string;
+  extensions?: { code?: string };
+}
+
+/**
+ * A GraphQL error the server answered with, carrying its `extensions.code`.
+ *
+ * The code is the difference between "retry this forever" and "this will never
+ * be accepted" — the uploader drops a batch only for a code it recognizes as
+ * permanent, so throwing a bare Error here would mean every rejection looked
+ * retryable and one malformed ping could wedge the outbox.
+ */
+export class GraphQLRequestError extends Error {
+  readonly code: string | null;
+  constructor(message: string, code?: string | null) {
+    super(message);
+    this.name = 'GraphQLRequestError';
+    this.code = code ?? null;
+  }
 }
 
 function requesterWithHeaders(serverUrl: string, authHeaders: Record<string, string>): Requester {
@@ -30,7 +48,8 @@ function requesterWithHeaders(serverUrl: string, authHeaders: Record<string, str
     });
     if (!response.ok) throw new Error(`HTTP ${response.status} from ${serverUrl}`);
     const body = (await response.json()) as { data?: R; errors?: GraphQLTransportError[] };
-    if (body.errors?.length) throw new Error(body.errors[0]?.message ?? 'GraphQL error');
+    const failure = body.errors?.[0];
+    if (failure) throw new GraphQLRequestError(failure.message, failure.extensions?.code);
     if (body.data === undefined || body.data === null) throw new Error('empty response');
     return body.data;
   };
@@ -44,6 +63,14 @@ export function createRequester(serverUrl: string, token?: string): Requester {
 /** Typed SDK over every operation in src/operations.graphql. */
 export function createSdk(serverUrl: string, token?: string): Sdk {
   return getSdk(createRequester(serverUrl, token));
+}
+
+/**
+ * The SDK an agent runs on: authenticated by its device API key, which also
+ * tells the server which device every ping belongs to.
+ */
+export function createDeviceSdk(config: AgentConfig): Sdk {
+  return getSdk(requesterWithHeaders(config.serverUrl, { 'x-api-key': config.apiKey }));
 }
 
 // Accepts either the full emailed link (…/?token=xyz) or the bare token.

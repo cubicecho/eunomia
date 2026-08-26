@@ -18,11 +18,12 @@ export interface Ping {
   idleSeconds: number;
 }
 
-// Compile-time drift check: every Ping must remain valid recordPing arguments,
-// so a server-side change to the mutation breaks this package's typecheck.
-import type { MutationRecordPingArgs } from './gql/sdk.ts';
+// Compile-time drift check: every Ping must remain a valid PingInput, so a
+// server-side change to the ping shape breaks this package's typecheck rather
+// than showing up as rejected uploads in the field.
+import type { PingInput } from './gql/sdk.ts';
 
-type AssertWireCompatible<_T extends MutationRecordPingArgs> = never;
+type AssertWireCompatible<_T extends PingInput> = never;
 export type _PingWireCheck = AssertWireCompatible<Ping>;
 
 /** Keep-alive cadence for live-sampling agents (desktop tray). */

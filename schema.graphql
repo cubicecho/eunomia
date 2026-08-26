@@ -543,6 +543,7 @@ type Mutation {
   deleteDevice(id: String!): Boolean!
   mergeDevice(id: String!, intoId: String!): Devices!
   recordPing(app: String, capturedAt: String!, context: String, deviceId: String, idleSeconds: Int!, title: String): Activities
+  recordPings(deviceId: String, pings: [PingInput!]!): Int!
   registerDevice(name: String!, platform: String!): DeviceRegistration!
   renameDevice(id: String!, name: String!): Devices!
   requestMagicLink(email: String!): MagicLinkRequest!
@@ -563,6 +564,15 @@ enum OrderDirection {
 
   """Descending order"""
   desc
+}
+
+"""A stateless report of what a device looked like at one instant."""
+input PingInput {
+  app: String
+  capturedAt: String!
+  context: String
+  idleSeconds: Int!
+  title: String
 }
 
 type Query {

@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentConfig } from './api.ts';
+import { type AgentConfig, GraphQLRequestError } from './api.ts';
 import { Outbox, type OutboxStore } from './outbox.ts';
 import type { Ping } from './ping.ts';
-import { classifyResponse, createUploader } from './upload.ts';
+import { classifyFailure, createUploader } from './upload.ts';
 
-// A GraphQL server answers 200 with nulls in `data` for auth failures, so
-// "the request succeeded" says nothing about whether the pings landed. Getting
-// this wrong silently discarded every ping a revoked device key uploaded.
+// A GraphQL server answers 200 with the error in the body, so "the request
+// succeeded" says nothing about whether the pings landed. Getting this wrong
+// silently discarded every ping a revoked device key uploaded.
 
 const ping = (n: number): Ping => ({
   capturedAt: new Date(n).toISOString(),
@@ -31,66 +31,36 @@ function memoryStore(): OutboxStore {
 
 const config: AgentConfig = { serverUrl: 'http://server.test', apiKey: 'k' };
 
-describe('classifyResponse', () => {
-  it('keeps a batch the server refused wholesale', () => {
+describe('classifyFailure', () => {
+  it('keeps a batch the server refused', () => {
     expect(
-      classifyResponse({
-        data: { p0: null, p1: null },
-        errors: [{ message: 'Not authenticated', extensions: { code: 'UNAUTHENTICATED' } }],
-      }),
+      classifyFailure(new GraphQLRequestError('Not authenticated', 'UNAUTHENTICATED')),
     ).toEqual({ accepted: false, error: 'Not authenticated' });
   });
 
-  it('keeps a batch when the server errored before running anything', () => {
-    expect(classifyResponse({ data: null, errors: [{ message: 'Syntax Error' }] })).toEqual({
-      accepted: false,
-      error: 'Syntax Error',
-    });
-  });
-
-  it('accepts a batch that landed', () => {
-    expect(classifyResponse({ data: { p0: { id: 'a' }, p1: { id: 'b' } } })).toEqual({
-      accepted: true,
-      error: null,
-    });
-  });
-
-  it('accepts a batch the server had nothing to record for', () => {
-    // recordPing answers null for an idle ping — a whole batch of them is an
-    // hour away from the keyboard, not a failure. Keeping it wedged the outbox:
-    // the same batch went up forever and everything queued behind it.
-    expect(classifyResponse({ data: { p0: null, p1: null } })).toEqual({
-      accepted: true,
-      error: null,
-    });
-  });
-
-  it('accepts a partial success — re-sending would double-count folded time', () => {
-    expect(
-      classifyResponse({
-        data: { p0: { id: 'a' }, p1: null },
-        errors: [{ message: 'Invalid capturedAt', extensions: { code: 'BAD_USER_INPUT' } }],
-      }),
-    ).toEqual({ accepted: true, error: null });
-  });
-
-  it('drops a batch every ping of which is unfixably malformed', () => {
+  it('drops a batch that is unfixably malformed', () => {
     // Otherwise one bad ping wedges the outbox forever.
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(
-      classifyResponse({
-        data: { p0: null },
-        errors: [{ message: 'Invalid capturedAt', extensions: { code: 'BAD_USER_INPUT' } }],
-      }),
+      classifyFailure(new GraphQLRequestError('Invalid capturedAt', 'BAD_USER_INPUT')),
     ).toEqual({ accepted: true, error: null });
   });
 
   it('keeps a batch whose failure it cannot classify', () => {
     // Unknown code, older server, anything unexpected: an outbox that grows is
     // recoverable, a dropped ping is not.
-    expect(classifyResponse({ data: { p0: null }, errors: [{ message: 'weird' }] })).toEqual({
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(classifyFailure(new GraphQLRequestError('weird'))).toEqual({
       accepted: false,
       error: 'weird',
+    });
+  });
+
+  it('keeps a batch the transport never delivered', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(classifyFailure(new Error('ECONNREFUSED'))).toEqual({
+      accepted: false,
+      error: 'ECONNREFUSED',
     });
   });
 });
@@ -98,13 +68,18 @@ describe('classifyResponse', () => {
 describe('createUploader', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  // The `init` parameter is unused but typed: it is what makes
+  // fetchMock.mock.calls[n][1].body readable without a cast.
   const respond = (body: unknown) =>
-    vi.fn(async () => new Response(JSON.stringify(body), { status: 200 }));
+    vi.fn(
+      async (_url: unknown, _init: { body: string }) =>
+        new Response(JSON.stringify(body), { status: 200 }),
+    );
 
   it('leaves rejected pings in the outbox and reports why', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const fetchMock = respond({
-      data: { p0: null, p1: null },
+      data: null,
       errors: [{ message: 'Not authenticated', extensions: { code: 'UNAUTHENTICATED' } }],
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -127,8 +102,23 @@ describe('createUploader', () => {
     expect(outbox.size).toBe(2);
   });
 
+  it('sends the whole batch as one recordPings call', async () => {
+    const fetchMock = respond({ data: { recordPings: 2 } });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const outbox = new Outbox(memoryStore());
+    outbox.pushMany([ping(1), ping(2)]);
+    await createUploader(config, outbox).flush();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    expect(body.query).toContain('recordPings');
+    expect(body.variables.pings).toEqual([ping(1), ping(2)]);
+    expect(outbox.size).toBe(0);
+  });
+
   it('drains and clears the error once the server accepts again', async () => {
-    vi.stubGlobal('fetch', respond({ data: { p0: { id: 'a' }, p1: { id: 'b' } } }));
+    vi.stubGlobal('fetch', respond({ data: { recordPings: 2 } }));
 
     const outbox = new Outbox(memoryStore());
     outbox.pushMany([ping(1), ping(2)]);
@@ -141,9 +131,10 @@ describe('createUploader', () => {
   });
 
   it('drains a batch the server recorded nothing for', async () => {
-    // Idle pings: without this the outbox never gets past them, and every
-    // later ping waits behind a batch that will never be accepted.
-    vi.stubGlobal('fetch', respond({ data: { p0: null, p1: null } }));
+    // A batch of idle pings folds into nothing and comes back 0 — an hour away
+    // from the keyboard, not a failure. Reading it as one wedged the outbox:
+    // the same batch went up forever and everything queued behind it.
+    vi.stubGlobal('fetch', respond({ data: { recordPings: 0 } }));
 
     const outbox = new Outbox(memoryStore());
     outbox.pushMany([ping(1), ping(2)]);

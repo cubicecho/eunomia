@@ -31,7 +31,12 @@ const config: CodegenConfig = {
             ].join('\n'),
           },
         },
-        'typescript',
+        // No `typescript` plugin: it emits the whole schema — every filter and
+        // order-by drizzle-graphql generates — none of which an agent imports,
+        // and it re-declares the input types typescript-operations already
+        // emits for operation variables (a duplicate `PingInput`, which is a
+        // compile error). typescript-operations resolves scalars inline, so
+        // nothing here needs the schema-wide Scalars map.
         'typescript-operations',
         'typescript-generic-sdk',
       ],

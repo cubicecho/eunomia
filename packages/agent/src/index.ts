@@ -38,7 +38,7 @@ export {
   type UsageEvent,
 } from './synth.ts';
 export {
-  classifyResponse,
+  classifyFailure,
   createUploader,
   type Uploader,
   type UploaderStatus,

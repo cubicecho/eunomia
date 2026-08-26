@@ -1,9 +1,9 @@
-import type { AgentConfig } from './api.ts';
+import { type AgentConfig, createDeviceSdk, GraphQLRequestError } from './api.ts';
 import type { Outbox } from './outbox.ts';
 import { FLUSH_BATCH_SIZE, type Ping } from './ping.ts';
 
 /**
- * Error codes that mean "this exact ping will never be accepted" — the batch is
+ * Error codes that mean "this exact batch will never be accepted" — it is
  * dropped rather than retried forever. Everything else (auth, rate limits,
  * server faults, anything unrecognized) is treated as temporary: an outbox that
  * grows is recoverable, a dropped ping is not.
@@ -17,87 +17,46 @@ export interface UploadResult {
   error: string | null;
 }
 
-interface GraphQLResponse {
-  data?: Record<string, unknown> | null;
-  errors?: { message: string; extensions?: { code?: string } }[];
-}
-
 /**
- * Decides the fate of a batch from one GraphQL response.
+ * Decides the fate of a batch from whatever the upload threw.
  *
- * A GraphQL error is HTTP 200 with nulls in `data`, so "the request succeeded"
- * proves nothing: a revoked device key answers 200 with every ping null, and
- * treating that as success discarded the pings permanently while the agent kept
- * reporting that it was uploading. `errors` is the signal — a resolved field is
- * a real answer even when the answer is null.
+ * A GraphQL failure is HTTP 200 with the error in the body, so "the request
+ * succeeded" proves nothing: a revoked device key answers 200, and treating
+ * that as success discarded the pings permanently while the agent kept
+ * reporting that it was uploading.
  *
- * Null is what recordPing returns for a ping that touched nothing (idle, or no
- * detectable app), which a whole batch can legitimately consist of. Reading
- * that as failure wedged the outbox: the batch was kept, re-sent forever, and
- * every later ping queued behind it while the tray reported "server recorded
- * nothing".
- *
- * Partial success still drops the batch — recordPing folds a ping into a
- * running activity, so re-sending the ones that landed would double-count time.
+ * Nothing about the *count* the server returns is a failure signal. recordPings
+ * answers 0 for a batch of idle pings, which is an hour away from the keyboard
+ * — reading that as failure wedged the outbox: the batch was kept, re-sent
+ * forever, and every later ping queued behind it.
  */
-export function classifyResponse(body: GraphQLResponse): UploadResult {
-  const errors = body.errors ?? [];
-  const fields = body.data ? Object.values(body.data) : [];
-  if (fields.length === 0) {
-    return { accepted: false, error: errors[0]?.message ?? 'server recorded nothing' };
-  }
-  if (errors.length === 0) return { accepted: true, error: null };
-  if (fields.some((value) => value !== null)) return { accepted: true, error: null };
-
-  // Nothing landed. Only drop when every failure is one retrying can't fix.
-  const permanent = errors.every((e) => PERMANENT_CODES.has(e.extensions?.code ?? ''));
-  if (permanent) {
-    console.error('dropping rejected pings', errors.map((e) => e.message).join('; '));
+export function classifyFailure(error: unknown): UploadResult {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = error instanceof GraphQLRequestError ? error.code : null;
+  if (code !== null && PERMANENT_CODES.has(code)) {
+    // Retrying can't fix this batch, and keeping it would wedge everything
+    // queued behind it.
+    console.error('dropping rejected pings:', message);
     return { accepted: true, error: null };
   }
-  return { accepted: false, error: errors[0]?.message ?? 'server recorded nothing' };
+  console.error('upload rejected:', message);
+  return { accepted: false, error: message };
 }
 
 /**
- * Uploads a batch as one request of aliased recordPing calls — GraphQL runs
- * root mutation fields serially, which the server's fold logic relies on. The
- * device is inferred server-side from the API key.
+ * Uploads a batch as one recordPings call.
+ *
+ * The server folds the whole batch inside one transaction holding the device's
+ * fold lock, so it lands whole or not at all — which is why a batch kept after
+ * a timeout can be re-sent without double-counting the pings that did land.
+ * The device is inferred server-side from the API key.
  */
 export async function uploadBatch(config: AgentConfig, batch: Ping[]): Promise<UploadResult> {
-  const vars: Record<string, unknown> = {};
-  const defs: string[] = [];
-  const fields: string[] = [];
-  batch.forEach((ping, i) => {
-    defs.push(`$c${i}: String!, $a${i}: String, $t${i}: String, $x${i}: String, $i${i}: Int!`);
-    fields.push(
-      `p${i}: recordPing(capturedAt: $c${i}, app: $a${i}, title: $t${i}, context: $x${i}, idleSeconds: $i${i}) { id }`,
-    );
-    vars[`c${i}`] = ping.capturedAt;
-    vars[`a${i}`] = ping.app;
-    vars[`t${i}`] = ping.title;
-    vars[`x${i}`] = ping.context;
-    vars[`i${i}`] = ping.idleSeconds;
-  });
-
   try {
-    const response = await fetch(new URL('/graphql', config.serverUrl), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': config.apiKey },
-      body: JSON.stringify({
-        query: `mutation (${defs.join(', ')}) { ${fields.join(' ')} }`,
-        variables: vars,
-      }),
-    });
-    if (!response.ok) {
-      console.error(`upload failed: HTTP ${response.status}`);
-      return { accepted: false, error: `HTTP ${response.status}` };
-    }
-    const result = classifyResponse((await response.json()) as GraphQLResponse);
-    if (result.error) console.error('upload rejected:', result.error);
-    return result;
+    await createDeviceSdk(config).RecordPings({ pings: batch });
+    return { accepted: true, error: null };
   } catch (error) {
-    console.error('upload failed', error);
-    return { accepted: false, error: error instanceof Error ? error.message : String(error) };
+    return classifyFailure(error);
   }
 }
 

@@ -53,6 +53,7 @@ export const permissions: PermissionsMap<any> = {
     mergeDevice: authenticated,
     deleteDevice: authenticated,
     recordPing: authenticated,
+    recordPings: authenticated,
     createCategory: authenticated,
     deleteCategory: authenticated,
     assignActivity: authenticated,

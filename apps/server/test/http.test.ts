@@ -1,5 +1,5 @@
-import { classifyResponse } from '@eunomia/agent';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { type Ping, uploadBatch } from '@eunomia/agent';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { type Auth, createAuth, createAuthGateway } from '../src/auth.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
@@ -128,51 +128,74 @@ describe('graphql over http', () => {
     }
   });
 
-  it('an agent batch with a bad key is retried, not dropped', async () => {
-    // The shape that used to lose data: HTTP 200, every aliased ping null.
-    // classifyResponse (the agent's rule) must call this a retry.
-    const { status, body } = await post(
-      {
-        query: `mutation ($c: String!, $i: Int!) {
-          p0: recordPing(capturedAt: $c, app: "code", idleSeconds: $i) { id }
-          p1: recordPing(capturedAt: $c, app: "code", idleSeconds: $i) { id }
-        }`,
-        variables: { c: '2026-08-10T09:00:00Z', i: 0 },
-      },
-      { 'x-api-key': 'revoked-or-never-valid' },
-    );
+  // The two ends of the upload contract meeting: the agent's real uploadBatch,
+  // its committed operation document, and this server. Both directions of
+  // "was the batch taken?" were once decided wrongly, and each mistake lost or
+  // stalled real data — so they are asserted against the actual server rather
+  // than a hand-written response body.
+  describe('agent uploads', () => {
+    afterEach(() => vi.unstubAllGlobals());
 
-    expect(status).toBe(200);
-    expect(body.data).toEqual({ p0: null, p1: null });
-    expect(body.errors?.[0]?.extensions?.code).toBe('UNAUTHENTICATED');
-    expect(classifyResponse(body)).toEqual({ accepted: false, error: 'Not authenticated' });
-  });
+    const asAgent = (apiKey: string) => {
+      vi.stubGlobal('fetch', (url: string, init: RequestInit) => app.fetch(url, init));
+      return { serverUrl: 'http://server.test', apiKey };
+    };
 
-  it('an agent batch of idle pings is accepted, not retried forever', async () => {
-    // Same shape as above — 200, every aliased ping null — but for the
-    // innocent reason: recordPing records nothing for an idle ping. Reading
-    // that as failure stalled the outbox, since the batch came back forever.
-    const reg = await query(
-      'mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }',
-      {
-        authorization: `Bearer ${await signIn()}`,
-      },
-    );
-    const apiKey = (reg.body.data?.registerDevice as { apiKey: string }).apiKey;
+    const idle = (capturedAt: string): Ping => ({
+      capturedAt,
+      app: 'code',
+      title: null,
+      context: null,
+      idleSeconds: 600,
+    });
 
-    const { body } = await post(
-      {
-        query: `mutation ($c0: String!, $c1: String!, $i: Int!) {
-          p0: recordPing(capturedAt: $c0, app: "code", idleSeconds: $i) { id }
-          p1: recordPing(capturedAt: $c1, app: "code", idleSeconds: $i) { id }
-        }`,
-        variables: { c0: '2026-08-10T09:00:00Z', c1: '2026-08-10T09:00:10Z', i: 600 },
-      },
-      { 'x-api-key': apiKey },
-    );
+    it('retries a batch a bad key rejected, rather than dropping it', async () => {
+      // The shape that used to lose data: HTTP 200 with the refusal in the
+      // body, which the agent read as success and discarded the pings for.
+      const result = await uploadBatch(asAgent('revoked-or-never-valid'), [
+        idle('2026-08-10T09:00:00Z'),
+      ]);
 
-    expect(body.errors).toBeUndefined();
-    expect(body.data).toEqual({ p0: null, p1: null });
-    expect(classifyResponse(body)).toEqual({ accepted: true, error: null });
+      expect(result).toEqual({ accepted: false, error: 'Not authenticated' });
+    });
+
+    it('accepts a batch of idle pings instead of retrying it forever', async () => {
+      // recordPings answers 0 — an hour away from the keyboard, not a failure.
+      // Reading it as one stalled the outbox: the batch came back forever and
+      // every later ping queued behind it.
+      const reg = await query(
+        'mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }',
+        { authorization: `Bearer ${await signIn()}` },
+      );
+      const { apiKey } = reg.body.data?.registerDevice as { apiKey: string };
+
+      const result = await uploadBatch(asAgent(apiKey), [
+        idle('2026-08-10T09:00:00Z'),
+        idle('2026-08-10T09:00:10Z'),
+      ]);
+
+      expect(result).toEqual({ accepted: true, error: null });
+    });
+
+    it('records a batch in one call and folds it as if the pings arrived apart', async () => {
+      const bearer = { authorization: `Bearer ${await signIn()}` };
+      const reg = await query(
+        'mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }',
+        bearer,
+      );
+      const { apiKey } = reg.body.data?.registerDevice as { apiKey: string };
+
+      const at = (seconds: number) =>
+        new Date(Date.parse('2026-08-10T09:00:00Z') + seconds * 1000).toISOString();
+      const active = (seconds: number): Ping => ({ ...idle(at(seconds)), idleSeconds: 0 });
+
+      const result = await uploadBatch(asAgent(apiKey), [active(0), active(10), active(20)]);
+      expect(result).toEqual({ accepted: true, error: null });
+
+      // One activity, and the elapsed time between the pings accrued to it —
+      // the batch folds exactly as three separate uploads would have.
+      const { body } = await query('{ activities { app activeSeconds } }', bearer);
+      expect(body.data?.activities).toEqual([{ app: 'code', activeSeconds: 20 }]);
+    });
   });
 });

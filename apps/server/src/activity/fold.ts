@@ -1,6 +1,6 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
-import { activities } from '../db/schema.ts';
+import { activities, devices } from '../db/schema.ts';
 
 /**
  * A stateless report from an agent: "this is what the device looks like right
@@ -44,6 +44,23 @@ export const CLOSE_AFTER_SECONDS = 15 * 60;
 export type Activity = typeof activities.$inferSelect;
 
 /**
+ * Takes the device's fold lock for the rest of the enclosing transaction.
+ *
+ * Folding is a read-modify-write over the device's open activities, so two
+ * uploads racing (a desktop retry overlapping the next tick, a phone syncing
+ * while the laptop pings) could each read `activeSeconds: 100` and each write
+ * back 110 — half the time silently lost. Locking the device row rather than
+ * the activities serializes the whole fold including the insert of a first
+ * activity, which has no row to lock yet.
+ *
+ * Contention is per device, which is exactly the granularity that matters: one
+ * device's agent is the only writer of its own activities.
+ */
+export async function lockDevice(db: Db, deviceId: string): Promise<void> {
+  await db.select({ id: devices.id }).from(devices).where(eq(devices.id, deviceId)).for('update');
+}
+
+/**
  * Folds one ping into the device's open activities:
  *
  * - Each device has a SET of open activities (closedAt IS NULL), keyed by
@@ -58,6 +75,10 @@ export type Activity = typeof activities.$inferSelect;
  *   since the idle ramp-up (idleSeconds 0→threshold) was wrongly counted.
  *
  * Returns the activity the ping touched, or null (idle, or no detectable app).
+ *
+ * Read-modify-write throughout, so callers must hold the device's fold lock
+ * (see lockDevice) — two concurrent pings from one device would otherwise both
+ * read the same open row and both add their delta to it.
  */
 export async function foldPing(db: Db, deviceId: string, ping: Ping): Promise<Activity | null> {
   const now = ping.capturedAt;
@@ -67,16 +88,21 @@ export async function foldPing(db: Db, deviceId: string, ping: Ping): Promise<Ac
     .from(activities)
     .where(and(eq(activities.deviceId, deviceId), isNull(activities.closedAt)));
 
-  // Auto-close what has gone unfocused too long.
-  const stale = open.filter(
-    (a) => (now.getTime() - a.lastActiveAt.getTime()) / 1000 > CLOSE_AFTER_SECONDS,
+  // Auto-close what has gone unfocused too long. Each row closes at its own
+  // lastActiveAt, which is a column reference rather than a value — so this is
+  // one statement for the whole set, not one per row.
+  const staleIds = new Set(
+    open
+      .filter((a) => (now.getTime() - a.lastActiveAt.getTime()) / 1000 > CLOSE_AFTER_SECONDS)
+      .map((a) => a.id),
   );
-  if (stale.length > 0) {
-    for (const a of stale) {
-      await db.update(activities).set({ closedAt: a.lastActiveAt }).where(eq(activities.id, a.id));
-    }
+  if (staleIds.size > 0) {
+    await db
+      .update(activities)
+      .set({ closedAt: sql`${activities.lastActiveAt}` })
+      .where(inArray(activities.id, [...staleIds]));
   }
-  const live = open.filter((a) => !stale.includes(a));
+  const live = open.filter((a) => !staleIds.has(a.id));
 
   const lastSeenMs = open.reduce((max, a) => Math.max(max, a.lastActiveAt.getTime()), 0);
 

@@ -1,6 +1,12 @@
 # The static operations agents perform. Codegen validates these against
-# schema.graphql and emits the typed SDK in src/gql/sdk.ts — the batched
-# recordPing upload is assembled dynamically (aliased fields) in upload.ts.
+# schema.graphql and emits the typed SDK in src/gql/sdk.ts.
+
+# The upload path. One request, one server-side transaction: the whole batch
+# lands or none of it does, so a retry after a timeout can never double-count
+# folded time. The device comes from the API key.
+mutation RecordPings($pings: [PingInput!]!) {
+  recordPings(pings: $pings)
+}
 
 mutation RequestMagicLink($email: String!) {
   requestMagicLink(email: $email) {
