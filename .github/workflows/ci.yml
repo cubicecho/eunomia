@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to a branch makes the first run's answer worthless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Server tests run Postgres in-process (PGlite), so there is no service
+      # container here and there doesn't need to be one.
+      - name: Test
+        run: npm test
+
+      # packages/agent's SDK is generated from the server schema and committed
+      # — it's the contract the desktop and mobile agents build against. If it
+      # drifts, agents typecheck against a schema the server no longer has.
+      # Schema printing touches neither database nor auth, so this needs no env.
+      - name: Generated GraphQL contract is up to date
+        run: |
+          npm run codegen
+          git diff --exit-code -- packages/agent/schema.graphql packages/agent/src/gql
+
+      # The desktop agent ships as a bundle, not as the sources tsc checked:
+      # esbuild resolves imports tsc is happy to leave dangling.
+      - name: Bundle the desktop agent
+        run: |
+          npm run build:main -w @eunomia/desktop
+          npm run build:preload -w @eunomia/desktop
+
+      - name: Build the dashboard
+        run: npm run build -w @eunomia/web
