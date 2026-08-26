@@ -132,6 +132,12 @@ provisioned — an XDG autostart entry on Linux, a login item on Windows/macOS.
 Opt out with `{"autostart": false}` in `config.json`; running from source
 (`npm run dev:desktop`) never touches login items.
 
+Only one agent runs per machine — launching it again (Start menu, shortcut)
+opens the dashboard from the instance already running rather than starting a
+second sampler. It tees its console output to `agent.log` in the same folder
+as `config.json` (tray → **Show log file…**, capped at ~512 KB), which is the
+only way to see what a packaged Windows build is doing.
+
 ### Login (magic link)
 
 Login is passwordless: `requestMagicLink(email)` emails a single-use link

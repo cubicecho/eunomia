@@ -13,9 +13,10 @@ import {
   type Uploader,
 } from '@eunomia/agent';
 import { activeWindow } from '@miniben90/x-win';
-import { app, Menu, nativeImage, powerMonitor, Tray } from 'electron';
+import { app, Menu, nativeImage, powerMonitor, shell, Tray } from 'electron';
 import { syncAutostart } from './autostart.ts';
 import { type DesktopConfig, isEnvConfigured, loadConfig } from './config.ts';
+import { startFileLog } from './log.ts';
 import { TRAY_ICON_16, TRAY_ICON_32 } from './tray-icon.ts';
 
 // Tray-only background agent. Stateless by design: it observes the foreground
@@ -97,7 +98,31 @@ function checkOnce(outbox: Outbox, sanitize: PingSanitizer): void {
   }
 }
 
+// One agent per machine. A second instance would sample in parallel and share
+// outbox.jsonl, where Outbox.drop()'s whole-file rewrite silently erases
+// whatever the other instance queued in the meantime — so the second launch
+// surfaces the first one's window and exits. `--provision` is a one-shot CLI
+// that writes config.json and quits, so it stays allowed alongside the tray.
+const provisioning = process.argv.includes('--provision');
+const primary = provisioning || app.requestSingleInstanceLock();
+// exit(), not quit(): a quit requested before 'ready' is swallowed, and this
+// process owns nothing yet — the 'second-instance' event has already been
+// delivered to the agent that holds the lock.
+//
+// Measured caveat on Linux: chromium's singleton handshake waits for the
+// running instance to answer on a unix socket, and a tray app with a context
+// menu doesn't answer it — the second launch waits ~20s, decides the owner is
+// dead, takes the lock and starts a second agent anyway. Windows (the packaged
+// target) uses a message window instead and hands off immediately.
+if (!primary) app.exit(0);
+
+/** What a second launch should show; set once the tray exists. */
+let surfaceUi: (() => void) | undefined;
+app.on('second-instance', () => surfaceUi?.());
+
 app.whenReady().then(async () => {
+  if (!primary) return; // exiting: another agent already owns this profile
+
   const dataDir = app.getPath('userData');
   mkdirSync(dataDir, { recursive: true });
 
@@ -117,6 +142,7 @@ app.whenReady().then(async () => {
     return;
   }
 
+  const logPath = startFileLog(dataDir);
   const outbox = new Outbox(fileStore(join(dataDir, 'outbox.jsonl')));
   let config = loadConfig(dataDir);
   let sanitize = createSanitizer(config ?? {});
@@ -185,6 +211,7 @@ app.whenReady().then(async () => {
     );
     tray?.setContextMenu(
       Menu.buildFromTemplate([
+        { label: `eunomia agent ${app.getVersion()}`, enabled: false },
         { label: uploadLabel(), enabled: false },
         { label: `Outbox: ${join(dataDir, 'outbox.jsonl')}`, enabled: false },
         ...(config
@@ -193,6 +220,9 @@ app.whenReady().then(async () => {
               { label: 'Change server / API key…', click: () => void openSetup(config) },
             ]
           : [{ label: 'Set up uploads…', click: () => void openSetup() }]),
+        // The only window into a packaged agent's console — showItemInFolder
+        // rather than openPath, since .log often has no handler registered.
+        { label: 'Show log file…', click: () => shell.showItemInFolder(logPath) },
         { type: 'separator' as const },
         { label: 'Quit', click: () => app.quit() },
       ]),
@@ -211,6 +241,10 @@ app.whenReady().then(async () => {
   // tray implementations deliver no click events at all, which is why every
   // action also lives in the menu above.
   tray.on('double-click', () => void (config ? showDashboard() : openSetup()));
+
+  // Launching the agent again (Start menu, desktop shortcut) reads as "show me
+  // the app" — the running instance answers instead of a second one starting.
+  surfaceUi = () => void (config ? showDashboard() : openSetup());
 
   setInterval(() => checkOnce(outbox, sanitize), CHECK_INTERVAL_MS);
   if (config) {
