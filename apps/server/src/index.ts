@@ -4,6 +4,7 @@ import { createApp } from './app.ts';
 import { createAuth, createAuthGateway } from './auth.ts';
 import { createDb } from './db/client.ts';
 import { SECRET_HELP, secretProblem, secretWarning } from './env.ts';
+import { checkHealth, VERSION } from './health.ts';
 import { registrationPolicyFromEnv } from './registration.ts';
 import { createStaticHandler } from './static.ts';
 
@@ -64,6 +65,15 @@ if (webDist) console.log(`serving web dashboard from ${webDist}`);
 
 const server = createServer((req, res) => {
   const path = (req.url ?? '/').split('?')[0];
+  // Before the static handler: its SPA fallback would answer /healthz with
+  // index.html and a cheerful 200 while the database was down.
+  if (path === '/healthz') {
+    void checkHealth(db).then((health) => {
+      res.writeHead(health.ok ? 200 : 503, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(health));
+    });
+    return;
+  }
   if (serveStatic && path !== yoga.graphqlEndpoint) {
     serveStatic(req, res);
     return;
@@ -76,5 +86,7 @@ const port = Number(process.env.PORT ?? 4000);
 // or on a remote VM, where a localhost-only bind would be unreachable.
 const host = process.env.HOST ?? '0.0.0.0';
 server.listen(port, host, () => {
-  console.log(`eunomia server listening on http://${host}:${port}${yoga.graphqlEndpoint}`);
+  console.log(
+    `eunomia server ${VERSION} listening on http://${host}:${port}${yoga.graphqlEndpoint}`,
+  );
 });

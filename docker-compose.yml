@@ -36,6 +36,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      # /healthz round-trips to Postgres, so this catches a database outage and
+      # not just a dead process. Uses node (already in the image) rather than
+      # adding curl/wget to a slim base.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4000/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Migrations run before the server listens; don't call that unhealthy.
+      start_period: 60s
 
   postgres:
     image: postgres:17

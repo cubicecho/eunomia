@@ -241,6 +241,35 @@ is per-activity detail: window titles, and the ability to re-categorize an
 individual old activity. Rows that haven't been rolled up yet are never
 deleted at any age.
 
+`GET /healthz` answers `{"ok":true,"version":"…"}` after a `select 1` against
+Postgres, and `503` (with the error) when that fails — so it reports the
+outage that matters instead of just "the process is up". Compose uses it as
+the `app` service's healthcheck; point any external monitor at it too.
+
+### Backing up and starting over
+
+All state lives in the `pgdata` volume — the database is the only thing worth
+backing up (agents keep their own outbox and config locally).
+
+```bash
+# back up: a single compressed SQL dump
+docker compose exec -T postgres pg_dump -U eunomia eunomia | gzip > eunomia-$(date +%F).sql.gz
+
+# restore into an empty database (stop the app first so nothing writes
+# mid-restore; migrations on next start are then no-ops)
+docker compose stop app
+gunzip -c eunomia-2026-08-26.sql.gz | docker compose exec -T postgres psql -U eunomia eunomia
+docker compose start app
+```
+
+Starting clean — this **deletes every recorded activity, account, and device
+key**, and every agent will need re-provisioning:
+
+```bash
+docker compose down -v      # -v drops the pgdata volume
+docker compose up --build   # fresh database, migrations reapplied
+```
+
 The app container applies committed drizzle migrations on startup
 (`drizzle-kit migrate`), so upgrades are `git pull && docker compose up
 --build`. After changing `src/db/schema.ts`, generate a new migration with
