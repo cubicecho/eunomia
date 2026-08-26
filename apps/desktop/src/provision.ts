@@ -88,7 +88,15 @@ export async function runProvisioning(dataDir: string): Promise<void> {
 
   const sessionToken = await signInWithMagicLink(serverUrl, email);
   const { deviceId, apiKey } = await registerDevice(serverUrl, sessionToken, name, platformName());
-  const configPath = writeAgentConfig(dataDir, { serverUrl, apiKey, syncIntervalSeconds });
+  // deviceId/deviceName are recorded so the tray's "change server / API key"
+  // flow can re-key this device instead of registering a duplicate.
+  const configPath = writeAgentConfig(dataDir, {
+    serverUrl,
+    apiKey,
+    deviceId,
+    deviceName: name,
+    syncIntervalSeconds,
+  });
 
   // The interactive session has done its job; the agent runs on the API key.
   await signOut(serverUrl, sessionToken);

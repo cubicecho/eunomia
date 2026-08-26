@@ -23,6 +23,22 @@ mutation RegisterDevice($name: String!, $platform: String!) {
   }
 }
 
+mutation RotateDeviceKey($id: String!) {
+  rotateDeviceKey(id: $id) {
+    device {
+      id
+    }
+    apiKey
+  }
+}
+
+mutation RenameDevice($id: String!, $name: String!) {
+  renameDevice(id: $id, name: $name) {
+    id
+    name
+  }
+}
+
 mutation SignOut {
   signOut
 }

@@ -52,9 +52,13 @@ npm run dev:server                      # http://localhost:4000/graphql
 # desktop agent — on first run it opens a setup window (server URL + email,
 # magic-link sign-in, registers this machine), then lives in the tray.
 # `npm run provision -w @eunomia/desktop` is the terminal equivalent.
-# Tray → "Open Dashboard" shows the server-hosted dashboard, signed in via
-# the device key (needs a server that serves the web build, i.e. WEB_DIST —
-# the docker image does; a bare `npm run dev:server` has no dashboard at /).
+# Tray → "Open Dashboard" (or a double-click on the tray icon, on
+# Windows/macOS) shows the server-hosted dashboard, signed in via the device
+# key (needs a server that serves the web build, i.e. WEB_DIST — the docker
+# image does; a bare `npm run dev:server` has no dashboard at /).
+# Tray → "Change server / API key…" reopens that setup window later: point the
+# agent at a different server, or sign in again to issue this device a fresh
+# API key (same server ⇒ the device keeps its identity and history).
 npm run dev:desktop
 
 # web dashboard (proxies /graphql to the server; set EUNOMIA_SERVER_URL to

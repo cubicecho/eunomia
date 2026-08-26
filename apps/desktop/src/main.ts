@@ -15,7 +15,7 @@ import {
 import { activeWindow } from '@miniben90/x-win';
 import { app, Menu, nativeImage, powerMonitor, Tray } from 'electron';
 import { syncAutostart } from './autostart.ts';
-import { loadConfig } from './config.ts';
+import { type DesktopConfig, isEnvConfigured, loadConfig } from './config.ts';
 import { TRAY_ICON_16, TRAY_ICON_32 } from './tray-icon.ts';
 
 // Tray-only background agent. Stateless by design: it observes the foreground
@@ -126,25 +126,32 @@ app.whenReady().then(async () => {
   if (config) syncAutostart(config.autostart !== false);
 
   let uploader: Uploader | undefined;
+  let syncTimer: ReturnType<typeof setInterval> | undefined;
 
+  // Restartable: reconnecting to another server (or re-keying) swaps the
+  // uploader and its schedule in place. Anything already queued goes up to the
+  // new server — they're this machine's pings either way.
   const startUploads = (cfg: AgentConfig): void => {
+    if (syncTimer) clearInterval(syncTimer);
     uploader = createUploader(cfg, outbox);
     const flush = () => void uploader?.flush().then(refreshTrayMenu);
-    setInterval(flush, syncIntervalMs(cfg));
+    syncTimer = setInterval(flush, syncIntervalMs(cfg));
     flush(); // drain whatever a previous run left behind
     console.log(`eunomia agent pinging, uploading to ${cfg.serverUrl}`);
   };
 
-  // Onboarding window (also reachable from the tray menu while unprovisioned).
-  // Uploads begin the moment it finishes — no restart needed.
-  const openSetup = async (): Promise<void> => {
+  // Setup window: onboarding while unprovisioned, and the "change server /
+  // API key" flow once provisioned (pass the live config to prefill it and
+  // keep this machine's device identity). Uploads restart the moment it
+  // finishes — no restart of the agent needed.
+  const openSetup = async (current: DesktopConfig | null = null): Promise<void> => {
     // Imported lazily so the hot path never loads the window machinery.
     const { runSetupWindow } = await import('./setup.ts');
-    const result = await runSetupWindow(dataDir);
+    const result = await runSetupWindow(dataDir, current, { envConfigured: isEnvConfigured() });
     if (result) {
       config = result;
       sanitize = createSanitizer(result);
-      syncAutostart(true);
+      syncAutostart(result.autostart !== false);
       startUploads(result);
       refreshTrayMenu();
     }
@@ -181,7 +188,10 @@ app.whenReady().then(async () => {
         { label: uploadLabel(), enabled: false },
         { label: `Outbox: ${join(dataDir, 'outbox.jsonl')}`, enabled: false },
         ...(config
-          ? [{ label: 'Open Dashboard', click: () => void showDashboard() }]
+          ? [
+              { label: 'Open Dashboard', click: () => void showDashboard() },
+              { label: 'Change server / API key…', click: () => void openSetup(config) },
+            ]
           : [{ label: 'Set up uploads…', click: () => void openSetup() }]),
         { type: 'separator' as const },
         { label: 'Quit', click: () => app.quit() },
@@ -195,6 +205,12 @@ app.whenReady().then(async () => {
   icon.addRepresentation({ scaleFactor: 2, dataURL: TRAY_ICON_32 });
   tray = new Tray(icon);
   refreshTrayMenu();
+
+  // Double-click is the habit for a tray app, so it opens the dashboard (or
+  // setup, when there's nothing to show yet). Windows and macOS only — Linux
+  // tray implementations deliver no click events at all, which is why every
+  // action also lives in the menu above.
+  tray.on('double-click', () => void (config ? showDashboard() : openSetup()));
 
   setInterval(() => checkOnce(outbox, sanitize), CHECK_INTERVAL_MS);
   if (config) {

@@ -85,6 +85,31 @@ export async function registerDevice(
 }
 
 /**
+ * Issues a fresh API key for a device that already exists, revoking the old
+ * one. How an agent re-keys itself without registering a second device — which
+ * would strand its history on the first one.
+ */
+export async function rotateDeviceKey(
+  serverUrl: string,
+  sessionToken: string,
+  deviceId: string,
+): Promise<{ deviceId: string; apiKey: string }> {
+  const { rotateDeviceKey: result } = await createSdk(serverUrl, sessionToken).RotateDeviceKey({
+    id: deviceId,
+  });
+  return { deviceId: result.device.id, apiKey: result.apiKey };
+}
+
+export async function renameDevice(
+  serverUrl: string,
+  sessionToken: string,
+  deviceId: string,
+  name: string,
+): Promise<void> {
+  await createSdk(serverUrl, sessionToken).RenameDevice({ id: deviceId, name });
+}
+
+/**
  * Trades the device API key for a short-lived dashboard session token — how
  * the desktop opens the web dashboard without a second sign-in. The key never
  * leaves this call; only the expiring session token reaches the web view.

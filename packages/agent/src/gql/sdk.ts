@@ -592,14 +592,18 @@ export type Mutation = {
   deleteCategoryRule: Scalars['Boolean']['output'];
   deleteContextRule: Scalars['Boolean']['output'];
   deleteDevice: Scalars['Boolean']['output'];
+  mergeDevice: Devices;
   recordPing?: Maybe<Activities>;
   registerDevice: DeviceRegistration;
   renameDevice: Devices;
   requestMagicLink: MagicLinkRequest;
+  rotateDeviceKey: DeviceRegistration;
   sessionFromDeviceKey: AuthSession;
   signIn: AuthSession;
   signOut: Scalars['Boolean']['output'];
   signUp: AuthSession;
+  updateCategoryRule: CategoryRules;
+  updateContextRule: ContextRules;
   verifyMagicLink: AuthSession;
 };
 
@@ -652,6 +656,12 @@ export type MutationDeleteDeviceArgs = {
 };
 
 
+export type MutationMergeDeviceArgs = {
+  id: Scalars['String']['input'];
+  intoId: Scalars['String']['input'];
+};
+
+
 export type MutationRecordPingArgs = {
   app?: InputMaybe<Scalars['String']['input']>;
   capturedAt: Scalars['String']['input'];
@@ -679,6 +689,11 @@ export type MutationRequestMagicLinkArgs = {
 };
 
 
+export type MutationRotateDeviceKeyArgs = {
+  id: Scalars['String']['input'];
+};
+
+
 export type MutationSignInArgs = {
   email: Scalars['String']['input'];
   password: Scalars['String']['input'];
@@ -689,6 +704,24 @@ export type MutationSignUpArgs = {
   email: Scalars['String']['input'];
   name: Scalars['String']['input'];
   password: Scalars['String']['input'];
+};
+
+
+export type MutationUpdateCategoryRuleArgs = {
+  appPattern?: InputMaybe<Scalars['String']['input']>;
+  categoryId: Scalars['String']['input'];
+  contextPattern?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['String']['input'];
+  priority?: InputMaybe<Scalars['Int']['input']>;
+  titlePattern?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationUpdateContextRuleArgs = {
+  appPattern?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['String']['input'];
+  priority?: InputMaybe<Scalars['Int']['input']>;
+  titlePattern: Scalars['String']['input'];
 };
 
 
@@ -946,6 +979,21 @@ export type RegisterDeviceMutationVariables = Exact<{
 
 export type RegisterDeviceMutation = { registerDevice: { apiKey: string, device: { id: string } } };
 
+export type RotateDeviceKeyMutationVariables = Exact<{
+  id: string;
+}>;
+
+
+export type RotateDeviceKeyMutation = { rotateDeviceKey: { apiKey: string, device: { id: string } } };
+
+export type RenameDeviceMutationVariables = Exact<{
+  id: string;
+  name: string;
+}>;
+
+
+export type RenameDeviceMutation = { renameDevice: { id: string, name: string } };
+
 export type SignOutMutationVariables = Exact<{ [key: string]: never; }>;
 
 
@@ -981,6 +1029,24 @@ export const RegisterDeviceDocument = new TypedDocumentString(`
   }
 }
     `);
+export const RotateDeviceKeyDocument = new TypedDocumentString(`
+    mutation RotateDeviceKey($id: String!) {
+  rotateDeviceKey(id: $id) {
+    device {
+      id
+    }
+    apiKey
+  }
+}
+    `);
+export const RenameDeviceDocument = new TypedDocumentString(`
+    mutation RenameDevice($id: String!, $name: String!) {
+  renameDevice(id: $id, name: $name) {
+    id
+    name
+  }
+}
+    `);
 export const SignOutDocument = new TypedDocumentString(`
     mutation SignOut {
   signOut
@@ -1005,6 +1071,12 @@ export function getSdk<C>(requester: Requester<C>) {
     },
     RegisterDevice(variables: RegisterDeviceMutationVariables, options?: C): Promise<RegisterDeviceMutation> {
       return requester<RegisterDeviceMutation, RegisterDeviceMutationVariables>(RegisterDeviceDocument, variables, options) as Promise<RegisterDeviceMutation>;
+    },
+    RotateDeviceKey(variables: RotateDeviceKeyMutationVariables, options?: C): Promise<RotateDeviceKeyMutation> {
+      return requester<RotateDeviceKeyMutation, RotateDeviceKeyMutationVariables>(RotateDeviceKeyDocument, variables, options) as Promise<RotateDeviceKeyMutation>;
+    },
+    RenameDevice(variables: RenameDeviceMutationVariables, options?: C): Promise<RenameDeviceMutation> {
+      return requester<RenameDeviceMutation, RenameDeviceMutationVariables>(RenameDeviceDocument, variables, options) as Promise<RenameDeviceMutation>;
     },
     SignOut(variables?: SignOutMutationVariables, options?: C): Promise<SignOutMutation> {
       return requester<SignOutMutation, SignOutMutationVariables>(SignOutDocument, variables, options) as Promise<SignOutMutation>;

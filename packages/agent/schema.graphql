@@ -541,14 +541,18 @@ type Mutation {
   deleteCategoryRule(id: String!): Boolean!
   deleteContextRule(id: String!): Boolean!
   deleteDevice(id: String!): Boolean!
+  mergeDevice(id: String!, intoId: String!): Devices!
   recordPing(app: String, capturedAt: String!, context: String, deviceId: String, idleSeconds: Int!, title: String): Activities
   registerDevice(name: String!, platform: String!): DeviceRegistration!
   renameDevice(id: String!, name: String!): Devices!
   requestMagicLink(email: String!): MagicLinkRequest!
+  rotateDeviceKey(id: String!): DeviceRegistration!
   sessionFromDeviceKey: AuthSession!
   signIn(email: String!, password: String!): AuthSession!
   signOut: Boolean!
   signUp(email: String!, name: String!, password: String!): AuthSession!
+  updateCategoryRule(appPattern: String, categoryId: String!, contextPattern: String, id: String!, priority: Int, titlePattern: String): CategoryRules!
+  updateContextRule(appPattern: String, id: String!, priority: Int, titlePattern: String!): ContextRules!
   verifyMagicLink(token: String!): AuthSession!
 }
 

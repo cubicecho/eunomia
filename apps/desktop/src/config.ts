@@ -9,12 +9,21 @@ import type { AgentConfig } from '@eunomia/agent';
 export interface DesktopConfig extends AgentConfig {
   /** Launch at login (packaged builds only). Default true. */
   autostart?: boolean;
+  /**
+   * The device this install registered as. Lets the agent re-key itself
+   * (rotateDeviceKey) instead of registering a second device — absent in
+   * configs written before that existed, which fall back to re-registering.
+   */
+  deviceId?: string;
+  /** Name the device was registered under; shown when reconnecting. */
+  deviceName?: string;
 }
 
 /**
  * Env vars win; otherwise config.json in userData:
  * {"serverUrl": ..., "apiKey": ..., "syncIntervalSeconds"?: ...,
- *  "ignoreApps"?: [regex...], "redactApps"?: [regex...], "autostart"?: bool}.
+ *  "ignoreApps"?: [regex...], "redactApps"?: [regex...], "autostart"?: bool,
+ *  "deviceId"?: ..., "deviceName"?: ...}.
  * EUNOMIA_SYNC_INTERVAL_SECONDS overrides the interval in either case.
  */
 export function loadConfig(dataDir: string): DesktopConfig | null {
@@ -23,6 +32,15 @@ export function loadConfig(dataDir: string): DesktopConfig | null {
   const envSeconds = Number(process.env.EUNOMIA_SYNC_INTERVAL_SECONDS);
   if (Number.isFinite(envSeconds) && envSeconds > 0) config.syncIntervalSeconds = envSeconds;
   return config;
+}
+
+/**
+ * True when EUNOMIA_SERVER_URL + EUNOMIA_API_KEY are supplying the config: a
+ * config.json written by the setup window applies to the running agent but is
+ * ignored the next time it starts, so the UI says so.
+ */
+export function isEnvConfigured(): boolean {
+  return envConfig() !== null;
 }
 
 function envConfig(): AgentConfig | null {
@@ -40,6 +58,8 @@ function fileConfig(dataDir: string): DesktopConfig | null {
     if (typeof parsed.serverUrl === 'string' && typeof parsed.apiKey === 'string') {
       const config: DesktopConfig = { serverUrl: parsed.serverUrl, apiKey: parsed.apiKey };
       if (typeof parsed.autostart === 'boolean') config.autostart = parsed.autostart;
+      if (typeof parsed.deviceId === 'string') config.deviceId = parsed.deviceId;
+      if (typeof parsed.deviceName === 'string') config.deviceName = parsed.deviceName;
       if (typeof parsed.syncIntervalSeconds === 'number') {
         config.syncIntervalSeconds = parsed.syncIntervalSeconds;
       }
@@ -56,7 +76,7 @@ function fileConfig(dataDir: string): DesktopConfig | null {
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === 'string');
 
-export function writeAgentConfig(dataDir: string, config: AgentConfig): string {
+export function writeAgentConfig(dataDir: string, config: DesktopConfig): string {
   const configPath = join(dataDir, 'config.json');
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   return configPath;

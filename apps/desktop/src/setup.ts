@@ -1,36 +1,65 @@
 import { hostname } from 'node:os';
 import { BrowserWindow, ipcMain } from 'electron';
 import {
-  type AgentConfig,
   DEFAULT_SYNC_INTERVAL_SECONDS,
   MIN_SYNC_INTERVAL_SECONDS,
   registerDevice,
+  renameDevice,
   requestMagicLink,
+  rotateDeviceKey,
   signOut,
   verifyMagicLink,
 } from '@eunomia/agent';
-import { platformName, writeAgentConfig } from './config.ts';
+import { type DesktopConfig, platformName, writeAgentConfig } from './config.ts';
 
 // Onboarding window shown when the agent starts unprovisioned: server URL +
 // email + device name, magic-link sign-in, then registerDevice writes
 // config.json and the window closes itself — the tray keeps running
 // throughout. The page is an inline data URL so the packaged app needs no
 // extra assets beyond the bundled main.
+//
+// The same window reconnects an install that already has a config (tray →
+// "Change server / API key…"): pointing it at a different server registers
+// there, while staying on the same server re-keys the device it already owns
+// (rotateDeviceKey) so its history isn't stranded on a duplicate device.
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+interface PageDefaults {
+  serverUrl: string;
+  deviceName: string;
+  syncIntervalSeconds: number;
+  /** Reconnecting an existing install rather than onboarding a new one. */
+  reconfigure: boolean;
+  /** Env vars govern, so a written config.json won't survive a restart. */
+  envConfigured: boolean;
+}
+
 // biome-ignore format: keep the page readable as one block
-function setupHtml(defaults: { serverUrl: string; deviceName: string }): string {
+function setupHtml(defaults: PageDefaults): string {
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const heading = defaults.reconfigure ? 'Change server' : 'Set up eunomia';
+  const sub = defaults.reconfigure
+    ? 'Sign in to move this device to another server, or to issue it a new API key.'
+    : 'Connect this device to your eunomia server.';
+  const submit = defaults.reconfigure ? 'Sign in &amp; update' : 'Sign in &amp; register device';
+  const verify = defaults.reconfigure ? 'Verify &amp; update' : 'Verify &amp; register device';
+  const doneHeading = defaults.reconfigure ? 'Device reconnected' : 'Device registered';
+  const envWarning = defaults.envConfigured
+    ? `<p class="warn">EUNOMIA_SERVER_URL / EUNOMIA_API_KEY are set: this change applies now,
+       but those env vars win again the next time the agent starts.</p>`
+    : '';
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>eunomia setup</title><style>
+<html><head><meta charset="utf-8"><title>${defaults.reconfigure ? 'eunomia — change server' : 'eunomia setup'}</title><style>
   :root { color-scheme: light dark; }
   body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 28px 32px;
          background: Canvas; color: CanvasText; }
   h1 { font-size: 18px; margin: 0 0 4px; }
   p.sub { margin: 0 0 20px; opacity: .7; }
+  p.warn { margin: 0 0 20px; padding: 8px 10px; border-radius: 6px; font-size: 13px;
+           background: color-mix(in srgb, #e5a50a 20%, transparent); }
   label { display: block; margin: 14px 0 4px; font-weight: 600; }
   input { width: 100%; box-sizing: border-box; padding: 8px 10px; font: inherit;
           border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
@@ -44,8 +73,9 @@ function setupHtml(defaults: { serverUrl: string; deviceName: string }): string 
   #done .big { font-size: 40px; }
 </style></head><body>
   <form id="details">
-    <h1>Set up eunomia</h1>
-    <p class="sub">Connect this device to your eunomia server.</p>
+    <h1>${heading}</h1>
+    <p class="sub">${sub}</p>
+    ${envWarning}
     <label for="server">Server URL</label>
     <input id="server" value="${esc(defaults.serverUrl)}" required>
     <label for="email">Email</label>
@@ -53,19 +83,19 @@ function setupHtml(defaults: { serverUrl: string; deviceName: string }): string 
     <label for="name">Device name</label>
     <input id="name" value="${esc(defaults.deviceName)}" required>
     <label for="interval">Sync interval (seconds)</label>
-    <input id="interval" type="number" min="${MIN_SYNC_INTERVAL_SECONDS}" value="${DEFAULT_SYNC_INTERVAL_SECONDS}" required>
-    <button id="go">Sign in &amp; register device</button>
+    <input id="interval" type="number" min="${MIN_SYNC_INTERVAL_SECONDS}" value="${defaults.syncIntervalSeconds}" required>
+    <button id="go">${submit}</button>
   </form>
   <form id="link" class="hidden">
     <h1>Check your email</h1>
     <p class="sub" id="sentTo"></p>
     <label for="pasted">Sign-in link (or token)</label>
     <input id="pasted" placeholder="http://…/?token=…" required>
-    <button>Verify &amp; register device</button>
+    <button>${verify}</button>
   </form>
   <div id="done" class="hidden">
     <div class="big">&#10003;</div>
-    <h1>Device registered</h1>
+    <h1>${doneHeading}</h1>
     <p class="sub">eunomia is now running in your tray.</p>
   </div>
   <p id="error"></p>
@@ -118,11 +148,19 @@ function setupHtml(defaults: { serverUrl: string; deviceName: string }): string 
 let openWindow: BrowserWindow | undefined;
 
 /**
- * Opens the onboarding window and resolves with the freshly written config,
- * or null if the user closed it without finishing. Safe to call again later
- * (e.g. from the tray menu) — a second call focuses the existing window.
+ * Opens the setup window and resolves with the freshly written config, or null
+ * if the user closed it without finishing. Safe to call again later (from the
+ * tray menu) — a second call focuses the existing window.
+ *
+ * Pass the live config to reconnect an install that already has one: its
+ * server URL, device name, interval, and privacy/autostart settings carry over
+ * into whatever the user submits.
  */
-export function runSetupWindow(dataDir: string): Promise<AgentConfig | null> {
+export function runSetupWindow(
+  dataDir: string,
+  current: DesktopConfig | null = null,
+  options: { envConfigured?: boolean } = {},
+): Promise<DesktopConfig | null> {
   if (openWindow) {
     openWindow.focus();
     return Promise.resolve(null);
@@ -131,10 +169,10 @@ export function runSetupWindow(dataDir: string): Promise<AgentConfig | null> {
   return new Promise((resolve) => {
     const win = new BrowserWindow({
       width: 420,
-      height: 560,
+      height: current ? 620 : 560,
       resizable: false,
       autoHideMenuBar: true,
-      title: 'eunomia setup',
+      title: current ? 'eunomia — change server' : 'eunomia setup',
       webPreferences: {
         // The page is our own inline HTML above — never remote content — so
         // giving the renderer node access (for ipcRenderer) is fine here.
@@ -144,7 +182,7 @@ export function runSetupWindow(dataDir: string): Promise<AgentConfig | null> {
       },
     });
     openWindow = win;
-    let result: AgentConfig | null = null;
+    let result: DesktopConfig | null = null;
 
     ipcMain.handle('setup:start', async (_event, args: { serverUrl: string; email: string }) => {
       try {
@@ -162,15 +200,35 @@ export function runSetupWindow(dataDir: string): Promise<AgentConfig | null> {
       ) => {
         try {
           const session = await verifyMagicLink(args.serverUrl, args.tokenOrLink);
-          const { deviceId, apiKey } = await registerDevice(
-            args.serverUrl,
-            session,
-            args.name,
-            platformName(),
-          );
-          const config: AgentConfig = {
+          // Same server and a device we already own: re-key it rather than
+          // registering a twin that splits this machine's history in two.
+          const reKey =
+            current?.deviceId !== undefined && current.serverUrl === args.serverUrl
+              ? current.deviceId
+              : null;
+          let deviceId: string;
+          let apiKey: string;
+          if (reKey) {
+            if (args.name !== (current?.deviceName ?? '')) {
+              await renameDevice(args.serverUrl, session, reKey, args.name);
+            }
+            ({ deviceId, apiKey } = await rotateDeviceKey(args.serverUrl, session, reKey));
+          } else {
+            ({ deviceId, apiKey } = await registerDevice(
+              args.serverUrl,
+              session,
+              args.name,
+              platformName(),
+            ));
+          }
+          const config: DesktopConfig = {
+            // Privacy rules and the autostart opt-out are the user's, not the
+            // server's — carry them across a reconnect.
+            ...current,
             serverUrl: args.serverUrl,
             apiKey,
+            deviceId,
+            deviceName: args.name,
             syncIntervalSeconds:
               Number.isFinite(args.syncIntervalSeconds) && args.syncIntervalSeconds > 0
                 ? Math.max(MIN_SYNC_INTERVAL_SECONDS, args.syncIntervalSeconds)
@@ -178,7 +236,9 @@ export function runSetupWindow(dataDir: string): Promise<AgentConfig | null> {
           };
           const configPath = writeAgentConfig(dataDir, config);
           await signOut(args.serverUrl, session);
-          console.log(`device ${deviceId} ("${args.name}") registered, config at ${configPath}`);
+          console.log(
+            `device ${deviceId} ("${args.name}") ${reKey ? 're-keyed' : 'registered'}, config at ${configPath}`,
+          );
           result = config;
           setTimeout(() => {
             if (!win.isDestroyed()) win.close();
@@ -198,8 +258,11 @@ export function runSetupWindow(dataDir: string): Promise<AgentConfig | null> {
     });
 
     const html = setupHtml({
-      serverUrl: process.env.EUNOMIA_SERVER_URL ?? 'http://localhost:4000',
-      deviceName: hostname(),
+      serverUrl: current?.serverUrl ?? process.env.EUNOMIA_SERVER_URL ?? 'http://localhost:4000',
+      deviceName: current?.deviceName ?? hostname(),
+      syncIntervalSeconds: current?.syncIntervalSeconds ?? DEFAULT_SYNC_INTERVAL_SECONDS,
+      reconfigure: current !== null,
+      envConfigured: options.envConfigured === true,
     });
     void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   });
