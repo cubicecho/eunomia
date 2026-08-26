@@ -37,7 +37,7 @@ const magicLinkRequestType = new GraphQLObjectType({
   },
 });
 
-export function authFields(auth: AuthGateway): Fields {
+export function authFields(auth: AuthGateway) {
   const perEmailLogins = createRateLimiter(LOGIN_ATTEMPTS_PER_EMAIL, LOGIN_WINDOW_MS);
   const allLogins = createRateLimiter(LOGIN_ATTEMPTS_TOTAL, LOGIN_WINDOW_MS);
   const throttleLogin = (email: string): void => {
@@ -109,5 +109,5 @@ export function authFields(auth: AuthGateway): Fields {
         return auth.sessionForDevice(ctx.userId);
       },
     },
-  };
+  } satisfies Fields;
 }

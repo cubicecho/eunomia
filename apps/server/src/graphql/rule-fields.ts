@@ -74,7 +74,7 @@ const contextRuleValues = (args: ContextRuleArgs) => ({
   priority: args.priority ?? 0,
 });
 
-export function ruleFields(db: Db, entities: Entities): Fields {
+export function ruleFields(db: Db, entities: Entities) {
   return {
     createCategoryRule: {
       type: new GraphQLNonNull(entities.types.CategoryRules!),
@@ -180,5 +180,5 @@ export function ruleFields(db: Db, entities: Entities): Fields {
         return true;
       },
     },
-  };
+  } satisfies Fields;
 }

@@ -22,7 +22,7 @@ import { summaryFields } from './summaries.ts';
  * Activities carry no userId — ownership runs through the owning device, so
  * their fence is a subquery rather than a column comparison.
  */
-function listQueries(entities: Entities): Fields {
+function listQueries(entities: Entities) {
   const ownDeviceIds = (ctx: Context & { userId: string }) =>
     ctx.db.select({ id: devices.id }).from(devices).where(eq(devices.userId, ctx.userId));
 
@@ -48,7 +48,36 @@ function listQueries(entities: Entities): Fields {
       'contextRules',
       (ctx) => eq(contextRules.userId, ctx.userId),
     ),
-  };
+  } satisfies Fields;
+}
+
+/**
+ * The two field maps, kept as functions of their own so their key sets are
+ * types: permissions.ts requires a rule for exactly these names, which is what
+ * makes an unguarded new field a compile error rather than a live one.
+ *
+ * Field order is the printed SDL's order, and the SDL is a committed artifact,
+ * so reordering these spreads shows up as codegen churn in every consumer.
+ */
+export function queryFields(db: Db, entities: Entities) {
+  return {
+    ...listQueries(entities),
+    ...summaryFields(db),
+    me: {
+      type: GraphQLString,
+      resolve: (_source: unknown, _args: unknown, ctx: Context) => ctx.userId ?? null,
+    },
+  } satisfies Fields;
+}
+
+export function mutationFields(db: Db, auth: AuthGateway, entities: Entities) {
+  return {
+    ...authFields(auth),
+    ...deviceFields(db, auth, entities),
+    ...categoryFields(db, entities),
+    ...ruleFields(db, entities),
+    ...pingFields(db, entities),
+  } satisfies Fields;
 }
 
 /**
@@ -59,35 +88,13 @@ function listQueries(entities: Entities): Fields {
  * raw device mutations is deliberately left out. Auth is GraphQL too
  * (signUp/signIn/signOut via the injected gateway) — the server mounts no
  * better-auth REST routes.
- *
- * Field order is the printed SDL's order, and the SDL is a committed artifact,
- * so reordering these spreads shows up as codegen churn in every consumer.
  */
 export function createSchema(db: Db, auth: AuthGateway) {
   const entities = buildEntities(db);
-
-  const query = new GraphQLObjectType({
-    name: 'Query',
-    fields: {
-      ...listQueries(entities),
-      ...summaryFields(db),
-      me: {
-        type: GraphQLString,
-        resolve: (_source, _args, ctx: Context) => ctx.userId ?? null,
-      },
-    },
-  });
-
+  const query = new GraphQLObjectType({ name: 'Query', fields: queryFields(db, entities) });
   const mutation = new GraphQLObjectType({
     name: 'Mutation',
-    fields: {
-      ...authFields(auth),
-      ...deviceFields(db, auth, entities),
-      ...categoryFields(db, entities),
-      ...ruleFields(db, entities),
-      ...pingFields(db, entities),
-    },
+    fields: mutationFields(db, auth, entities),
   });
-
   return applyPermissions(new GraphQLSchema({ query, mutation }), permissions);
 }

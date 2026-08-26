@@ -51,10 +51,13 @@ describe('graphql schema', () => {
 
   it('gives every exposed field an explicit permission rule', () => {
     // The rule that keeps this project honest: adding a field to the schema
-    // without adding a rule for it silently ships an unauthenticated
-    // mutation. graphql-middleware only validates the rules it was given
-    // against the schema — it has nothing to say about a field nobody wrote a
-    // rule for, so this is the check that says it.
+    // without adding a rule for it silently ships an unauthenticated mutation.
+    // graphql-middleware only validates the rules it was given against the
+    // schema — it has nothing to say about a field nobody wrote a rule for.
+    //
+    // permissions.ts is typed against the field maps createSchema assembles,
+    // so this normally fails at compile time first. This asserts it of the
+    // built schema, which is the thing that actually serves requests.
     //
     // A new field belongs in permissions.ts even when the answer is `accept`:
     // "public on purpose" and "nobody thought about it" should not look the

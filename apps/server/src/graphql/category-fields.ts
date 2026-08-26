@@ -10,7 +10,7 @@ import { requireOwned, requireUser } from './guards.ts';
 
 // Categories and the one mutation that moves an activity between them by hand.
 
-export function categoryFields(db: Db, entities: Entities): Fields {
+export function categoryFields(db: Db, entities: Entities) {
   return {
     createCategory: {
       type: new GraphQLNonNull(entities.types.Categories!),
@@ -95,5 +95,5 @@ export function categoryFields(db: Db, entities: Entities): Fields {
         return updated;
       },
     },
-  };
+  } satisfies Fields;
 }

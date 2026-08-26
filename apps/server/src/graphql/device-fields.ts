@@ -48,7 +48,7 @@ async function revokeDeviceKeys(db: Db, userId: string, deviceId: string): Promi
   if (stale.length > 0) await db.delete(apikey).where(inArray(apikey.id, stale));
 }
 
-export function deviceFields(db: Db, auth: AuthGateway, entities: Entities): Fields {
+export function deviceFields(db: Db, auth: AuthGateway, entities: Entities) {
   const deviceType = entities.types.Devices!;
 
   // Shared by registerDevice and rotateDeviceKey: the plaintext API key exists
@@ -179,5 +179,5 @@ export function deviceFields(db: Db, auth: AuthGateway, entities: Entities): Fie
         return true;
       },
     },
-  };
+  } satisfies Fields;
 }

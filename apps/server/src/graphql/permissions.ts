@@ -1,6 +1,9 @@
-import { accept, type PermissionsMap, type Rule } from '@vantreeseba/graphql-casl';
+import { accept, type Rule } from '@vantreeseba/graphql-casl';
 import { unauthenticated } from '../errors.ts';
 import type { Context } from './context.ts';
+// Type-only, so this doesn't make a cycle at runtime: schema.ts imports the
+// permissions below, and their type is the shape of what it exposes.
+import type { mutationFields, queryFields } from './schema.ts';
 
 /**
  * Passes only when the request carries an identity (session bearer token or
@@ -24,8 +27,19 @@ const deviceAuthenticated: Rule = (resolve, parent, args, context: Context, info
   return resolve(parent, args, context, info);
 };
 
-// biome-ignore lint/suspicious/noExplicitAny: typed Resolvers arrive with codegen
-export const permissions: PermissionsMap<any> = {
+/**
+ * A rule for every exposed field, and only for fields that exist. Both halves
+ * matter: a field with no rule is an unauthenticated one, and a rule for a
+ * field that was renamed away guards nothing while looking like it does.
+ * `PermissionsMap` alone can't say this — its keys are all optional — so the
+ * shape is spelled out here against what createSchema actually assembles.
+ */
+type SchemaPermissions = {
+  Query: Record<keyof ReturnType<typeof queryFields>, Rule>;
+  Mutation: Record<keyof ReturnType<typeof mutationFields>, Rule>;
+};
+
+export const permissions = {
   Query: {
     devices: authenticated,
     activities: authenticated,
@@ -68,4 +82,4 @@ export const permissions: PermissionsMap<any> = {
     // schema, and unexposed fields simply don't exist (createSchema assembles
     // only what's picked). New fields must get an explicit rule when added.
   },
-};
+} satisfies SchemaPermissions;

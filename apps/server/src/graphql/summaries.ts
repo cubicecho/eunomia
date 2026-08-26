@@ -117,7 +117,7 @@ async function rolledPlusLive<T extends { seconds: number }>(
   return mergeSummaries([...rolledRows, ...liveRows], keyOf);
 }
 
-export function summaryFields(db: Db): Fields {
+export function summaryFields(db: Db) {
   return {
     categorySummary: {
       // Seconds of active time per category per day, for the whole days
@@ -214,5 +214,5 @@ export function summaryFields(db: Db): Fields {
         return rows.sort((a, b) => b.seconds - a.seconds);
       },
     },
-  };
+  } satisfies Fields;
 }

@@ -149,7 +149,7 @@ async function foldOne(
   return applyRules(tx, categoryRules, activity);
 }
 
-export function pingFields(db: Db, entities: Entities): Fields {
+export function pingFields(db: Db, entities: Entities) {
   return {
     recordPing: {
       // Nullable: idle pings and pings with no detectable app touch nothing.
@@ -189,5 +189,5 @@ export function pingFields(db: Db, entities: Entities): Fields {
         return touched.filter((activity) => activity !== null).length;
       },
     },
-  };
+  } satisfies Fields;
 }
