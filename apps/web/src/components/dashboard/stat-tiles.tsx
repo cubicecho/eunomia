@@ -19,7 +19,11 @@ export function StatTiles({ range, total, categories, apps }: Props) {
   const [topApp] = apps;
 
   const tiles = [
-    { label: 'Tracked', value: formatSeconds(total), hint: `over ${days} days` },
+    {
+      label: 'Tracked',
+      value: formatSeconds(total),
+      hint: days === 1 ? 'over one day' : `over ${days} days`,
+    },
     {
       label: 'Daily average',
       value: formatSeconds(Math.round(total / days)),

@@ -4,10 +4,13 @@ import { Input } from '@/components/ui/input';
 import { addDays, type DateRange, rangeOfLastDays } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
+// Whole labels rather than a "Last …" prefix: a range of one day is "Today",
+// not "Last 1 day".
 const PRESETS = [
-  { label: '7 days', days: 7 },
-  { label: '30 days', days: 30 },
-  { label: '90 days', days: 90 },
+  { label: 'Today', days: 1 },
+  { label: 'Last 7 days', days: 7 },
+  { label: 'Last 30 days', days: 30 },
+  { label: 'Last 90 days', days: 90 },
 ] as const;
 
 interface Props {
@@ -50,7 +53,7 @@ export function RangePicker({ range, onChange }: Props) {
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            Last {preset.label}
+            {preset.label}
           </button>
         ))}
       </div>
