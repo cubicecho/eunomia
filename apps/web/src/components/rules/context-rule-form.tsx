@@ -23,9 +23,9 @@ import {
 import { useAction } from '@/hooks/use-query';
 import {
   compile,
+  EXTRACT_MODES,
   type Extract,
   type ExtractMode,
-  EXTRACT_MODES,
   extractFrom,
   hasCaptureGroup,
   type Match,
@@ -94,7 +94,11 @@ export function ContextRuleForm({ samples, rule, onSaved }: Props) {
       onSubmit={(event) => {
         event.preventDefault();
         if (!valid || titlePattern === null) return;
-        const input: ContextRuleInput = { appPattern, titlePattern, priority: Number(priority) || 0 };
+        const input: ContextRuleInput = {
+          appPattern,
+          titlePattern,
+          priority: Number(priority) || 0,
+        };
         action.run(() => (rule ? updateContextRule(rule.id, input) : createContextRule(input)), {
           onDone: onSaved,
         });
@@ -133,7 +137,10 @@ export function ContextRuleForm({ samples, rule, onSaved }: Props) {
             </SelectContent>
           </Select>
           <Input
-            className={cn('min-w-48 max-w-md grow', extract.mode === 'regex' && 'font-mono text-xs')}
+            className={cn(
+              'min-w-48 max-w-md grow',
+              extract.mode === 'regex' && 'font-mono text-xs',
+            )}
             aria-label={extract.mode === 'regex' ? 'Regex' : 'Marker text'}
             aria-invalid={extract.mode === 'regex' && complete && !captures}
             placeholder={MARKER_HINT[extract.mode][0]}

@@ -1,5 +1,5 @@
-@import 'tailwindcss';
-@import 'tw-animate-css';
+@import "tailwindcss";
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -98,6 +98,6 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   }
 }

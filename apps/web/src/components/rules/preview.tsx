@@ -18,9 +18,7 @@ interface Props {
 export function Preview({ total, count, noun, children }: Props) {
   if (total === 0) {
     return (
-      <p className="text-muted-foreground text-xs">
-        No recent activity to preview against yet.
-      </p>
+      <p className="text-muted-foreground text-xs">No recent activity to preview against yet.</p>
     );
   }
   return (
@@ -37,7 +35,5 @@ export function Preview({ total, count, noun, children }: Props) {
 
 /** One example row. Titles are long and arbitrary, so they truncate. */
 export function PreviewRow({ children }: { children: ReactNode }) {
-  return (
-    <li className="text-muted-foreground truncate font-mono text-xs">{children}</li>
-  );
+  return <li className="text-muted-foreground truncate font-mono text-xs">{children}</li>;
 }

@@ -95,7 +95,10 @@ export function StatusScreen({ config, onConfigChange }: Props) {
             eunomia reads Android's app-usage log to track which app is in the foreground. Grant
             "Usage access" to eunomia in system settings.
           </Text>
-          <Button title="Open usage access settings" onPress={UsageEvents.openUsageAccessSettings} />
+          <Button
+            title="Open usage access settings"
+            onPress={UsageEvents.openUsageAccessSettings}
+          />
         </View>
       )}
 

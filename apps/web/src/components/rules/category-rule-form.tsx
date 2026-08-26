@@ -40,13 +40,19 @@ interface Condition {
   match: Match;
 }
 
-let nextId = 0;
+let lastId = 0;
+
+/** Row identity, local to this form — the server never sees these. */
+const nextId = (): number => {
+  lastId += 1;
+  return lastId;
+};
 
 /** A rule carries at most one pattern per field, so a row per field is the cap. */
 type Patterns = Record<Field, string | null>;
 
 const blank = (field: Field): Condition => ({
-  id: (nextId += 1),
+  id: nextId(),
   field,
   match: { mode: 'contains', value: '' },
 });
@@ -65,7 +71,7 @@ function seedConditions(rule: CategoryRule | undefined): Condition[] {
   const conditions: Condition[] = [];
   for (const [field, pattern] of stored) {
     if (pattern === null) continue;
-    conditions.push({ id: (nextId += 1), field, match: parsePattern(pattern) });
+    conditions.push({ id: nextId(), field, match: parsePattern(pattern) });
   }
   return conditions.length > 0 ? conditions : [blank('app')];
 }

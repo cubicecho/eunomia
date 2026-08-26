@@ -21,6 +21,7 @@ export interface Ping {
 // Compile-time drift check: every Ping must remain valid recordPing arguments,
 // so a server-side change to the mutation breaks this package's typecheck.
 import type { MutationRecordPingArgs } from './gql/sdk.ts';
+
 type AssertWireCompatible<_T extends MutationRecordPingArgs> = never;
 export type _PingWireCheck = AssertWireCompatible<Ping>;
 

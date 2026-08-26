@@ -50,7 +50,13 @@ export function synthesizePings(
   const emit = (at: number, app: string | null, title: string | null): void => {
     if (at < next.lastEmitAt) return; // never go backwards — serial fold assumes order
     // No sub-app context on Android — the server's title rules can supply one.
-    pings.push({ capturedAt: new Date(at).toISOString(), app, title, context: null, idleSeconds: 0 });
+    pings.push({
+      capturedAt: new Date(at).toISOString(),
+      app,
+      title,
+      context: null,
+      idleSeconds: 0,
+    });
     next.lastEmitAt = at;
   };
 

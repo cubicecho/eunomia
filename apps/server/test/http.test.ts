@@ -97,9 +97,12 @@ describe('graphql over http', () => {
     // The desktop webview flow: the agent holds only an x-api-key, exchanges
     // it for a bearer session, and the embedded dashboard runs on that.
     const token = await signIn();
-    const reg = await query('mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }', {
-      authorization: `Bearer ${token}`,
-    });
+    const reg = await query(
+      'mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }',
+      {
+        authorization: `Bearer ${token}`,
+      },
+    );
     const apiKey = (reg.body.data?.registerDevice as { apiKey: string }).apiKey;
 
     const minted = await query('mutation { sessionFromDeviceKey { token userId } }', {
@@ -149,9 +152,12 @@ describe('graphql over http', () => {
     // Same shape as above — 200, every aliased ping null — but for the
     // innocent reason: recordPing records nothing for an idle ping. Reading
     // that as failure stalled the outbox, since the batch came back forever.
-    const reg = await query('mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }', {
-      authorization: `Bearer ${await signIn()}`,
-    });
+    const reg = await query(
+      'mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }',
+      {
+        authorization: `Bearer ${await signIn()}`,
+      },
+    );
     const apiKey = (reg.body.data?.registerDevice as { apiKey: string }).apiKey;
 
     const { body } = await post(

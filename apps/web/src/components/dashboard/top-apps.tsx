@@ -2,11 +2,7 @@ import { ChevronRight } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { EmptyState } from '@/components/empty-state';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { formatSeconds } from '@/lib/format';
 import { contextColor, UNCATEGORIZED_COLOR } from '@/lib/palette';
 import type { AppTotal } from '@/lib/summary';

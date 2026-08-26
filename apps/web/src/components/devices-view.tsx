@@ -120,11 +120,7 @@ function DeviceRow({ device, others, run }: RowProps) {
         description="Its recorded activity is deleted with it and its API key stops working — the agent on that machine will have to be paired again. To keep the time it recorded, merge it into another device instead."
         onConfirm={() => run(() => deleteDevice(device.id))}
       >
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground hover:text-destructive"
-        >
+        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
           Delete
         </Button>
       </ConfirmDelete>

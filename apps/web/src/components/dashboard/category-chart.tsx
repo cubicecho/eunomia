@@ -1,4 +1,5 @@
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from 'recharts';
+import { EmptyState } from '@/components/empty-state';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   type ChartConfig,
@@ -8,7 +9,6 @@ import {
 } from '@/components/ui/chart';
 import { formatSeconds } from '@/lib/format';
 import type { Series } from '@/lib/summary';
-import { EmptyState } from '@/components/empty-state';
 
 const ROW_HEIGHT = 34;
 

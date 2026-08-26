@@ -1,5 +1,4 @@
 import { hostname } from 'node:os';
-import { BrowserWindow, ipcMain } from 'electron';
 import {
   DEFAULT_SYNC_INTERVAL_SECONDS,
   MIN_SYNC_INTERVAL_SECONDS,
@@ -10,6 +9,7 @@ import {
   signOut,
   verifyMagicLink,
 } from '@eunomia/agent';
+import { BrowserWindow, ipcMain } from 'electron';
 import { type DesktopConfig, platformName, writeAgentConfig } from './config.ts';
 
 // Onboarding window shown when the agent starts unprovisioned: server URL +

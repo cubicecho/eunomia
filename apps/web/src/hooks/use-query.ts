@@ -24,6 +24,7 @@ export function useQuery<T>(load: () => Promise<T>, deps: DependencyList): Query
   const [loading, setLoading] = useState(true);
   const [nonce, setNonce] = useState(0);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `load` is a new closure every render and `expire` isn't memoized — depending on either refetches forever (see above)
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -47,7 +48,6 @@ export function useQuery<T>(load: () => Promise<T>, deps: DependencyList): Query
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, nonce]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);

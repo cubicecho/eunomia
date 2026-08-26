@@ -6,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { compile, type Match, type MatchMode, MATCH_MODES, toPattern } from '@/lib/pattern';
+import { compile, MATCH_MODES, type Match, type MatchMode, toPattern } from '@/lib/pattern';
 import { cn } from '@/lib/utils';
 
 interface Props {

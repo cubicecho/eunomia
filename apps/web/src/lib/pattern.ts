@@ -17,10 +17,10 @@ const META = /[.*+?^${}()|[\]\\]/g;
 /** Escapes a literal so it matches itself and nothing else. */
 export const escapeRegex = (value: string): string => value.replace(META, '\\$&');
 
-const unescape = (value: string): string => value.replace(/\\(.)/g, '$1');
+const unescapeRegex = (value: string): string => value.replace(/\\(.)/g, '$1');
 
 /** True when `body` is exactly the escaping of some plain literal. */
-const isLiteral = (body: string): boolean => escapeRegex(unescape(body)) === body;
+const isLiteral = (body: string): boolean => escapeRegex(unescapeRegex(body)) === body;
 
 /** Same compilation the server does, so a preview can't disagree with it. */
 export function compile(pattern: string): RegExp | null {
@@ -84,7 +84,7 @@ export function parsePattern(pattern: string): Match {
   if (list?.[1] !== undefined) {
     const parts = list[1].split('|');
     if (parts.length > 1 && parts.every((part) => part.length > 0 && isLiteral(part))) {
-      return { mode: 'oneOf', value: parts.map(unescape).join(', ') };
+      return { mode: 'oneOf', value: parts.map(unescapeRegex).join(', ') };
     }
   }
 
@@ -93,7 +93,7 @@ export function parsePattern(pattern: string): Match {
   const body = pattern.slice(anchoredStart ? 1 : 0, anchoredEnd ? -1 : undefined);
   if (body.length === 0 || !isLiteral(body)) return asRegex;
 
-  const value = unescape(body);
+  const value = unescapeRegex(body);
   if (anchoredStart && anchoredEnd) return { mode: 'exactly', value };
   if (anchoredStart) return { mode: 'startsWith', value };
   if (anchoredEnd) return { mode: 'endsWith', value };
@@ -163,19 +163,23 @@ export function parseExtractPattern(pattern: string): Extract {
 
   const before = /^\^\(\.\+\?\)\\s\*(.+)$/.exec(pattern);
   if (before?.[1] !== undefined && isLiteral(before[1])) {
-    return { mode: 'before', first: unescape(before[1]), second: '' };
+    return { mode: 'before', first: unescapeRegex(before[1]), second: '' };
   }
 
   const between = /^(.+?)\\s\*\(\.\+\?\)\\s\*(.+)$/.exec(pattern);
   if (between?.[1] !== undefined && between[2] !== undefined) {
     if (isLiteral(between[1]) && isLiteral(between[2])) {
-      return { mode: 'between', first: unescape(between[1]), second: unescape(between[2]) };
+      return {
+        mode: 'between',
+        first: unescapeRegex(between[1]),
+        second: unescapeRegex(between[2]),
+      };
     }
   }
 
   const after = /^(.+?)\\s\*\(\.\+\)\$$/.exec(pattern);
   if (after?.[1] !== undefined && isLiteral(after[1])) {
-    return { mode: 'after', first: unescape(after[1]), second: '' };
+    return { mode: 'after', first: unescapeRegex(after[1]), second: '' };
   }
 
   return asRegex;

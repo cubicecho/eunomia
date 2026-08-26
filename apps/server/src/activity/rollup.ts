@@ -26,7 +26,13 @@ export async function addSeconds(db: Db, key: SummaryKey, seconds: number): Prom
     .insert(summaries)
     .values({ id: crypto.randomUUID(), ...key, seconds })
     .onConflictDoUpdate({
-      target: [summaries.deviceId, summaries.day, summaries.app, summaries.context, summaries.categoryId],
+      target: [
+        summaries.deviceId,
+        summaries.day,
+        summaries.app,
+        summaries.context,
+        summaries.categoryId,
+      ],
       set: { seconds: sql`${summaries.seconds} + excluded.seconds` },
     });
 }
@@ -124,7 +130,13 @@ export async function mergeCategorySummaries(db: Db, categoryId: string): Promis
   for (const row of rows) {
     await addSeconds(
       db,
-      { deviceId: row.deviceId, day: row.day, app: row.app, context: row.context, categoryId: null },
+      {
+        deviceId: row.deviceId,
+        day: row.day,
+        app: row.app,
+        context: row.context,
+        categoryId: null,
+      },
       row.seconds,
     );
     await db.delete(summaries).where(eq(summaries.id, row.id));

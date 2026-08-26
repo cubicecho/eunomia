@@ -9,10 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SessionProvider } from '@/session';
 
-type Screen =
-  | { kind: 'booting' }
-  | { kind: 'signin'; message?: string }
-  | { kind: 'signed-in' };
+type Screen = { kind: 'booting' } | { kind: 'signin'; message?: string } | { kind: 'signed-in' };
 
 const VIEWS = [
   { value: 'dashboard', label: 'Dashboard' },
@@ -47,9 +44,7 @@ export function App() {
 
   if (screen.kind === 'booting') return null;
   if (screen.kind === 'signin') {
-    return (
-      <SignIn message={screen.message} onSignedIn={() => setScreen({ kind: 'signed-in' })} />
-    );
+    return <SignIn message={screen.message} onSignedIn={() => setScreen({ kind: 'signed-in' })} />;
   }
 
   return (

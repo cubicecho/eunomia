@@ -76,7 +76,6 @@ describe('context over GraphQL', () => {
   const data = async (source: string, userId = 'user-1') => {
     const result = await run(source, userId);
     expect(result.errors).toBeUndefined();
-    // biome-ignore lint/suspicious/noExplicitAny: test convenience
     return result.data as any;
   };
 

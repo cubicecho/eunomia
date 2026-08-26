@@ -23,4 +23,5 @@ export function createDb(
 
 // Driver-agnostic db type (node-postgres in prod, PGlite in tests) — both
 // drivers extend PgAsyncDatabase over the same relations config.
+// biome-ignore lint/suspicious/noExplicitAny: the driver's own query-result generic — naming either driver here is what would make this type wrong
 export type Db = PgAsyncDatabase<any, typeof schema.relations>;

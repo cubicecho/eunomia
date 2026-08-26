@@ -37,7 +37,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAction, useQuery } from '@/hooks/use-query';
-import { categoryColor, CHART_COLORS } from '@/lib/palette';
+import { CHART_COLORS, categoryColor } from '@/lib/palette';
 import { describeExtractPattern, describePattern } from '@/lib/pattern';
 
 export function RulesView() {
@@ -223,10 +223,7 @@ export function RulesView() {
                         <Pattern value={rule.appPattern} />
                       </TableCell>
                       <TableCell>
-                        <span
-                          className="text-muted-foreground text-sm"
-                          title={rule.titlePattern}
-                        >
+                        <span className="text-muted-foreground text-sm" title={rule.titlePattern}>
                           {describeExtractPattern(rule.titlePattern)}
                         </span>
                       </TableCell>

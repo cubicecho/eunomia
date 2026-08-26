@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  initialSynthState,
-  SYNTH_INTERVAL_MS,
-  synthesizePings,
-  type UsageEvent,
-} from './synth.ts';
+import { initialSynthState, SYNTH_INTERVAL_MS, synthesizePings, type UsageEvent } from './synth.ts';
 
 const T0 = Date.UTC(2026, 0, 1, 12, 0, 0);
 const at = (ms: number) => new Date(T0 + ms).toISOString();
