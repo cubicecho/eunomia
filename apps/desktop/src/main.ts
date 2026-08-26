@@ -16,6 +16,7 @@ import { activeWindow } from '@miniben90/x-win';
 import { app, Menu, nativeImage, powerMonitor, Tray } from 'electron';
 import { syncAutostart } from './autostart.ts';
 import { loadConfig } from './config.ts';
+import { TRAY_ICON_16, TRAY_ICON_32 } from './tray-icon.ts';
 
 // Tray-only background agent. Stateless by design: it observes the foreground
 // window + idle time and emits pings ("this is what the device looks like right
@@ -188,7 +189,11 @@ app.whenReady().then(async () => {
     );
   };
 
-  tray = new Tray(nativeImage.createEmpty());
+  // Data-URL icon: nothing extra to ship in the package, and Windows needs a
+  // real image — an empty nativeImage leaves an invisible tray entry there.
+  const icon = nativeImage.createFromDataURL(TRAY_ICON_16);
+  icon.addRepresentation({ scaleFactor: 2, dataURL: TRAY_ICON_32 });
+  tray = new Tray(icon);
   refreshTrayMenu();
 
   setInterval(() => checkOnce(outbox, sanitize), CHECK_INTERVAL_MS);
