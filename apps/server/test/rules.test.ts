@@ -161,6 +161,37 @@ describe('auto-categorization rules', () => {
     expect(rows.find((r) => r.id === 'old-pinned')?.categoryId).toBe(personal);
   });
 
+  it('sweeps more history than one page holds', async () => {
+    // The sweep walks by id in pages, so the batch boundary is where a cursor
+    // mistake would either skip rows or loop on the same page forever. 1200 is
+    // over SWEEP_PAGE with a partial final page.
+    const work = await createCategory('Work');
+    const noon = Date.parse('2026-08-10T12:00:00Z');
+    await db.insert(activities).values(
+      Array.from({ length: 1200 }, (_, i) => ({
+        id: `a${String(i).padStart(5, '0')}`,
+        deviceId: 'device-1',
+        // Half match the rule, so the sweep also has to leave rows alone.
+        app: i % 2 === 0 ? 'code' : 'firefox',
+        startedAt: new Date(noon + i * 1000),
+        lastActiveAt: new Date(noon + i * 1000 + 60_000),
+        activeSeconds: 60,
+        closedAt: new Date(noon + i * 1000 + 60_000),
+      })),
+    );
+    await createRule(work, { app: '^code$' });
+
+    const { applyCategoryRules } = await data('mutation { applyCategoryRules }');
+    expect(applyCategoryRules).toBe(600);
+
+    const rows = await db.select().from(activities);
+    expect(rows.filter((r) => r.categoryId === work)).toHaveLength(600);
+    expect(rows.filter((r) => r.app === 'firefox' && r.categoryId !== null)).toEqual([]);
+
+    // And it converges: a second sweep finds nothing left to move.
+    expect((await data('mutation { applyCategoryRules }')).applyCategoryRules).toBe(0);
+  });
+
   it('edits a rule in place: new pattern applies, cleared fields stop matching', async () => {
     const work = await createCategory('Work');
     const dev = await createCategory('Dev');
