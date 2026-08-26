@@ -4,17 +4,17 @@ import { Writable } from 'node:stream';
 import {
   DEFAULT_SYNC_INTERVAL_SECONDS,
   MIN_SYNC_INTERVAL_SECONDS,
-  registerDevice,
+  normalizeServerUrl,
+  provisionDevice,
   requestMagicLink,
-  signOut,
-  verifyMagicLink,
 } from '@eunomia/agent';
-import { platformName, writeAgentConfig } from './config.ts';
+import { type DesktopConfig, loadConfig, platformName, writeAgentConfig } from './config.ts';
 
-// One-shot terminal flow (run with --provision): sign in via magic link,
-// register this machine as a device, and write the userData config.json the
-// tray agent uploads with. The session token is only held for the two calls
-// and revoked at the end — the agent authenticates with the device API key.
+// One-shot terminal flow (run with --provision): collect the answers, hand
+// them to provisionDevice, and write the userData config.json the tray agent
+// uploads with. Everything about how a device is claimed — the sign-in, the
+// register-or-re-key choice, disposing of the session — lives there, shared
+// with the setup window and the Android agent.
 
 // One shared readline interface for the whole flow: a fresh interface per
 // question would drop lines buffered on piped (non-tty) stdin. Hidden input
@@ -58,49 +58,61 @@ async function prompt(question: string, { hidden = false, fallback = '' } = {}):
 }
 
 /**
- * Magic-link sign-in: request a link for the email, then either verify the
- * token the server handed back directly (UNSAFE_LOCAL_NETWORK deployments) or
- * ask the user to paste the link from their inbox.
+ * Requests a magic link for the email and returns something provisionDevice
+ * can verify: either the token the server handed back directly
+ * (UNSAFE_LOCAL_NETWORK deployments) or the link pasted from the inbox.
  */
-async function signInWithMagicLink(serverUrl: string, email: string): Promise<string> {
-  let token = await requestMagicLink(serverUrl, email);
-  if (!token) {
-    token = await prompt(`Sign-in link sent to ${email}. Paste the link (or token) here: `);
-  }
-  return verifyMagicLink(serverUrl, token);
+async function magicLinkToken(serverUrl: string, email: string): Promise<string> {
+  const token = await requestMagicLink(serverUrl, email);
+  if (token) return token;
+  return prompt(`Sign-in link sent to ${email}. Paste the link (or token) here: `);
 }
 
 export async function runProvisioning(dataDir: string): Promise<void> {
-  const serverUrl = await prompt('Server URL [http://localhost:4000]: ', {
-    fallback: process.env.EUNOMIA_SERVER_URL ?? 'http://localhost:4000',
-  });
-  const email = await prompt('Email: ');
-  const name = await prompt(`Device name [${hostname()}]: `, { fallback: hostname() });
-  const intervalAnswer = await prompt(
-    `Sync interval in seconds [${DEFAULT_SYNC_INTERVAL_SECONDS}]: `,
-    { fallback: String(DEFAULT_SYNC_INTERVAL_SECONDS) },
+  // What this install already is, if anything: re-running --provision on a
+  // provisioned machine should re-key its device, not register a twin.
+  const current = loadConfig(dataDir);
+  const defaultUrl =
+    current?.serverUrl ?? process.env.EUNOMIA_SERVER_URL ?? 'http://localhost:4000';
+  const serverUrl = normalizeServerUrl(
+    await prompt(`Server URL [${defaultUrl}]: `, { fallback: defaultUrl }),
   );
+  const email = await prompt('Email: ');
+  const defaultName = current?.deviceName ?? hostname();
+  const name = await prompt(`Device name [${defaultName}]: `, { fallback: defaultName });
+  const defaultInterval = current?.syncIntervalSeconds ?? DEFAULT_SYNC_INTERVAL_SECONDS;
+  const intervalAnswer = await prompt(`Sync interval in seconds [${defaultInterval}]: `, {
+    fallback: String(defaultInterval),
+  });
   const parsedInterval = Number(intervalAnswer);
   const syncIntervalSeconds =
     Number.isFinite(parsedInterval) && parsedInterval > 0
       ? Math.max(MIN_SYNC_INTERVAL_SECONDS, parsedInterval)
       : DEFAULT_SYNC_INTERVAL_SECONDS;
 
-  const sessionToken = await signInWithMagicLink(serverUrl, email);
-  const { deviceId, apiKey } = await registerDevice(serverUrl, sessionToken, name, platformName());
-  // deviceId/deviceName are recorded so the tray's "change server / API key"
-  // flow can re-key this device instead of registering a duplicate.
-  const configPath = writeAgentConfig(dataDir, {
+  const provisioned = await provisionDevice({
     serverUrl,
-    apiKey,
-    deviceId,
-    deviceName: name,
-    syncIntervalSeconds,
+    tokenOrLink: await magicLinkToken(serverUrl, email),
+    name,
+    platform: platformName(),
+    existing: current,
   });
 
-  // The interactive session has done its job; the agent runs on the API key.
-  await signOut(serverUrl, sessionToken);
+  // deviceId/deviceName are recorded so a later reconnect — here or from the
+  // tray — re-keys this device instead of registering a duplicate. Privacy
+  // rules and the launch-at-login choice are the user's; they carry across.
+  const config: DesktopConfig = {
+    ...current,
+    serverUrl: provisioned.serverUrl,
+    apiKey: provisioned.apiKey,
+    deviceId: provisioned.deviceId,
+    deviceName: name,
+    syncIntervalSeconds,
+  };
+  const configPath = writeAgentConfig(dataDir, config);
 
-  console.log(`device ${deviceId} ("${name}") registered`);
+  console.log(
+    `device ${provisioned.deviceId} ("${name}") ${provisioned.reKeyed ? 're-keyed' : 'registered'}`,
+  );
   console.log(`config written to ${configPath} — start the agent normally to upload`);
 }

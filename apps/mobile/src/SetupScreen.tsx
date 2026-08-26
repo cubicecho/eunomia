@@ -1,20 +1,15 @@
-import {
-  type AgentConfig,
-  registerDevice,
-  requestMagicLink,
-  signOut,
-  verifyMagicLink,
-} from '@eunomia/agent';
+import { normalizeServerUrl, provisionDevice, requestMagicLink } from '@eunomia/agent';
 import { useState } from 'react';
 import { Button, StyleSheet, Text, TextInput, View } from 'react-native';
-import { writeConfig } from './store.ts';
+import { loadConfig, type MobileConfig, writeConfig } from './store.ts';
 
 // Mobile counterpart of the desktop onboarding window: server URL + email +
-// device name, magic-link sign-in, then registerDevice writes config.json and
-// syncing starts — same flow, same shared API calls.
+// device name, magic-link sign-in, then provisionDevice writes config.json and
+// syncing starts — the same shared flow the desktop agent provisions with,
+// down to re-keying an existing device rather than registering a twin.
 
 interface Props {
-  onDone: (config: AgentConfig) => void;
+  onDone: (config: MobileConfig) => void;
 }
 
 function errorMessage(error: unknown): string {
@@ -31,11 +26,26 @@ export function SetupScreen({ onDone }: Props) {
   const [error, setError] = useState('');
 
   const finish = async (tokenOrLink: string): Promise<void> => {
-    const url = serverUrl.trim().replace(/\/+$/, '');
-    const session = await verifyMagicLink(url, tokenOrLink);
-    const { apiKey } = await registerDevice(url, session, deviceName.trim(), 'android');
-    await signOut(url, session);
-    const config: AgentConfig = { serverUrl: url, apiKey };
+    // Whatever is on disk decides register-or-re-key; privacy rules and the
+    // sync interval on it are the user's and carry across a reconnect.
+    const current = loadConfig();
+    const name = deviceName.trim();
+    const provisioned = await provisionDevice({
+      serverUrl,
+      tokenOrLink,
+      name,
+      platform: 'android',
+      existing: current,
+    });
+    const config: MobileConfig = {
+      ...current,
+      serverUrl: provisioned.serverUrl,
+      apiKey: provisioned.apiKey,
+      // Recorded so setting this device up again re-keys it rather than
+      // stranding its history on a device nothing uploads to any more.
+      deviceId: provisioned.deviceId,
+      deviceName: name,
+    };
     writeConfig(config);
     onDone(config);
   };
@@ -44,8 +54,10 @@ export function SetupScreen({ onDone }: Props) {
     setBusy(true);
     setError('');
     try {
-      const url = serverUrl.trim().replace(/\/+$/, '');
-      const token = await requestMagicLink(url, email.trim().toLowerCase());
+      const token = await requestMagicLink(
+        normalizeServerUrl(serverUrl),
+        email.trim().toLowerCase(),
+      );
       if (token) await finish(token);
       else setStage('link');
     } catch (err) {

@@ -24,6 +24,13 @@ export {
 } from './ping.ts';
 export { createSanitizer, type PingSanitizer, type PrivacyConfig } from './privacy.ts';
 export {
+  type DeviceIdentity,
+  normalizeServerUrl,
+  type ProvisionInput,
+  type ProvisionResult,
+  provisionDevice,
+} from './provision.ts';
+export {
   initialSynthState,
   SYNTH_INTERVAL_MS,
   type SynthState,

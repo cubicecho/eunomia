@@ -1,5 +1,4 @@
 import {
-  type AgentConfig,
   DEFAULT_SYNC_INTERVAL_SECONDS,
   MIN_SYNC_INTERVAL_SECONDS,
   syncIntervalMs,
@@ -7,7 +6,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, Button, StyleSheet, Text, TextInput, View } from 'react-native';
 import UsageEvents from '../modules/usage-events';
-import { getOutbox, writeConfig } from './store.ts';
+import { getOutbox, type MobileConfig, writeConfig } from './store.ts';
 import { performSync, type SyncResult } from './sync.ts';
 
 // Main screen once provisioned: usage-access gate, outbox status, manual
@@ -16,8 +15,8 @@ import { performSync, type SyncResult } from './sync.ts';
 // background task covers the stretches in between.
 
 interface Props {
-  config: AgentConfig;
-  onConfigChange: (config: AgentConfig) => void;
+  config: MobileConfig;
+  onConfigChange: (config: MobileConfig) => void;
 }
 
 export function StatusScreen({ config, onConfigChange }: Props) {

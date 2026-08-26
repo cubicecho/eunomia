@@ -29,15 +29,27 @@ function jsonFile<T>(name: string) {
   };
 }
 
-const configFile = jsonFile<Partial<AgentConfig>>('config.json');
+/**
+ * Mobile-only additions to the shared agent config, matching the desktop
+ * agent's: the device this install registered as, so setting it up again
+ * re-keys that device rather than leaving its history on a duplicate.
+ */
+export interface MobileConfig extends AgentConfig {
+  deviceId?: string;
+  deviceName?: string;
+}
+
+const configFile = jsonFile<Partial<MobileConfig>>('config.json');
 
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === 'string');
 
-export function loadConfig(): AgentConfig | null {
+export function loadConfig(): MobileConfig | null {
   const parsed = configFile.read();
   if (parsed && typeof parsed.serverUrl === 'string' && typeof parsed.apiKey === 'string') {
-    const config: AgentConfig = { serverUrl: parsed.serverUrl, apiKey: parsed.apiKey };
+    const config: MobileConfig = { serverUrl: parsed.serverUrl, apiKey: parsed.apiKey };
+    if (typeof parsed.deviceId === 'string') config.deviceId = parsed.deviceId;
+    if (typeof parsed.deviceName === 'string') config.deviceName = parsed.deviceName;
     if (typeof parsed.syncIntervalSeconds === 'number') {
       config.syncIntervalSeconds = parsed.syncIntervalSeconds;
     }
@@ -48,7 +60,7 @@ export function loadConfig(): AgentConfig | null {
   return null;
 }
 
-export function writeConfig(config: AgentConfig): void {
+export function writeConfig(config: MobileConfig): void {
   configFile.write(config);
 }
 

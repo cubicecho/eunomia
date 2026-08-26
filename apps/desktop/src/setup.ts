@@ -2,26 +2,22 @@ import { hostname } from 'node:os';
 import {
   DEFAULT_SYNC_INTERVAL_SECONDS,
   MIN_SYNC_INTERVAL_SECONDS,
-  registerDevice,
-  renameDevice,
+  provisionDevice,
   requestMagicLink,
-  rotateDeviceKey,
-  signOut,
-  verifyMagicLink,
 } from '@eunomia/agent';
 import { BrowserWindow, ipcMain } from 'electron';
 import { type DesktopConfig, platformName, writeAgentConfig } from './config.ts';
 
 // Onboarding window shown when the agent starts unprovisioned: server URL +
-// email + device name, magic-link sign-in, then registerDevice writes
+// email + device name, magic-link sign-in, then provisionDevice writes
 // config.json and the window closes itself — the tray keeps running
 // throughout. The page is an inline data URL so the packaged app needs no
 // extra assets beyond the bundled main.
 //
 // The same window reconnects an install that already has a config (tray →
-// "Change server / API key…"): pointing it at a different server registers
-// there, while staying on the same server re-keys the device it already owns
-// (rotateDeviceKey) so its history isn't stranded on a duplicate device.
+// "Change server / API key…"). Which of register-or-re-key that means is
+// provisionDevice's call, from the config passed as `existing`; this file only
+// collects the answers and writes what comes back.
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -214,34 +210,19 @@ export function runSetupWindow(
         },
       ) => {
         try {
-          const session = await verifyMagicLink(args.serverUrl, args.tokenOrLink);
-          // Same server and a device we already own: re-key it rather than
-          // registering a twin that splits this machine's history in two.
-          const reKey =
-            current?.deviceId !== undefined && current.serverUrl === args.serverUrl
-              ? current.deviceId
-              : null;
-          let deviceId: string;
-          let apiKey: string;
-          if (reKey) {
-            if (args.name !== (current?.deviceName ?? '')) {
-              await renameDevice(args.serverUrl, session, reKey, args.name);
-            }
-            ({ deviceId, apiKey } = await rotateDeviceKey(args.serverUrl, session, reKey));
-          } else {
-            ({ deviceId, apiKey } = await registerDevice(
-              args.serverUrl,
-              session,
-              args.name,
-              platformName(),
-            ));
-          }
+          const { serverUrl, deviceId, apiKey, reKeyed } = await provisionDevice({
+            serverUrl: args.serverUrl,
+            tokenOrLink: args.tokenOrLink,
+            name: args.name,
+            platform: platformName(),
+            existing: current,
+          });
           const config: DesktopConfig = {
             // Privacy rules are the user's, not the server's — carry them
             // across a reconnect.
             ...current,
             autostart: args.autostart,
-            serverUrl: args.serverUrl,
+            serverUrl,
             apiKey,
             deviceId,
             deviceName: args.name,
@@ -251,9 +232,8 @@ export function runSetupWindow(
                 : DEFAULT_SYNC_INTERVAL_SECONDS,
           };
           const configPath = writeAgentConfig(dataDir, config);
-          await signOut(args.serverUrl, session);
           console.log(
-            `device ${deviceId} ("${args.name}") ${reKey ? 're-keyed' : 'registered'}, config at ${configPath}`,
+            `device ${deviceId} ("${args.name}") ${reKeyed ? 're-keyed' : 'registered'}, config at ${configPath}`,
           );
           result = config;
           setTimeout(() => {
