@@ -5,6 +5,7 @@ export {
   extractMagicToken,
   registerDevice,
   requestMagicLink,
+  sessionFromDeviceKey,
   signOut,
   verifyMagicLink,
 } from './api.ts';

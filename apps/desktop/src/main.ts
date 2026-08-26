@@ -149,6 +149,14 @@ app.whenReady().then(async () => {
     }
   };
 
+  // Dashboard window: the server-hosted web app, signed in via the device
+  // key. Lazily imported like setup — the hot path never loads it.
+  const showDashboard = async (): Promise<void> => {
+    if (!config) return;
+    const { openDashboard } = await import('./dashboard.ts');
+    await openDashboard(config);
+  };
+
   // A stalled upload is otherwise invisible: pings keep queueing to disk while
   // the tray claims all is well. Revoked key, wrong URL, server down — say so.
   const uploadLabel = (): string => {
@@ -171,7 +179,9 @@ app.whenReady().then(async () => {
       Menu.buildFromTemplate([
         { label: uploadLabel(), enabled: false },
         { label: `Outbox: ${join(dataDir, 'outbox.jsonl')}`, enabled: false },
-        ...(config ? [] : [{ label: 'Set up uploads…', click: () => void openSetup() }]),
+        ...(config
+          ? [{ label: 'Open Dashboard', click: () => void showDashboard() }]
+          : [{ label: 'Set up uploads…', click: () => void openSetup() }]),
         { type: 'separator' as const },
         { label: 'Quit', click: () => app.quit() },
       ]),

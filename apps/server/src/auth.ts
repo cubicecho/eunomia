@@ -129,6 +129,10 @@ export interface AuthSession {
   userId: string;
 }
 
+// Lifetime of a session minted from a device key. Short: the desktop mints a
+// fresh one every time the dashboard window opens, so nothing needs to last.
+const DEVICE_SESSION_SECONDS = 60 * 60;
+
 /**
  * The auth operations the GraphQL layer needs — the server exposes no
  * better-auth REST routes, so these are the only way auth is reached. Injected
@@ -136,6 +140,14 @@ export interface AuthSession {
  */
 export interface AuthGateway {
   mintDeviceKey(input: { userId: string; deviceId: string; name: string }): Promise<string>;
+  /**
+   * Opens a short-lived session for a device key's owner, so the desktop app
+   * can show the dashboard without a second sign-in. Not an escalation: the
+   * key already resolves to this userId and authorizes every user-scoped
+   * field — this only lets the embedded web view hold a revocable, expiring
+   * token instead of the key itself.
+   */
+  sessionForDevice(userId: string): Promise<AuthSession>;
   signUp(input: { email: string; password: string; name: string }): Promise<AuthSession>;
   signIn(input: { email: string; password: string }): Promise<AuthSession>;
   /**
@@ -190,6 +202,19 @@ export function createAuthGateway(
 
   return {
     mintDeviceKey: (input) => mintDeviceKey(auth, input),
+
+    async sessionForDevice(userId) {
+      const ctx = await auth.$context;
+      // overrideAll: createSession spreads its default expiresAt *after* the
+      // override, so a plain override can't shorten the session.
+      const session = await ctx.internalAdapter.createSession(
+        userId,
+        false,
+        { expiresAt: new Date(Date.now() + DEVICE_SESSION_SECONDS * 1000) },
+        true,
+      );
+      return { token: session.token, userId };
+    },
 
     async requestMagicLink(email) {
       assertAllowed(email);

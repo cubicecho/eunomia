@@ -596,6 +596,7 @@ export type Mutation = {
   registerDevice: DeviceRegistration;
   renameDevice: Devices;
   requestMagicLink: MagicLinkRequest;
+  sessionFromDeviceKey: AuthSession;
   signIn: AuthSession;
   signOut: Scalars['Boolean']['output'];
   signUp: AuthSession;
@@ -950,6 +951,11 @@ export type SignOutMutationVariables = Exact<{ [key: string]: never; }>;
 
 export type SignOutMutation = { signOut: boolean };
 
+export type SessionFromDeviceKeyMutationVariables = Exact<{ [key: string]: never; }>;
+
+
+export type SessionFromDeviceKeyMutation = { sessionFromDeviceKey: { token: string, userId: string } };
+
 
 export const RequestMagicLinkDocument = new TypedDocumentString(`
     mutation RequestMagicLink($email: String!) {
@@ -980,6 +986,14 @@ export const SignOutDocument = new TypedDocumentString(`
   signOut
 }
     `);
+export const SessionFromDeviceKeyDocument = new TypedDocumentString(`
+    mutation SessionFromDeviceKey {
+  sessionFromDeviceKey {
+    token
+    userId
+  }
+}
+    `);
 export type Requester<C = {}> = <R, V>(doc: string, vars?: V, options?: C) => Promise<R> | AsyncIterable<R>
 export function getSdk<C>(requester: Requester<C>) {
   return {
@@ -994,6 +1008,9 @@ export function getSdk<C>(requester: Requester<C>) {
     },
     SignOut(variables?: SignOutMutationVariables, options?: C): Promise<SignOutMutation> {
       return requester<SignOutMutation, SignOutMutationVariables>(SignOutDocument, variables, options) as Promise<SignOutMutation>;
+    },
+    SessionFromDeviceKey(variables?: SessionFromDeviceKeyMutationVariables, options?: C): Promise<SessionFromDeviceKeyMutation> {
+      return requester<SessionFromDeviceKeyMutation, SessionFromDeviceKeyMutationVariables>(SessionFromDeviceKeyDocument, variables, options) as Promise<SessionFromDeviceKeyMutation>;
     }
   };
 }

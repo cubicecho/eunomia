@@ -35,6 +35,7 @@ describe('graphql schema', () => {
       'registerDevice',
       'renameDevice',
       'requestMagicLink',
+      'sessionFromDeviceKey',
       'signIn',
       'signOut',
       'signUp',

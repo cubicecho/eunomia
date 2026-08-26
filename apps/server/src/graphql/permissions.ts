@@ -15,6 +15,15 @@ const authenticated: Rule = (resolve, parent, args, context: Context, info) => {
   return resolve(parent, args, context, info);
 };
 
+/**
+ * Passes only for device API keys (deviceId is set solely on x-api-key
+ * requests). Keeps session bearers from minting further sessions.
+ */
+const deviceAuthenticated: Rule = (resolve, parent, args, context: Context, info) => {
+  if (!context.userId || !context.deviceId) return Promise.reject(unauthenticated());
+  return resolve(parent, args, context, info);
+};
+
 // biome-ignore lint/suspicious/noExplicitAny: typed Resolvers arrive with codegen
 export const permissions: PermissionsMap<any> = {
   Query: {
@@ -35,7 +44,9 @@ export const permissions: PermissionsMap<any> = {
     requestMagicLink: accept,
     verifyMagicLink: accept,
     // Public: reports false for sessionless calls rather than erroring.
-    signOut: accept,    registerDevice: authenticated,
+    signOut: accept,
+    // Desktop dashboard hand-off: only a device key may trade itself for a session.
+    sessionFromDeviceKey: deviceAuthenticated,    registerDevice: authenticated,
     renameDevice: authenticated,
     deleteDevice: authenticated,
     recordPing: authenticated,

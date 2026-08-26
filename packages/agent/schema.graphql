@@ -545,6 +545,7 @@ type Mutation {
   registerDevice(name: String!, platform: String!): DeviceRegistration!
   renameDevice(id: String!, name: String!): Devices!
   requestMagicLink(email: String!): MagicLinkRequest!
+  sessionFromDeviceKey: AuthSession!
   signIn(email: String!, password: String!): AuthSession!
   signOut: Boolean!
   signUp(email: String!, name: String!, password: String!): AuthSession!

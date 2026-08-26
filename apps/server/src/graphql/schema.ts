@@ -380,6 +380,18 @@ export function createSchema(db: Db, auth: AuthGateway) {
         type: new GraphQLNonNull(GraphQLBoolean),
         resolve: (_source, _args, ctx: Context) => auth.signOut(ctx.headers),
       },
+      sessionFromDeviceKey: {
+        // Trades a device API key (x-api-key) for a short-lived bearer
+        // session, so the desktop app can open the dashboard in an embedded
+        // window without a second sign-in — and without handing its
+        // long-lived key to the web view. Device-key contexts only (see
+        // permissions); no throttle needed since it requires a valid key.
+        type: new GraphQLNonNull(authSessionType),
+        resolve: (_source, _args, ctx: Context) => {
+          if (!ctx.deviceId || !ctx.userId) throw unauthenticated();
+          return auth.sessionForDevice(ctx.userId);
+        },
+      },
       registerDevice: {
         // Custom payload type: the plaintext API key exists only in this
         // response (the server stores a hash), so it rides along exactly once.

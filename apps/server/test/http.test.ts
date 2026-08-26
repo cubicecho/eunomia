@@ -93,6 +93,38 @@ describe('graphql over http', () => {
     expect(body.errors?.[0]?.extensions?.code).toBe('INTERNAL_SERVER_ERROR');
   });
 
+  it('trades a device key for a session token the dashboard accepts', async () => {
+    // The desktop webview flow: the agent holds only an x-api-key, exchanges
+    // it for a bearer session, and the embedded dashboard runs on that.
+    const token = await signIn();
+    const reg = await query('mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }', {
+      authorization: `Bearer ${token}`,
+    });
+    const apiKey = (reg.body.data?.registerDevice as { apiKey: string }).apiKey;
+
+    const minted = await query('mutation { sessionFromDeviceKey { token userId } }', {
+      'x-api-key': apiKey,
+    });
+    const session = minted.body.data?.sessionFromDeviceKey as { token: string; userId: string };
+    expect(session.token).toBeTruthy();
+
+    const devices = await query('{ devices { name } }', {
+      authorization: `Bearer ${session.token}`,
+    });
+    expect(devices.body.errors).toBeUndefined();
+    expect(devices.body.data?.devices).toEqual([{ name: 'desk' }]);
+  });
+
+  it('refuses to mint a session for anything but a device key', async () => {
+    // A stolen bearer token must not be able to breed fresh sessions.
+    const bearer = { authorization: `Bearer ${await signIn()}` };
+    for (const headers of [bearer, undefined]) {
+      const { body } = await query('mutation { sessionFromDeviceKey { token } }', headers);
+      expect(body.data).toBeNull();
+      expect(body.errors?.[0]?.extensions?.code).toBe('UNAUTHENTICATED');
+    }
+  });
+
   it('an agent batch with a bad key is retried, not dropped', async () => {
     // The shape that used to lose data: HTTP 200, every aliased ping null.
     // classifyResponse (the agent's rule) must call this a retry.

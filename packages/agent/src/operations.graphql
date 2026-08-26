@@ -26,3 +26,10 @@ mutation RegisterDevice($name: String!, $platform: String!) {
 mutation SignOut {
   signOut
 }
+
+mutation SessionFromDeviceKey {
+  sessionFromDeviceKey {
+    token
+    userId
+  }
+}

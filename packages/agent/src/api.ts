@@ -17,14 +17,13 @@ export interface GraphQLTransportError {
   message: string;
 }
 
-/** Executes generated document strings against `/graphql` on the server. */
-export function createRequester(serverUrl: string, token?: string): Requester {
+function requesterWithHeaders(serverUrl: string, authHeaders: Record<string, string>): Requester {
   return async <R, V>(doc: string, vars?: V): Promise<R> => {
     const response = await fetch(new URL('/graphql', serverUrl), {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...authHeaders,
       },
       // `doc` may be a TypedDocumentString (a String subclass) — normalize.
       body: JSON.stringify({ query: String(doc), variables: vars }),
@@ -35,6 +34,11 @@ export function createRequester(serverUrl: string, token?: string): Requester {
     if (body.data === undefined || body.data === null) throw new Error('empty response');
     return body.data;
   };
+}
+
+/** Executes generated document strings against `/graphql` on the server. */
+export function createRequester(serverUrl: string, token?: string): Requester {
+  return requesterWithHeaders(serverUrl, token ? { authorization: `Bearer ${token}` } : {});
 }
 
 /** Typed SDK over every operation in src/operations.graphql. */
@@ -78,6 +82,17 @@ export async function registerDevice(
     platform,
   });
   return { deviceId: result.device.id, apiKey: result.apiKey };
+}
+
+/**
+ * Trades the device API key for a short-lived dashboard session token — how
+ * the desktop opens the web dashboard without a second sign-in. The key never
+ * leaves this call; only the expiring session token reaches the web view.
+ */
+export async function sessionFromDeviceKey(serverUrl: string, apiKey: string): Promise<string> {
+  const sdk = getSdk(requesterWithHeaders(serverUrl, { 'x-api-key': apiKey }));
+  const { sessionFromDeviceKey: result } = await sdk.SessionFromDeviceKey({});
+  return result.token;
 }
 
 /** Best-effort: the agent runs on the API key, the session is disposable. */
