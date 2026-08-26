@@ -1,0 +1,187 @@
+# Every operation the dashboard performs. Codegen validates these against
+# /schema.graphql and emits the typed SDK in src/gql/sdk.ts, which api.ts wraps
+# in the app's own error/session handling.
+
+mutation RequestMagicLink($email: String!) {
+  requestMagicLink(email: $email) {
+    token
+  }
+}
+
+mutation VerifyMagicLink($token: String!) {
+  verifyMagicLink(token: $token) {
+    token
+  }
+}
+
+mutation SignOut {
+  signOut
+}
+
+query CategorySummary($from: String!, $to: String!) {
+  categorySummary(from: $from, to: $to) {
+    day
+    categoryId
+    name
+    color
+    seconds
+  }
+}
+
+query AppSummary($from: String!, $to: String!) {
+  appSummary(from: $from, to: $to) {
+    app
+    context
+    seconds
+  }
+}
+
+# The corpus the rule builder tests a draft pattern against, newest first, so
+# "no matches" shows up before saving rather than after wondering why nothing
+# got categorized.
+query RecentActivities($limit: Int) {
+  activities(limit: $limit, orderBy: { startedAt: { direction: desc, priority: 1 } }) {
+    app
+    title
+    context
+  }
+}
+
+query Categories {
+  categories {
+    id
+    name
+    color
+  }
+}
+
+query CategoryRules {
+  categoryRules {
+    id
+    categoryId
+    appPattern
+    titlePattern
+    contextPattern
+    priority
+  }
+}
+
+query ContextRules {
+  contextRules {
+    id
+    appPattern
+    titlePattern
+    priority
+  }
+}
+
+query Devices {
+  devices {
+    id
+    name
+    platform
+    createdAt
+    lastSeenAt
+  }
+}
+
+mutation CreateCategory($name: String!, $color: String) {
+  createCategory(name: $name, color: $color) {
+    id
+  }
+}
+
+mutation DeleteCategory($id: String!) {
+  deleteCategory(id: $id)
+}
+
+mutation CreateCategoryRule(
+  $categoryId: String!
+  $appPattern: String
+  $titlePattern: String
+  $contextPattern: String
+  $priority: Int
+) {
+  createCategoryRule(
+    categoryId: $categoryId
+    appPattern: $appPattern
+    titlePattern: $titlePattern
+    contextPattern: $contextPattern
+    priority: $priority
+  ) {
+    id
+  }
+}
+
+# A whole-rule replacement: a null pattern clears that condition.
+mutation UpdateCategoryRule(
+  $id: String!
+  $categoryId: String!
+  $appPattern: String
+  $titlePattern: String
+  $contextPattern: String
+  $priority: Int
+) {
+  updateCategoryRule(
+    id: $id
+    categoryId: $categoryId
+    appPattern: $appPattern
+    titlePattern: $titlePattern
+    contextPattern: $contextPattern
+    priority: $priority
+  ) {
+    id
+  }
+}
+
+mutation DeleteCategoryRule($id: String!) {
+  deleteCategoryRule(id: $id)
+}
+
+mutation CreateContextRule($appPattern: String, $titlePattern: String!, $priority: Int) {
+  createContextRule(appPattern: $appPattern, titlePattern: $titlePattern, priority: $priority) {
+    id
+  }
+}
+
+mutation UpdateContextRule(
+  $id: String!
+  $appPattern: String
+  $titlePattern: String!
+  $priority: Int
+) {
+  updateContextRule(
+    id: $id
+    appPattern: $appPattern
+    titlePattern: $titlePattern
+    priority: $priority
+  ) {
+    id
+  }
+}
+
+mutation DeleteContextRule($id: String!) {
+  deleteContextRule(id: $id)
+}
+
+# Re-runs category rules over past activities; resolves to the number changed.
+mutation ApplyCategoryRules {
+  applyCategoryRules
+}
+
+mutation RenameDevice($id: String!, $name: String!) {
+  renameDevice(id: $id, name: $name) {
+    id
+  }
+}
+
+# Moves `id`'s history onto `intoId` and retires `id`.
+mutation MergeDevice($id: String!, $intoId: String!) {
+  mergeDevice(id: $id, intoId: $intoId) {
+    id
+  }
+}
+
+mutation DeleteDevice($id: String!) {
+  deleteDevice(id: $id)
+}

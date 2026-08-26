@@ -2,12 +2,20 @@ import type { CodegenConfig } from '@graphql-codegen/cli';
 
 // Regenerate with `npm run codegen` at the repo root (prints the server SDL to
 // /schema.graphql, then runs this). Output is committed: src/gql/sdk.ts is the
-// runtime contract every agent consumes.
+// typed contract the dashboard consumes, so a server schema change surfaces as
+// a typecheck failure here instead of an empty chart in the browser.
 //
-// Constraint: the generated file must survive Node's strip-only type
-// stripping (electron runs the desktop agent straight from TS source), so no
-// TS enums (enumsAsTypes) and string documents instead of DocumentNode
-// (documentMode: 'string' — also keeps `graphql` out of the runtime deps).
+// documentMode 'string' for the same reason the agent uses it, minus the
+// strip-only constraint: the operations ship as plain strings, which keeps the
+// `graphql` package out of the browser bundle entirely.
+//
+// No `typescript` plugin, unlike the agent's config. The dashboard passes no
+// input objects as variables (the one orderBy it needs is written inline in the
+// document), so the whole generated filter/order-by surface — a thousand lines
+// of it — would be dead weight. Leaving it out also sidesteps a collision:
+// typescript-operations re-declares any enum an operation selects unless the
+// schema types come from another file, so with both plugins writing here,
+// selecting Devices.platform emits DevicesPlatformEnum twice.
 const config: CodegenConfig = {
   schema: '../../schema.graphql',
   documents: 'src/operations.graphql',
@@ -18,7 +26,6 @@ const config: CodegenConfig = {
           // typescript-generic-sdk with documentMode 'string' emits
           // `new TypedDocumentString(...)` but leaves the definition to the
           // client-preset runtime, which we don't use — supply a minimal one.
-          // The `declare` field keeps it erasable under strip-only stripping.
           add: {
             content: [
               'class DocumentString extends String {}',
@@ -31,7 +38,6 @@ const config: CodegenConfig = {
             ].join('\n'),
           },
         },
-        'typescript',
         'typescript-operations',
         'typescript-generic-sdk',
       ],

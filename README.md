@@ -19,24 +19,29 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 - `apps/mobile` — Expo (Android-only for now) agent: a local Kotlin module reads
   Android's `UsageStatsManager` event log and the shared synthesizer turns it
   into pings retroactively — no live sampling service needed.
-- `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in, per-category/per-day/per-app views, rules, devices.
+- `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in,
+  per-category/per-day/per-app views, rules, devices. Talks to the server
+  through its own generated GraphQL SDK (committed codegen output).
 - `packages/agent` — agent core shared by desktop and mobile: the generated
   GraphQL SDK (committed codegen output), crash-safe outbox, batch uploader,
-  and usage-event → ping synthesizer.
+  the usage-event → ping synthesizer, and the shared provisioning flow.
 - `packages/shared` — shared Zod schemas/types.
 
 ### GraphQL contract
 
-`packages/agent/schema.graphql` and `packages/agent/src/gql/sdk.ts` are
-generated and committed — they are the typed contract every agent builds
-against. After changing the server schema, run:
+`schema.graphql` at the root is the server's printed SDL, and
+`packages/agent/src/gql/sdk.ts` and `apps/web/src/gql/sdk.ts` are the typed
+clients generated from it. All three are committed — they are the contract the
+agents and the dashboard build against. After changing the server schema, run:
 
 ```bash
-npm run codegen   # prints server SDL, regenerates the agent SDK
+npm run codegen   # prints server SDL, regenerates both SDKs
 ```
 
-A schema change that breaks an agent then fails `npm run typecheck` in that
-package instead of failing at runtime.
+A schema change that breaks a consumer then fails `npm run typecheck` in that
+package instead of failing at runtime. Each consumer's operations live in one
+`src/operations.graphql`; codegen validates them against the SDL, so a query
+for a field the server dropped fails the build rather than the request.
 
 ## Development
 

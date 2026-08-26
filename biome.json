@@ -9,8 +9,9 @@
       "!**/dist",
       "!release",
       "!package-lock.json",
-      "!packages/agent/schema.graphql",
+      "!schema.graphql",
       "!packages/agent/src/gql",
+      "!apps/web/src/gql",
       "!apps/desktop/src/tray-icon.ts",
       "!apps/server/drizzle"
     ]
