@@ -116,11 +116,14 @@ the site's hostname — full URLs never leave the machine.
 
 ```bash
 npm run dist:linux -w @eunomia/desktop   # release/eunomia-agent-*.AppImage
-npm run dist:win -w @eunomia/desktop     # release/eunomia-agent-*-win.zip
+npm run dist:win -w @eunomia/desktop     # release/eunomia-agent Setup *.exe
 ```
 
 Both cross-build from Linux (`dist:win` downloads the win32 `x-win`
-prebuild). Packaged agents **register themselves to launch at login** once
+prebuild). The Windows build is a one-click per-user NSIS installer — no
+admin prompt, and uninstalling keeps the outbox/config in AppData. It is
+unsigned, so SmartScreen will warn on first run ("More info" → "Run
+anyway"). Packaged agents **register themselves to launch at login** once
 provisioned — an XDG autostart entry on Linux, a login item on Windows/macOS.
 Opt out with `{"autostart": false}` in `config.json`; running from source
 (`npm run dev:desktop`) never touches login items.

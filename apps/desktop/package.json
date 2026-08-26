@@ -34,12 +34,17 @@
     },
     "win": {
       "target": [
-        "zip"
+        "nsis"
       ],
       "files": [
         "!**/node_modules/@miniben90/x-win-linux-x64-gnu/**"
       ],
-      "signAndEditExecutable": false
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
     },
     "linux": {
       "target": [

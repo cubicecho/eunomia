@@ -7,7 +7,7 @@
 // The icon is white-on-transparent: tray areas on Windows and most Linux
 // desktops are dark. Electron's nativeImage can't rasterize SVG, hence PNG.
 
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
@@ -75,6 +75,52 @@ function render(size) {
   return px;
 }
 
+/**
+ * App-icon variant (installer, exe, Start menu): the same white face on a
+ * dark disc, so it stays visible on Explorer's light background — unlike the
+ * tray variant, which is bare white for dark tray areas.
+ */
+function renderAppIcon(size) {
+  const face = makeFace(size * 0.94);
+  const disc = size * 0.5 - size * 0.01;
+  const px = new Uint8Array(size * size * 4);
+  const SS = 4;
+  const DARK = [22, 27, 34]; // the dashboard's panel color
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      for (let sy = 0; sy < SS; sy++) {
+        for (let sx = 0; sx < SS; sx++) {
+          const fx = x + (sx + 0.5) / SS - size / 2;
+          const fy = y + (sy + 0.5) / SS - size / 2;
+          if (face(fx, fy)) {
+            r += 255;
+            g += 255;
+            b += 255;
+            a += 1;
+          } else if (Math.hypot(fx, fy) <= disc) {
+            r += DARK[0];
+            g += DARK[1];
+            b += DARK[2];
+            a += 1;
+          }
+        }
+      }
+      const i = (y * size + x) * 4;
+      if (a > 0) {
+        px[i] = Math.round(r / a);
+        px[i + 1] = Math.round(g / a);
+        px[i + 2] = Math.round(b / a);
+      }
+      px[i + 3] = Math.round((a / (SS * SS)) * 255);
+    }
+  }
+  return px;
+}
+
 // --- PNG encoding ----------------------------------------------------------
 
 function crc32(buf) {
@@ -114,6 +160,28 @@ function encodePng(size, rgba) {
   ]);
 }
 
+/** ICO container with PNG-encoded entries (valid on Vista+). */
+function encodeIco(sizes) {
+  const pngs = sizes.map((s) => encodePng(s, renderAppIcon(s)));
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(1, 2); // type: icon
+  header.writeUInt16LE(sizes.length, 4);
+  const entries = [];
+  let offset = 6 + 16 * sizes.length;
+  for (let i = 0; i < sizes.length; i++) {
+    const e = Buffer.alloc(16);
+    e[0] = sizes[i] === 256 ? 0 : sizes[i]; // 0 means 256
+    e[1] = sizes[i] === 256 ? 0 : sizes[i];
+    e.writeUInt16LE(1, 4); // planes
+    e.writeUInt16LE(32, 6); // bits per pixel
+    e.writeUInt32LE(pngs[i].length, 8);
+    e.writeUInt32LE(offset, 12);
+    offset += pngs[i].length;
+    entries.push(e);
+  }
+  return Buffer.concat([header, ...entries, ...pngs]);
+}
+
 // --- output ----------------------------------------------------------------
 
 const dataUrl = (size) => `data:image/png;base64,${encodePng(size, render(size)).toString('base64')}`;
@@ -128,6 +196,10 @@ export const TRAY_ICON_32 = '${dataUrl(32)}';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 writeFileSync(join(root, 'src', 'tray-icon.ts'), out);
+
+// electron-builder picks build/icon.ico up by convention (installer + exe).
+mkdirSync(join(root, 'build'), { recursive: true });
+writeFileSync(join(root, 'build', 'icon.ico'), encodeIco([16, 32, 48, 256]));
 
 // Oversized preview for eyeballing the design, composited onto a dark tray
 // background so the white face is visible (not shipped).
