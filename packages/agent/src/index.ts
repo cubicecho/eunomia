@@ -13,7 +13,7 @@ export {
 } from './api.ts';
 // The generated contract: schema types, operation types, documents, getSdk.
 export * from './gql/sdk.ts';
-export { Outbox, type OutboxStore } from './outbox.ts';
+export { OUTBOX_MAX_PINGS, Outbox, type OutboxStore } from './outbox.ts';
 export {
   DEFAULT_SYNC_INTERVAL_SECONDS,
   FLUSH_BATCH_SIZE,
@@ -26,8 +26,8 @@ export { createSanitizer, type PingSanitizer, type PrivacyConfig } from './priva
 export {
   initialSynthState,
   SYNTH_INTERVAL_MS,
-  synthesizePings,
   type SynthState,
+  synthesizePings,
   type UsageEvent,
 } from './synth.ts';
 export {

@@ -90,7 +90,9 @@ default**. Per device:
   background task down too).
 
 The floor everywhere is 10 seconds; nothing is lost at any interval — pings
-queue in the outbox until the next sync.
+queue in the outbox until the next sync. The queue holds 50,000 pings (about a
+week of continuous use) before the oldest start falling off, so an outage has
+to be long indeed to cost anything.
 
 ### Privacy controls
 

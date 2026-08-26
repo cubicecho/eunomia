@@ -99,7 +99,7 @@ function checkOnce(outbox: Outbox, sanitize: PingSanitizer): void {
 }
 
 // One agent per machine. A second instance would sample in parallel and share
-// outbox.jsonl, where Outbox.drop()'s whole-file rewrite silently erases
+// outbox.jsonl, where the outbox's compacting rewrite silently erases
 // whatever the other instance queued in the meantime — so the second launch
 // surfaces the first one's window and exits. `--provision` is a one-shot CLI
 // that writes config.json and quits, so it stays allowed alongside the tray.
