@@ -55,6 +55,16 @@ describe('classifyResponse', () => {
     });
   });
 
+  it('accepts a batch the server had nothing to record for', () => {
+    // recordPing answers null for an idle ping — a whole batch of them is an
+    // hour away from the keyboard, not a failure. Keeping it wedged the outbox:
+    // the same batch went up forever and everything queued behind it.
+    expect(classifyResponse({ data: { p0: null, p1: null } })).toEqual({
+      accepted: true,
+      error: null,
+    });
+  });
+
   it('accepts a partial success — re-sending would double-count folded time', () => {
     expect(
       classifyResponse({
@@ -128,6 +138,20 @@ describe('createUploader', () => {
     expect(outbox.size).toBe(0);
     expect(uploader.status().error).toBeNull();
     expect(uploader.status().lastUploadAt).not.toBeNull();
+  });
+
+  it('drains a batch the server recorded nothing for', async () => {
+    // Idle pings: without this the outbox never gets past them, and every
+    // later ping waits behind a batch that will never be accepted.
+    vi.stubGlobal('fetch', respond({ data: { p0: null, p1: null } }));
+
+    const outbox = new Outbox(memoryStore());
+    outbox.pushMany([ping(1), ping(2)]);
+    const uploader = createUploader(config, outbox);
+    await uploader.flush();
+
+    expect(outbox.size).toBe(0);
+    expect(uploader.status().error).toBeNull();
   });
 
   it('keeps the batch when the server is unreachable', async () => {

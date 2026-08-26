@@ -25,27 +25,32 @@ interface GraphQLResponse {
 /**
  * Decides the fate of a batch from one GraphQL response.
  *
- * A GraphQL error is HTTP 200 with nulls in `data`, so "the server answered"
+ * A GraphQL error is HTTP 200 with nulls in `data`, so "the request succeeded"
  * proves nothing: a revoked device key answers 200 with every ping null, and
  * treating that as success discarded the pings permanently while the agent kept
- * reporting that it was uploading. The signal is how many aliased recordPing
- * fields actually returned a row.
+ * reporting that it was uploading. `errors` is the signal — a resolved field is
+ * a real answer even when the answer is null.
+ *
+ * Null is what recordPing returns for a ping that touched nothing (idle, or no
+ * detectable app), which a whole batch can legitimately consist of. Reading
+ * that as failure wedged the outbox: the batch was kept, re-sent forever, and
+ * every later ping queued behind it while the tray reported "server recorded
+ * nothing".
  *
  * Partial success still drops the batch — recordPing folds a ping into a
  * running activity, so re-sending the ones that landed would double-count time.
  */
 export function classifyResponse(body: GraphQLResponse): UploadResult {
+  const errors = body.errors ?? [];
   const fields = body.data ? Object.values(body.data) : [];
   if (fields.length === 0) {
-    const message = body.errors?.[0]?.message ?? 'server recorded nothing';
-    return { accepted: false, error: message };
+    return { accepted: false, error: errors[0]?.message ?? 'server recorded nothing' };
   }
+  if (errors.length === 0) return { accepted: true, error: null };
   if (fields.some((value) => value !== null)) return { accepted: true, error: null };
 
   // Nothing landed. Only drop when every failure is one retrying can't fix.
-  const errors = body.errors ?? [];
-  const permanent =
-    errors.length > 0 && errors.every((e) => PERMANENT_CODES.has(e.extensions?.code ?? ''));
+  const permanent = errors.every((e) => PERMANENT_CODES.has(e.extensions?.code ?? ''));
   if (permanent) {
     console.error('dropping rejected pings', errors.map((e) => e.message).join('; '));
     return { accepted: true, error: null };

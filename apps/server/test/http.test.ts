@@ -144,4 +144,29 @@ describe('graphql over http', () => {
     expect(body.errors?.[0]?.extensions?.code).toBe('UNAUTHENTICATED');
     expect(classifyResponse(body)).toEqual({ accepted: false, error: 'Not authenticated' });
   });
+
+  it('an agent batch of idle pings is accepted, not retried forever', async () => {
+    // Same shape as above — 200, every aliased ping null — but for the
+    // innocent reason: recordPing records nothing for an idle ping. Reading
+    // that as failure stalled the outbox, since the batch came back forever.
+    const reg = await query('mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }', {
+      authorization: `Bearer ${await signIn()}`,
+    });
+    const apiKey = (reg.body.data?.registerDevice as { apiKey: string }).apiKey;
+
+    const { body } = await post(
+      {
+        query: `mutation ($c0: String!, $c1: String!, $i: Int!) {
+          p0: recordPing(capturedAt: $c0, app: "code", idleSeconds: $i) { id }
+          p1: recordPing(capturedAt: $c1, app: "code", idleSeconds: $i) { id }
+        }`,
+        variables: { c0: '2026-08-10T09:00:00Z', c1: '2026-08-10T09:00:10Z', i: 600 },
+      },
+      { 'x-api-key': apiKey },
+    );
+
+    expect(body.errors).toBeUndefined();
+    expect(body.data).toEqual({ p0: null, p1: null });
+    expect(classifyResponse(body)).toEqual({ accepted: true, error: null });
+  });
 });
