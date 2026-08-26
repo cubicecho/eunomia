@@ -7,7 +7,18 @@ export const getToken = (): string | null => localStorage.getItem(TOKEN_KEY);
 export const setToken = (token: string): void => localStorage.setItem(TOKEN_KEY, token);
 export const clearToken = (): void => localStorage.removeItem(TOKEN_KEY);
 
-export class GraphQLError extends Error {}
+/** Carries the server's extensions.code — callers branch on that, not wording. */
+export class GraphQLError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null = null,
+  ) {
+    super(message);
+  }
+}
+
+/** The server's code for "no session, or an expired one". */
+export const UNAUTHENTICATED = 'UNAUTHENTICATED';
 
 export async function gql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
   const token = getToken();
@@ -20,8 +31,14 @@ export async function gql<T>(query: string, variables: Record<string, unknown> =
     body: JSON.stringify({ query, variables }),
   });
   if (!response.ok) throw new GraphQLError(`HTTP ${response.status}`);
-  const body = (await response.json()) as { data?: T; errors?: { message: string }[] };
-  if (body.errors?.length) throw new GraphQLError(body.errors[0]?.message ?? 'GraphQL error');
+  const body = (await response.json()) as {
+    data?: T;
+    errors?: { message: string; extensions?: { code?: string } }[];
+  };
+  const error = body.errors?.[0];
+  if (error) {
+    throw new GraphQLError(error.message ?? 'GraphQL error', error.extensions?.code ?? null);
+  }
   if (body.data == null) throw new GraphQLError('empty response');
   return body.data;
 }
@@ -76,6 +93,24 @@ export const fetchAppSummary = (from: string, to: string) =>
     'query ($from: String!, $to: String!) { appSummary(from: $from, to: $to) { app context seconds } }',
     { from, to },
   ).then((d) => d.appSummary);
+
+/** A recent activity, as the rule forms' live preview sees it. */
+export interface ActivitySample {
+  app: string;
+  title: string | null;
+  context: string | null;
+}
+
+/**
+ * The most recent activities, newest first — the corpus the rule builder tests
+ * a draft pattern against, so "no matches" shows up before saving rather than
+ * after wondering why nothing got categorized.
+ */
+export const fetchRecentActivities = (limit = 500) =>
+  gql<{ activities: ActivitySample[] }>(
+    'query ($limit: Int) { activities(limit: $limit, orderBy: { startedAt: { direction: desc, priority: 1 } }) { app title context } }',
+    { limit },
+  ).then((d) => d.activities);
 
 export interface Category {
   id: string;
