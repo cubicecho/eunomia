@@ -8,6 +8,14 @@ import { app } from 'electron';
  * Opt out with {"autostart": false} in config.json. Dev runs (`electron .`)
  * never touch login items.
  */
+/**
+ * Registry value name for the Windows login item. Pinned rather than left to
+ * Electron's default (the AppUserModelId), because the uninstaller has to
+ * delete this entry by name — nothing else removes it, and the app is long
+ * gone by then. Keep it in step with build/installer.nsh.
+ */
+const LOGIN_ITEM_NAME = 'eunomia-agent';
+
 export function syncAutostart(enabled: boolean): void {
   if (!app.isPackaged) return;
   if (process.platform === 'linux') {
@@ -35,6 +43,6 @@ export function syncAutostart(enabled: boolean): void {
       ].join('\n'),
     );
   } else {
-    app.setLoginItemSettings({ openAtLogin: enabled });
+    app.setLoginItemSettings({ openAtLogin: enabled, name: LOGIN_ITEM_NAME });
   }
 }

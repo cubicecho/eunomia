@@ -132,7 +132,10 @@ unsigned, so SmartScreen will warn on first run ("More info" → "Run
 anyway"). Packaged agents **register themselves to launch at login** once
 provisioned — an XDG autostart entry on Linux, a login item on Windows/macOS.
 Opt out with `{"autostart": false}` in `config.json`; running from source
-(`npm run dev:desktop`) never touches login items.
+(`npm run dev:desktop`) never touches login items. Uninstalling on Windows
+removes the login item too; on Linux there is no uninstaller, so deleting the
+AppImage leaves `~/.config/autostart/eunomia-agent.desktop` behind for you to
+remove as well.
 
 Only one agent runs per machine — launching it again (Start menu, shortcut)
 opens the dashboard from the instance already running rather than starting a
