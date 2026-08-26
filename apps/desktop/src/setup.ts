@@ -1,18 +1,22 @@
+import { writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
+import { join } from 'node:path';
 import {
   DEFAULT_SYNC_INTERVAL_SECONDS,
   MIN_SYNC_INTERVAL_SECONDS,
   provisionDevice,
   requestMagicLink,
 } from '@eunomia/agent';
-import { BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { type DesktopConfig, platformName, writeAgentConfig } from './config.ts';
 
 // Onboarding window shown when the agent starts unprovisioned: server URL +
 // email + device name, magic-link sign-in, then provisionDevice writes
 // config.json and the window closes itself — the tray keeps running
-// throughout. The page is an inline data URL so the packaged app needs no
-// extra assets beyond the bundled main.
+// throughout. The page is generated here rather than shipped, so the packaged
+// app needs no assets beyond the bundled main and its preloads; it is written
+// to dataDir and loaded from there because a sandboxed renderer's preload
+// needs a real page to attach to.
 //
 // The same window reconnects an install that already has a config (tray →
 // "Change server / API key…"). Which of register-or-re-key that means is
@@ -50,7 +54,9 @@ function setupHtml(defaults: PageDefaults): string {
        but those env vars win again the next time the agent starts.</p>`
     : '';
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>${defaults.reconfigure ? 'eunomia — change server' : 'eunomia setup'}</title><style>
+<html><head><meta charset="utf-8"><title>${defaults.reconfigure ? 'eunomia — change server' : 'eunomia setup'}</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
   :root { color-scheme: light dark; }
   body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 28px 32px;
          background: Canvas; color: CanvasText; }
@@ -104,7 +110,8 @@ function setupHtml(defaults: PageDefaults): string {
   </div>
   <p id="error"></p>
 <script>
-  const { ipcRenderer } = require('electron');
+  // Everything the page can reach outside itself — see setup-preload.cjs.
+  const api = window.eunomiaSetup;
   const $ = (id) => document.getElementById(id);
   const error = (msg) => { $('error').textContent = msg; };
   const busy = (form, on) => { for (const el of form.elements) el.disabled = on; };
@@ -118,7 +125,7 @@ function setupHtml(defaults: PageDefaults): string {
 
   async function finish(form, tokenOrLink) {
     const { serverUrl, name, syncIntervalSeconds, autostart } = details();
-    const res = await ipcRenderer.invoke('setup:finish', { serverUrl, name, syncIntervalSeconds, autostart, tokenOrLink });
+    const res = await api.finish({ serverUrl, name, syncIntervalSeconds, autostart, tokenOrLink });
     busy(form, false);
     if (res.error) return error(res.error);
     $('details').classList.add('hidden');
@@ -131,7 +138,7 @@ function setupHtml(defaults: PageDefaults): string {
     error('');
     busy(e.target, true);
     const { serverUrl, email } = details();
-    const res = await ipcRenderer.invoke('setup:start', { serverUrl, email });
+    const res = await api.start({ serverUrl, email });
     if (res.error) { busy(e.target, false); return error(res.error); }
     if (res.token) return finish(e.target, res.token);
     busy(e.target, false);
@@ -151,6 +158,12 @@ function setupHtml(defaults: PageDefaults): string {
 }
 
 let openWindow: BrowserWindow | undefined;
+
+// Packaged builds ship the preload next to main.cjs in dist/ (build:preload);
+// dev runs it straight from src/. Loaded by path at runtime, so esbuild's
+// bundle never sees it.
+const preloadPath = (): string =>
+  join(app.getAppPath(), app.isPackaged ? 'dist' : 'src', 'setup-preload.cjs');
 
 /**
  * Opens the setup window and resolves with the freshly written config, or null
@@ -179,11 +192,14 @@ export function runSetupWindow(
       autoHideMenuBar: true,
       title: current ? 'eunomia — change server' : 'eunomia setup',
       webPreferences: {
-        // The page is our own inline HTML above — never remote content — so
-        // giving the renderer node access (for ipcRenderer) is fine here.
-        nodeIntegration: true,
-        contextIsolation: false,
-        sandbox: false,
+        // Same posture as the dashboard window. The page is our own HTML and
+        // never loads anything remote, but it is the window that handles the
+        // sign-in link, and a renderer with node in it turns any mistake in
+        // the page — or in a future edit to it — into code execution.
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        preload: preloadPath(),
       },
     });
     openWindow = win;
@@ -261,6 +277,8 @@ export function runSetupWindow(
       reconfigure: current !== null,
       envConfigured: options.envConfigured === true,
     });
-    void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    const pagePath = join(dataDir, 'setup.html');
+    writeFileSync(pagePath, html);
+    void win.loadFile(pagePath);
   });
 }
