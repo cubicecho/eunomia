@@ -1,7 +1,12 @@
 import { sql } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { pruneActivities, rollupActivities } from '../src/activity/rollup.ts';
+import {
+  DEFAULT_RETENTION_DAYS,
+  pruneActivities,
+  retentionDays,
+  rollupActivities,
+} from '../src/activity/rollup.ts';
 import {
   activities,
   categories,
@@ -273,5 +278,41 @@ describe('rollup', () => {
 
     const rows = await db.select().from(summaries);
     expect(rows).toEqual([expect.objectContaining({ categoryId: null, seconds: 700 })]);
+  });
+});
+
+describe('retentionDays', () => {
+  const withEnv = (value: string | undefined, assert: () => void) => {
+    const previous = process.env.ACTIVITY_RETENTION_DAYS;
+    if (value === undefined) delete process.env.ACTIVITY_RETENTION_DAYS;
+    else process.env.ACTIVITY_RETENTION_DAYS = value;
+    try {
+      assert();
+    } finally {
+      if (previous === undefined) delete process.env.ACTIVITY_RETENTION_DAYS;
+      else process.env.ACTIVITY_RETENTION_DAYS = previous;
+    }
+  };
+
+  it('defaults when unset or blank', () => {
+    // `ACTIVITY_RETENTION_DAYS=` in a compose file is an empty string, not an
+    // absent variable. It used to parse as 0 and quietly keep raw rows forever.
+    withEnv(undefined, () => expect(retentionDays()).toBe(DEFAULT_RETENTION_DAYS));
+    withEnv('', () => expect(retentionDays()).toBe(DEFAULT_RETENTION_DAYS));
+    withEnv('  ', () => expect(retentionDays()).toBe(DEFAULT_RETENTION_DAYS));
+  });
+
+  it('takes a whole number of days, and 0 for forever', () => {
+    withEnv('30', () => expect(retentionDays()).toBe(30));
+    withEnv(' 30 ', () => expect(retentionDays()).toBe(30));
+    withEnv('0', () => expect(retentionDays()).toBe(0));
+  });
+
+  it('refuses a value it would have to guess at', () => {
+    // This setting decides what gets deleted; a typo silently falling back to
+    // the default is a data-loss surprise months later.
+    for (const bad of ['ninety', '30d', '-1', '1.5', 'NaN', 'Infinity']) {
+      withEnv(bad, () => expect(() => retentionDays()).toThrow('ACTIVITY_RETENTION_DAYS'));
+    }
   });
 });

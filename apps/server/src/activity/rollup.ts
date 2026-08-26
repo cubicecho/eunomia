@@ -167,27 +167,48 @@ export async function pruneActivities(db: Db, retentionDays: number): Promise<nu
   return deleted.length;
 }
 
+/** Days of raw activities kept when ACTIVITY_RETENTION_DAYS says nothing. */
+export const DEFAULT_RETENTION_DAYS = 90;
+
 /**
  * Days of raw activities to keep. Summaries are never pruned, so history
  * charts survive; only per-activity detail (titles, re-categorization) ages
  * out. Set ACTIVITY_RETENTION_DAYS=0 to keep raw rows forever.
+ *
+ * Throws on anything else. This setting decides what gets deleted, and every
+ * way of quietly guessing at a bad value is wrong in a way the operator only
+ * finds out about months later: `ACTIVITY_RETENTION_DAYS=` (an empty value in
+ * a compose file, easily written by accident) parses as 0 and keeps everything
+ * forever, while `ACTIVITY_RETENTION_DAYS=ninety` parses as nothing and
+ * silently deletes on the default schedule.
  */
 export function retentionDays(): number {
-  const configured = Number(process.env.ACTIVITY_RETENTION_DAYS);
-  return Number.isFinite(configured) ? configured : 90;
+  const configured = process.env.ACTIVITY_RETENTION_DAYS?.trim();
+  if (!configured) return DEFAULT_RETENTION_DAYS;
+  const days = Number(configured);
+  if (!Number.isInteger(days) || days < 0) {
+    throw new Error(
+      `ACTIVITY_RETENTION_DAYS must be a whole number of days, 0 or more ` +
+        `(got ${JSON.stringify(configured)}); 0 keeps raw activities forever`,
+    );
+  }
+  return days;
 }
 
 /** How often the background rollup runs; also runs once at server start. */
 export const ROLLUP_INTERVAL_MS = 15 * 60 * 1000;
 
 export function startRollupTimer(db: Db): void {
+  // Read at boot, not per run: a misconfigured retention should stop the
+  // server, not disappear into the catch below every fifteen minutes.
+  const retention = retentionDays();
   const run = async (): Promise<void> => {
     try {
       const rolled = await rollupActivities(db);
       if (rolled > 0) console.log(`rolled up ${rolled} activities`);
       // Prune only after rolling, so nothing is deleted before its seconds
       // are safely in a summary row.
-      const pruned = await pruneActivities(db, retentionDays());
+      const pruned = await pruneActivities(db, retention);
       if (pruned > 0) console.log(`pruned ${pruned} raw activities past retention`);
     } catch (error) {
       console.error('rollup failed', error);
