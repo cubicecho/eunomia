@@ -13,9 +13,9 @@ import {
   type Uploader,
 } from '@eunomia/agent';
 import { activeWindow } from '@miniben90/x-win';
-import { app, Menu, nativeImage, powerMonitor, shell, Tray } from 'electron';
+import { app, Menu, type MenuItem, nativeImage, powerMonitor, shell, Tray } from 'electron';
 import { syncAutostart } from './autostart.ts';
-import { type DesktopConfig, isEnvConfigured, loadConfig } from './config.ts';
+import { type DesktopConfig, isEnvConfigured, loadConfig, saveAutostart } from './config.ts';
 import { startFileLog } from './log.ts';
 import { TRAY_ICON_16, TRAY_ICON_32 } from './tray-icon.ts';
 
@@ -203,6 +203,17 @@ app.whenReady().then(async () => {
     return `Uploading to ${config.serverUrl}`;
   };
 
+  // Launch at login, toggled from the tray: registers or clears the login item
+  // now (Windows/macOS) or the XDG autostart entry (Linux), and remembers the
+  // choice for the next start. Running from source only remembers it —
+  // syncAutostart leaves login items alone unless the app is packaged.
+  const setAutostart = (enabled: boolean): void => {
+    if (config) config = { ...config, autostart: enabled };
+    saveAutostart(dataDir, enabled);
+    syncAutostart(enabled);
+    refreshTrayMenu();
+  };
+
   const refreshTrayMenu = (): void => {
     tray?.setToolTip(
       uploader?.status().error
@@ -218,6 +229,18 @@ app.whenReady().then(async () => {
           ? [
               { label: 'Open Dashboard', click: () => void showDashboard() },
               { label: 'Change server / API key…', click: () => void openSetup(config) },
+              {
+                // Only offered once provisioned — that's also the only case
+                // where the agent registers a login item at startup, so an
+                // unprovisioned tray would be showing a checkbox for something
+                // that isn't happening. Setup has the same toggle.
+                label: 'Start at login',
+                type: 'checkbox' as const,
+                // Default on: a tracker that has to be started by hand mostly
+                // measures forgetting to start it.
+                checked: config.autostart !== false,
+                click: (item: MenuItem) => setAutostart(item.checked),
+              },
             ]
           : [{ label: 'Set up uploads…', click: () => void openSetup() }]),
         // The only window into a packaged agent's console — showItemInFolder

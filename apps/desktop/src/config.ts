@@ -27,7 +27,8 @@ export interface DesktopConfig extends AgentConfig {
  * EUNOMIA_SYNC_INTERVAL_SECONDS overrides the interval in either case.
  */
 export function loadConfig(dataDir: string): DesktopConfig | null {
-  const config = envConfig() ?? fileConfig(dataDir);
+  const env = envConfig();
+  const config = env ? withLocalPrefs(env, dataDir) : fileConfig(dataDir);
   if (!config) return null;
   const envSeconds = Number(process.env.EUNOMIA_SYNC_INTERVAL_SECONDS);
   if (Number.isFinite(envSeconds) && envSeconds > 0) config.syncIntervalSeconds = envSeconds;
@@ -50,11 +51,29 @@ function envConfig(): AgentConfig | null {
   return null;
 }
 
-function fileConfig(dataDir: string): DesktopConfig | null {
+/**
+ * Env vars supply the server connection, not the whole config: launch at login
+ * is this machine's choice, made in the tray, so it still applies when they do.
+ */
+function withLocalPrefs(config: AgentConfig, dataDir: string): DesktopConfig {
+  const raw = readConfigFile(dataDir);
+  return typeof raw?.autostart === 'boolean' ? { ...config, autostart: raw.autostart } : config;
+}
+
+function readConfigFile(dataDir: string): Partial<DesktopConfig> | null {
   const configPath = join(dataDir, 'config.json');
   if (!existsSync(configPath)) return null;
   try {
-    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Partial<DesktopConfig>;
+    return JSON.parse(readFileSync(configPath, 'utf8')) as Partial<DesktopConfig>;
+  } catch (error) {
+    console.error(`invalid ${configPath}`, error);
+    return null;
+  }
+}
+
+function fileConfig(dataDir: string): DesktopConfig | null {
+  const parsed = readConfigFile(dataDir);
+  if (parsed) {
     if (typeof parsed.serverUrl === 'string' && typeof parsed.apiKey === 'string') {
       const config: DesktopConfig = { serverUrl: parsed.serverUrl, apiKey: parsed.apiKey };
       if (typeof parsed.autostart === 'boolean') config.autostart = parsed.autostart;
@@ -67,14 +86,24 @@ function fileConfig(dataDir: string): DesktopConfig | null {
       if (isStringArray(parsed.redactApps)) config.redactApps = parsed.redactApps;
       return config;
     }
-  } catch (error) {
-    console.error(`invalid ${configPath}`, error);
   }
   return null;
 }
 
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === 'string');
+
+/**
+ * Persists the tray's launch-at-login choice, leaving the rest of config.json
+ * exactly as it is — the file also holds the server connection, the device
+ * identity, and privacy rules this toggle has no business rewriting. Writes a
+ * file holding only this when there isn't one yet (env-configured installs).
+ */
+export function saveAutostart(dataDir: string, autostart: boolean): void {
+  const configPath = join(dataDir, 'config.json');
+  const existing = readConfigFile(dataDir) ?? {};
+  writeFileSync(configPath, `${JSON.stringify({ ...existing, autostart }, null, 2)}\n`);
+}
 
 export function writeAgentConfig(dataDir: string, config: DesktopConfig): string {
   const configPath = join(dataDir, 'config.json');

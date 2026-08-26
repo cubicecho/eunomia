@@ -31,6 +31,8 @@ interface PageDefaults {
   serverUrl: string;
   deviceName: string;
   syncIntervalSeconds: number;
+  /** Launch at login — the tray has the same toggle once set up. */
+  autostart: boolean;
   /** Reconnecting an existing install rather than onboarding a new one. */
   reconfigure: boolean;
   /** Env vars govern, so a written config.json won't survive a restart. */
@@ -61,6 +63,8 @@ function setupHtml(defaults: PageDefaults): string {
   p.warn { margin: 0 0 20px; padding: 8px 10px; border-radius: 6px; font-size: 13px;
            background: color-mix(in srgb, #e5a50a 20%, transparent); }
   label { display: block; margin: 14px 0 4px; font-weight: 600; }
+  label.check { display: flex; align-items: center; gap: 8px; margin-bottom: 0; }
+  label.check input { width: auto; margin: 0; }
   input { width: 100%; box-sizing: border-box; padding: 8px 10px; font: inherit;
           border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
           border-radius: 6px; background: Field; color: FieldText; }
@@ -84,6 +88,10 @@ function setupHtml(defaults: PageDefaults): string {
     <input id="name" value="${esc(defaults.deviceName)}" required>
     <label for="interval">Sync interval (seconds)</label>
     <input id="interval" type="number" min="${MIN_SYNC_INTERVAL_SECONDS}" value="${defaults.syncIntervalSeconds}" required>
+    <label class="check" for="autostart">
+      <input id="autostart" type="checkbox" ${defaults.autostart ? 'checked' : ''}>
+      Start eunomia when I log in
+    </label>
     <button id="go">${submit}</button>
   </form>
   <form id="link" class="hidden">
@@ -109,11 +117,12 @@ function setupHtml(defaults: PageDefaults): string {
     email: $('email').value.trim().toLowerCase(),
     name: $('name').value.trim(),
     syncIntervalSeconds: Number($('interval').value),
+    autostart: $('autostart').checked,
   });
 
   async function finish(form, tokenOrLink) {
-    const { serverUrl, name, syncIntervalSeconds } = details();
-    const res = await ipcRenderer.invoke('setup:finish', { serverUrl, name, syncIntervalSeconds, tokenOrLink });
+    const { serverUrl, name, syncIntervalSeconds, autostart } = details();
+    const res = await ipcRenderer.invoke('setup:finish', { serverUrl, name, syncIntervalSeconds, autostart, tokenOrLink });
     busy(form, false);
     if (res.error) return error(res.error);
     $('details').classList.add('hidden');
@@ -153,8 +162,8 @@ let openWindow: BrowserWindow | undefined;
  * tray menu) — a second call focuses the existing window.
  *
  * Pass the live config to reconnect an install that already has one: its
- * server URL, device name, interval, and privacy/autostart settings carry over
- * into whatever the user submits.
+ * server URL, device name, interval, autostart choice, and privacy settings
+ * carry over into whatever the user submits.
  */
 export function runSetupWindow(
   dataDir: string,
@@ -169,7 +178,7 @@ export function runSetupWindow(
   return new Promise((resolve) => {
     const win = new BrowserWindow({
       width: 420,
-      height: current ? 620 : 560,
+      height: current ? 660 : 600,
       resizable: false,
       autoHideMenuBar: true,
       title: current ? 'eunomia — change server' : 'eunomia setup',
@@ -196,7 +205,13 @@ export function runSetupWindow(
       'setup:finish',
       async (
         _event,
-        args: { serverUrl: string; name: string; syncIntervalSeconds: number; tokenOrLink: string },
+        args: {
+          serverUrl: string;
+          name: string;
+          syncIntervalSeconds: number;
+          autostart: boolean;
+          tokenOrLink: string;
+        },
       ) => {
         try {
           const session = await verifyMagicLink(args.serverUrl, args.tokenOrLink);
@@ -222,9 +237,10 @@ export function runSetupWindow(
             ));
           }
           const config: DesktopConfig = {
-            // Privacy rules and the autostart opt-out are the user's, not the
-            // server's — carry them across a reconnect.
+            // Privacy rules are the user's, not the server's — carry them
+            // across a reconnect.
             ...current,
+            autostart: args.autostart,
             serverUrl: args.serverUrl,
             apiKey,
             deviceId,
@@ -261,6 +277,7 @@ export function runSetupWindow(
       serverUrl: current?.serverUrl ?? process.env.EUNOMIA_SERVER_URL ?? 'http://localhost:4000',
       deviceName: current?.deviceName ?? hostname(),
       syncIntervalSeconds: current?.syncIntervalSeconds ?? DEFAULT_SYNC_INTERVAL_SECONDS,
+      autostart: current?.autostart !== false,
       reconfigure: current !== null,
       envConfigured: options.envConfigured === true,
     });

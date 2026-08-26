@@ -129,10 +129,12 @@ Both cross-build from Linux (`dist:win` downloads the win32 `x-win`
 prebuild). The Windows build is a one-click per-user NSIS installer — no
 admin prompt, and uninstalling keeps the outbox/config in AppData. It is
 unsigned, so SmartScreen will warn on first run ("More info" → "Run
-anyway"). Packaged agents **register themselves to launch at login** once
-provisioned — an XDG autostart entry on Linux, a login item on Windows/macOS.
-Opt out with `{"autostart": false}` in `config.json`; running from source
-(`npm run dev:desktop`) never touches login items. Uninstalling on Windows
+anyway"). Packaged agents **launch at login** once provisioned — an XDG
+autostart entry on Linux, a login item on Windows/macOS. It is on by default,
+with a checkbox on the setup window and a **Start at login** toggle in the tray
+menu (`{"autostart": false}` in `config.json` is the same switch, seen from
+disk). Running from source (`npm run dev:desktop`) remembers the choice but
+never touches login items. Uninstalling on Windows
 removes the login item too; on Linux there is no uninstaller, so deleting the
 AppImage leaves `~/.config/autostart/eunomia-agent.desktop` behind for you to
 remove as well.
