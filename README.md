@@ -72,9 +72,14 @@ npm run dev:web                         # http://localhost:5173
 npm run dev:mobile
 
 # checks
+npm run lint        # biome: format, lint, import order (`lint:fix` writes)
 npm run typecheck
 npm test
 ```
+
+`biome.json` at the root covers every workspace. Generated output — the agent's
+GraphQL SDK, drizzle migrations, the tray icon — is excluded, so regenerating
+it never fails the gate.
 
 ### Sync interval
 

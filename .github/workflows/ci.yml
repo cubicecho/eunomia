@@ -22,6 +22,11 @@ jobs:
 
       - run: npm ci
 
+      # Formatting, lint, and import order in one pass. `ci` differs from
+      # `npm run lint` only in never writing fixes.
+      - name: Lint
+        run: npx biome ci .
+
       - name: Typecheck
         run: npm run typecheck
 
