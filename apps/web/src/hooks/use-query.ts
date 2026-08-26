@@ -54,6 +54,13 @@ export function useQuery<T>(load: () => Promise<T>, deps: DependencyList): Query
   return { data, error, loading, reload };
 }
 
+/**
+ * A mutation runner already bound to its view's reload — what a view hands to
+ * the cards it is composed of, so they can change data without owning the
+ * loading of it.
+ */
+export type Run = (mutation: () => Promise<unknown>) => void;
+
 interface ActionState {
   /** Last outcome, for the view's status line. */
   status: { text: string; failed: boolean } | null;
