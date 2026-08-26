@@ -1,6 +1,6 @@
 import { buildSchema as buildDrizzleSchema } from '@vantreeseba/drizzle-graphql';
 import { applyPermissions } from '@vantreeseba/graphql-casl';
-import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import {
   GraphQLBoolean,
   type GraphQLFieldConfig,
@@ -32,6 +32,8 @@ import {
   devices,
   summaries,
 } from '../db/schema.ts';
+import { badInput, notFound, rateLimited, unauthenticated } from '../errors.ts';
+import { createRateLimiter } from '../rate-limit.ts';
 import type { Context } from './context.ts';
 import { permissions } from './permissions.ts';
 import { scopedListField } from './scoped.ts';
@@ -52,6 +54,14 @@ function keyMetadataDeviceId(metadata: string | null): string | null {
     return null;
   }
 }
+
+// Login is unauthenticated, so its cost is borne by whoever can reach the
+// port. Per-address first (that's the mailbombing target), then a total across
+// all addresses so spraying can't walk around it. Generous enough that a
+// household of real users never sees them.
+const LOGIN_WINDOW_MS = 15 * 60_000;
+const LOGIN_ATTEMPTS_PER_EMAIL = 5;
+const LOGIN_ATTEMPTS_TOTAL = 100;
 
 /**
  * Assembles the executable schema: selected drizzle-graphql entities plus
@@ -79,7 +89,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
   const ownDeviceIds = (ctx: Context) =>
     ctx.db.select({ id: devices.id }).from(devices).where(eq(devices.userId, ctx.userId!));
 
-  // Dashboard aggregate row: active seconds per category per UTC day.
+  // Dashboard aggregate row: active seconds per category per day (server zone).
   const categoryDaySummaryType = new GraphQLObjectType({
     name: 'CategoryDaySummary',
     fields: {
@@ -104,21 +114,38 @@ export function createSchema(db: Db, auth: AuthGateway) {
     },
   });
 
-  const parseRange = (args: { from: string; to: string }): { from: Date; to: Date } => {
-    const from = new Date(args.from);
-    const to = new Date(args.to);
-    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
-      throw new Error('Invalid date range');
+  /**
+   * Whole-day window [from, to) resolved in the SERVER's time zone — the same
+   * zone rollup buckets summaries.day into (db/client.ts sets the session zone
+   * from TZ). Both ends truncate to local midnight, so a bare 'YYYY-MM-DD'
+   * from the dashboard means that calendar day here, not in UTC.
+   *
+   * The truncation happens in SQL, not JS, and that is the whole point: a JS
+   * Date is an instant, so filtering startedAt by instants cut the live half of
+   * a summary at UTC midnight while the rolled half had been cut at local
+   * midnight. On a non-UTC server the two halves then disagreed, and today's
+   * evening read as empty until the next 15-minute rollup moved it across.
+   */
+  const parseRange = (args: { from: string; to: string }): { from: SQL; to: SQL } => {
+    for (const value of [args.from, args.to]) {
+      if (Number.isNaN(new Date(value).getTime())) throw badInput('Invalid date range');
     }
-    return { from, to };
+    return {
+      from: sql`date_trunc('day', ${args.from}::timestamptz)`,
+      to: sql`date_trunc('day', ${args.to}::timestamptz)`,
+    };
   };
 
-  // Summary-row day filter matching the live queries' [from, to) on startedAt:
-  // rolled rows only know their day, so the exclusive upper bound backs off one
-  // microsecond — a midnight `to` excludes that day, any other time includes it.
-  const summaryDayBounds = (from: Date, to: Date) => [
-    sql`${summaries.day} >= to_char(date_trunc('day', ${from.toISOString()}::timestamptz), 'YYYY-MM-DD')`,
-    sql`${summaries.day} <= to_char(date_trunc('day', ${to.toISOString()}::timestamptz - interval '1 microsecond'), 'YYYY-MM-DD')`,
+  /** The window over raw activity rows — the not-yet-rolled-up half. */
+  const liveDayBounds = (from: SQL, to: SQL) => [
+    sql`${activities.startedAt} >= ${from}`,
+    sql`${activities.startedAt} < ${to}`,
+  ];
+
+  /** The same window over rolled rows, which only remember their day string. */
+  const summaryDayBounds = (from: SQL, to: SQL) => [
+    sql`${summaries.day} >= to_char(${from}, 'YYYY-MM-DD')`,
+    sql`${summaries.day} < to_char(${to}, 'YYYY-MM-DD')`,
   ];
 
   /** Merges rolled and live aggregate rows sharing a key, summing seconds. */
@@ -164,7 +191,8 @@ export function createSchema(db: Db, auth: AuthGateway) {
         (ctx) => eq(contextRules.userId, ctx.userId),
       ),
       categorySummary: {
-        // Seconds of active time per category per day (UTC), for [from, to).
+        // Seconds of active time per category per day, for the whole days
+        // [from, to) in the server's time zone.
         // Each activity's whole activeSeconds lands on the day it started —
         // activities are short-lived (auto-closed after 15 min unfocused), so
         // midnight-spanning error is negligible for a dashboard. Served from
@@ -176,7 +204,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
           to: { type: new GraphQLNonNull(GraphQLString) },
         },
         resolve: async (_source, args: { from: string; to: string }, ctx: Context) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           const { from, to } = parseRange(args);
           const rolled = await db
             .select({
@@ -207,13 +235,13 @@ export function createSchema(db: Db, auth: AuthGateway) {
               and(
                 eq(devices.userId, ctx.userId),
                 eq(activities.rolledUp, false),
-                gte(activities.startedAt, from),
-                lt(activities.startedAt, to),
+                ...liveDayBounds(from, to),
               ),
             )
             .groupBy(day, activities.categoryId, categories.name, categories.color);
-          return mergeSummaries([...rolled, ...live], (row) =>
-            `${row.day}\n${row.categoryId ?? ''}`,
+          return mergeSummaries(
+            [...rolled, ...live],
+            (row) => `${row.day}\n${row.categoryId ?? ''}`,
           ).sort(
             (a, b) =>
               a.day.localeCompare(b.day) ||
@@ -232,7 +260,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
           to: { type: new GraphQLNonNull(GraphQLString) },
         },
         resolve: async (_source, args: { from: string; to: string }, ctx: Context) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           const { from, to } = parseRange(args);
           const rolled = await db
             .select({
@@ -256,13 +284,13 @@ export function createSchema(db: Db, auth: AuthGateway) {
               and(
                 eq(devices.userId, ctx.userId),
                 eq(activities.rolledUp, false),
-                gte(activities.startedAt, from),
-                lt(activities.startedAt, to),
+                ...liveDayBounds(from, to),
               ),
             )
             .groupBy(activities.app, activities.context);
-          return mergeSummaries([...rolled, ...live], (row) =>
-            `${row.app}\n${row.context ?? ''}`,
+          return mergeSummaries(
+            [...rolled, ...live],
+            (row) => `${row.app}\n${row.context ?? ''}`,
           ).sort((a, b) => b.seconds - a.seconds);
         },
       },
@@ -283,6 +311,14 @@ export function createSchema(db: Db, auth: AuthGateway) {
     },
   });
 
+  const perEmailLogins = createRateLimiter(LOGIN_ATTEMPTS_PER_EMAIL, LOGIN_WINDOW_MS);
+  const allLogins = createRateLimiter(LOGIN_ATTEMPTS_TOTAL, LOGIN_WINDOW_MS);
+  const throttleLogin = (email: string): void => {
+    if (!perEmailLogins.allow(email.trim().toLowerCase()) || !allLogins.allow('*')) {
+      throw rateLimited('Too many sign-in attempts; try again in a few minutes');
+    }
+  };
+
   const mutation = new GraphQLObjectType({
     name: 'Mutation',
     fields: {
@@ -293,8 +329,10 @@ export function createSchema(db: Db, auth: AuthGateway) {
           password: { type: new GraphQLNonNull(GraphQLString) },
           name: { type: new GraphQLNonNull(GraphQLString) },
         },
-        resolve: (_source, args: { email: string; password: string; name: string }) =>
-          auth.signUp(args),
+        resolve: (_source, args: { email: string; password: string; name: string }) => {
+          throttleLogin(args.email);
+          return auth.signUp(args);
+        },
       },
       signIn: {
         type: new GraphQLNonNull(authSessionType),
@@ -302,7 +340,10 @@ export function createSchema(db: Db, auth: AuthGateway) {
           email: { type: new GraphQLNonNull(GraphQLString) },
           password: { type: new GraphQLNonNull(GraphQLString) },
         },
-        resolve: (_source, args: { email: string; password: string }) => auth.signIn(args),
+        resolve: (_source, args: { email: string; password: string }) => {
+          throttleLogin(args.email);
+          return auth.signIn(args);
+        },
       },
       requestMagicLink: {
         // Primary login: emails a single-use sign-in link (account created on
@@ -321,7 +362,9 @@ export function createSchema(db: Db, auth: AuthGateway) {
           email: { type: new GraphQLNonNull(GraphQLString) },
         },
         resolve: async (_source, args: { email: string }) => {
-          const { token } = await auth.requestMagicLink(args.email.toLowerCase().trim());
+          const email = args.email.toLowerCase().trim();
+          throttleLogin(email);
+          const { token } = await auth.requestMagicLink(email);
           return { ok: true, token };
         },
       },
@@ -354,7 +397,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
           platform: { type: new GraphQLNonNull(GraphQLString) },
         },
         resolve: async (_source, args: { name: string; platform: string }, ctx: Context) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           const [row] = await db
             .insert(devices)
             .values({
@@ -379,9 +422,9 @@ export function createSchema(db: Db, auth: AuthGateway) {
           name: { type: new GraphQLNonNull(GraphQLString) },
         },
         resolve: async (_source, args: { id: string; name: string }, ctx: Context) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           const [device] = await db.select().from(devices).where(eq(devices.id, args.id)).limit(1);
-          if (!device || device.userId !== ctx.userId) throw new Error('Unknown device');
+          if (!device || device.userId !== ctx.userId) throw notFound('Unknown device');
           const [updated] = await db
             .update(devices)
             .set({ name: args.name })
@@ -399,9 +442,9 @@ export function createSchema(db: Db, auth: AuthGateway) {
           id: { type: new GraphQLNonNull(GraphQLString) },
         },
         resolve: async (_source, args: { id: string }, ctx: Context) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           const [device] = await db.select().from(devices).where(eq(devices.id, args.id)).limit(1);
-          if (!device || device.userId !== ctx.userId) throw new Error('Unknown device');
+          if (!device || device.userId !== ctx.userId) throw notFound('Unknown device');
           // Keys are matched by the deviceId minted into their metadata. The
           // plugin JSON-serializes that column, so match in JS rather than
           // guessing its exact encoding in SQL.
@@ -424,7 +467,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
           color: { type: GraphQLString },
         },
         resolve: async (_source, args: { name: string; color?: string | null }, ctx: Context) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           const [row] = await db
             .insert(categories)
             .values({
@@ -445,13 +488,13 @@ export function createSchema(db: Db, auth: AuthGateway) {
           id: { type: new GraphQLNonNull(GraphQLString) },
         },
         resolve: async (_source, args: { id: string }, ctx: Context) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           const [category] = await db
             .select()
             .from(categories)
             .where(eq(categories.id, args.id))
             .limit(1);
-          if (!category || category.userId !== ctx.userId) throw new Error('Unknown category');
+          if (!category || category.userId !== ctx.userId) throw notFound('Unknown category');
           // Summary rows can't ride the FK's set-null (it would collide with
           // existing uncategorized rows) — merge them first.
           await mergeCategorySummaries(db, category.id);
@@ -471,7 +514,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
           args: { activityId: string; categoryId?: string | null },
           ctx: Context,
         ) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           // Ownership runs through the device: activity -> device -> user.
           const [found] = await db
             .select({ activity: activities, ownerId: devices.userId })
@@ -479,14 +522,14 @@ export function createSchema(db: Db, auth: AuthGateway) {
             .innerJoin(devices, eq(activities.deviceId, devices.id))
             .where(eq(activities.id, args.activityId))
             .limit(1);
-          if (!found || found.ownerId !== ctx.userId) throw new Error('Unknown activity');
+          if (!found || found.ownerId !== ctx.userId) throw notFound('Unknown activity');
           if (args.categoryId != null) {
             const [category] = await db
               .select()
               .from(categories)
               .where(eq(categories.id, args.categoryId))
               .limit(1);
-            if (!category || category.userId !== ctx.userId) throw new Error('Unknown category');
+            if (!category || category.userId !== ctx.userId) throw notFound('Unknown category');
           }
           // Manual assignment pins the choice against rules; clearing returns
           // the row to the auto-categorization pool.
@@ -528,9 +571,9 @@ export function createSchema(db: Db, auth: AuthGateway) {
           },
           ctx: Context,
         ) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           if (args.appPattern == null && args.titlePattern == null && args.contextPattern == null) {
-            throw new Error('A rule needs an appPattern, titlePattern, and/or contextPattern');
+            throw badInput('A rule needs an appPattern, titlePattern, and/or contextPattern');
           }
           if (args.appPattern != null) assertValidPattern(args.appPattern);
           if (args.titlePattern != null) assertValidPattern(args.titlePattern);
@@ -540,7 +583,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
             .from(categories)
             .where(eq(categories.id, args.categoryId))
             .limit(1);
-          if (!category || category.userId !== ctx.userId) throw new Error('Unknown category');
+          if (!category || category.userId !== ctx.userId) throw notFound('Unknown category');
           const [row] = await db
             .insert(categoryRules)
             .values({
@@ -564,13 +607,13 @@ export function createSchema(db: Db, auth: AuthGateway) {
           id: { type: new GraphQLNonNull(GraphQLString) },
         },
         resolve: async (_source, args: { id: string }, ctx: Context) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           const [rule] = await db
             .select()
             .from(categoryRules)
             .where(eq(categoryRules.id, args.id))
             .limit(1);
-          if (!rule || rule.userId !== ctx.userId) throw new Error('Unknown rule');
+          if (!rule || rule.userId !== ctx.userId) throw notFound('Unknown rule');
           await db.delete(categoryRules).where(eq(categoryRules.id, rule.id));
           return true;
         },
@@ -580,7 +623,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
         // assignments excluded). Returns how many activities changed.
         type: new GraphQLNonNull(GraphQLInt),
         resolve: (_source, _args, ctx: Context) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           return sweepRules(db, ctx.userId);
         },
       },
@@ -600,7 +643,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
           args: { appPattern?: string | null; titlePattern: string; priority?: number | null },
           ctx: Context,
         ) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           if (args.appPattern != null) assertValidPattern(args.appPattern);
           assertValidContextPattern(args.titlePattern);
           const [row] = await db
@@ -624,13 +667,13 @@ export function createSchema(db: Db, auth: AuthGateway) {
           id: { type: new GraphQLNonNull(GraphQLString) },
         },
         resolve: async (_source, args: { id: string }, ctx: Context) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           const [rule] = await db
             .select()
             .from(contextRules)
             .where(eq(contextRules.id, args.id))
             .limit(1);
-          if (!rule || rule.userId !== ctx.userId) throw new Error('Unknown rule');
+          if (!rule || rule.userId !== ctx.userId) throw notFound('Unknown rule');
           await db.delete(contextRules).where(eq(contextRules.id, rule.id));
           return true;
         },
@@ -662,13 +705,13 @@ export function createSchema(db: Db, auth: AuthGateway) {
           },
           ctx: Context,
         ) => {
-          if (!ctx.userId) throw new Error('Not authenticated');
+          if (!ctx.userId) throw unauthenticated();
           const deviceId = args.deviceId ?? ctx.deviceId;
-          if (!deviceId) throw new Error('No device: pass deviceId or use a device API key');
+          if (!deviceId) throw badInput('No device: pass deviceId or use a device API key');
           const [device] = await db.select().from(devices).where(eq(devices.id, deviceId)).limit(1);
-          if (!device || device.userId !== ctx.userId) throw new Error('Unknown device');
+          if (!device || device.userId !== ctx.userId) throw notFound('Unknown device');
           const capturedAt = new Date(args.capturedAt);
-          if (Number.isNaN(capturedAt.getTime())) throw new Error('Invalid capturedAt');
+          if (Number.isNaN(capturedAt.getTime())) throw badInput('Invalid capturedAt');
           // Liveness marker for the dashboard. Receipt time, not capturedAt:
           // a retroactive mobile sync means the agent is alive NOW. Throttled
           // — within one batched upload only the first ping writes.

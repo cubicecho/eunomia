@@ -1,6 +1,7 @@
 import { asc, eq } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
 import { contextRules } from '../db/schema.ts';
+import { badInput } from '../errors.ts';
 
 // Context extraction: pulls the sub-app "context" — the open book, Ableton
 // project, IDE workspace — out of a ping's window title via the user's
@@ -29,12 +30,12 @@ export function assertValidContextPattern(pattern: string): void {
   try {
     compiled = new RegExp(`${pattern}|`, 'i');
   } catch {
-    throw new Error(`Invalid pattern: ${pattern}`);
+    throw badInput(`Invalid pattern: ${pattern}`);
   }
   // The alternation with '' always matches; the exec result's length counts
   // the pattern's capture groups without needing matching input.
   if ((compiled.exec('')?.length ?? 1) < 2) {
-    throw new Error(`Pattern needs a capture group for the context: ${pattern}`);
+    throw badInput(`Pattern needs a capture group for the context: ${pattern}`);
   }
 }
 

@@ -18,6 +18,8 @@ export interface SyncResult {
   /** Pings still waiting in the outbox after the upload attempt. */
   pending: number;
   provisioned: boolean;
+  /** Why the upload stopped, or null when it went through (or was skipped). */
+  uploadError: string | null;
 }
 
 const labelCache = new Map<string, string | null>();
@@ -70,7 +72,17 @@ async function syncOnce(): Promise<SyncResult> {
   outbox.pushMany(clean);
   writeSyncState({ checkpoint: now, synth });
 
-  if (config) await createUploader(config, outbox).flush();
+  let uploadError: string | null = null;
+  if (config) {
+    const uploader = createUploader(config, outbox);
+    await uploader.flush();
+    uploadError = uploader.status().error;
+  }
 
-  return { synthesized: clean.length, pending: outbox.size, provisioned: config !== null };
+  return {
+    synthesized: clean.length,
+    pending: outbox.size,
+    provisioned: config !== null,
+    uploadError,
+  };
 }

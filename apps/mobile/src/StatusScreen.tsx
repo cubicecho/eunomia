@@ -111,6 +111,13 @@ export function StatusScreen({ config, onConfigChange }: Props) {
             : 'never'}
         </Text>
       </View>
+      {lastSync?.result.uploadError ? (
+        // Pings are safe in the outbox, but silence here would read as success.
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>Upload</Text>
+          <Text style={styles.uploadError}>failing — {lastSync.result.uploadError}</Text>
+        </View>
+      ) : null}
       <View style={styles.row}>
         <Text style={styles.rowLabel}>Sync every</Text>
         <View style={styles.intervalEdit}>
@@ -161,6 +168,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#ccc',
   },
   rowLabel: { fontWeight: '600' },
+  uploadError: { color: '#b3261e', flexShrink: 1, textAlign: 'right' },
   intervalEdit: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   intervalInput: {
     borderWidth: 1,

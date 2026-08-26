@@ -27,4 +27,11 @@ export {
   type SynthState,
   type UsageEvent,
 } from './synth.ts';
-export { createUploader, type Uploader, uploadBatch } from './upload.ts';
+export {
+  classifyResponse,
+  createUploader,
+  type Uploader,
+  type UploaderStatus,
+  type UploadResult,
+  uploadBatch,
+} from './upload.ts';

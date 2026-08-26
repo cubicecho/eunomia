@@ -2,6 +2,7 @@ import { extractFilters, extractOrderBy } from '@vantreeseba/drizzle-graphql';
 import { and, type SQL } from 'drizzle-orm';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import type { GraphQLFieldConfig } from 'graphql';
+import { unauthenticated } from '../errors.ts';
 import type { Context } from './context.ts';
 
 interface ListArgs {
@@ -38,7 +39,7 @@ export function scopedListField(
   return {
     ...field,
     resolve: async (_source, args: ListArgs, ctx) => {
-      if (!ctx.userId) throw new Error('Not authenticated');
+      if (!ctx.userId) throw unauthenticated();
       const where = and(
         scope(ctx as Context & { userId: string }),
         args.where ? extractFilters(table, tableName, args.where as never) : undefined,

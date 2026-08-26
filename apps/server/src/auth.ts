@@ -3,9 +3,12 @@ import { apiKey } from '@better-auth/api-key';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { bearer, magicLink } from 'better-auth/plugins';
+import { eq } from 'drizzle-orm';
 import type { Db } from './db/client.ts';
 import { account, apikey, session, user, verification } from './db/schema.ts';
 import { type MagicLinkMessage, sendMagicLinkEmail } from './email.ts';
+import { forbidden } from './errors.ts';
+import { emailAllowed, OPEN_REGISTRATION, type RegistrationPolicy } from './registration.ts';
 
 export interface AuthOptions {
   secret?: string | undefined;
@@ -14,6 +17,12 @@ export interface AuthOptions {
   appUrl?: string | undefined;
   /** Delivery override (tests); defaults to SMTP-or-console email. */
   sendMagicLink?: ((message: MagicLinkMessage) => Promise<void>) | undefined;
+  /**
+   * Refuse to create accounts for addresses that don't have one yet. The
+   * gateway also stops these before an email goes out; this is the backstop
+   * that makes a token minted before the policy changed useless.
+   */
+  disableSignUp?: boolean | undefined;
 }
 
 // One-slot mailboxes for UNSAFE_LOCAL_NETWORK mode: signInMagicLink awaits
@@ -33,6 +42,7 @@ export function createAuth(db: Db, options: AuthOptions = {}) {
     baseURL: options.baseURL ?? process.env.BETTER_AUTH_URL,
     emailAndPassword: {
       enabled: true,
+      disableSignUp: options.disableSignUp ?? false,
     },
     plugins: [
       // Long-lived per-device agent tokens; sessions cover the dashboard.
@@ -48,6 +58,7 @@ export function createAuth(db: Db, options: AuthOptions = {}) {
       magicLink({
         expiresIn: 15 * 60,
         storeToken: 'hashed',
+        disableSignUp: options.disableSignUp ?? false,
         sendMagicLink: async ({ email, token, metadata }) => {
           const captureId = metadata?.captureId;
           if (typeof captureId === 'string' && tokenCaptures.has(captureId)) {
@@ -146,16 +157,48 @@ export interface AuthGatewayOptions {
    * sign in as any email address. Only for trusted local networks.
    */
   exposeMagicLinkToken?: boolean;
+  /** Who may hold an account here. Defaults to anyone (OPEN_REGISTRATION). */
+  registration?: RegistrationPolicy;
 }
 
 export function createAuthGateway(
   auth: Auth,
+  db: Db,
   gatewayOptions: AuthGatewayOptions = {},
 ): AuthGateway {
+  const policy = gatewayOptions.registration ?? OPEN_REGISTRATION;
+
+  /**
+   * The allowlist is static configuration, so saying "not this address" leaks
+   * nothing about who has an account here — unlike DISABLE_SIGNUP, which is
+   * enforced silently below precisely because it *would*.
+   */
+  const assertAllowed = (email: string): void => {
+    if (!emailAllowed(email, policy.allowedEmails)) {
+      throw forbidden('That email address is not allowed on this server');
+    }
+  };
+
+  const hasAccount = async (email: string): Promise<boolean> => {
+    const rows = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.email, email.trim().toLowerCase()))
+      .limit(1);
+    return rows.length > 0;
+  };
+
   return {
     mintDeviceKey: (input) => mintDeviceKey(auth, input),
 
     async requestMagicLink(email) {
+      assertAllowed(email);
+      // Closed sign-ups stop here rather than at verify time: better-auth would
+      // happily email a link to a stranger and only refuse once they clicked
+      // it. Reporting the same ok/null as a real request keeps the response
+      // from telling a prober which addresses have accounts.
+      if (policy.disableSignUp && !(await hasAccount(email))) return { token: null };
+
       if (!gatewayOptions.exposeMagicLinkToken) {
         await auth.api.signInMagicLink({ body: { email }, headers: new Headers() });
         return { token: null };
@@ -180,6 +223,8 @@ export function createAuthGateway(
     },
 
     async signUp(input) {
+      assertAllowed(input.email);
+      if (policy.disableSignUp) throw forbidden('This server is not accepting new accounts');
       const result = await auth.api.signUpEmail({ body: input });
       // autoSignIn is on by default; a null token would mean it was disabled.
       if (!result.token) throw new Error('Sign-up did not open a session');
@@ -187,6 +232,9 @@ export function createAuthGateway(
     },
 
     async signIn(input) {
+      // Also checked here: an allowlist narrowed after the fact should lock out
+      // accounts it no longer covers, not just block new ones.
+      assertAllowed(input.email);
       const result = await auth.api.signInEmail({ body: input });
       return { token: result.token, userId: result.user.id };
     },

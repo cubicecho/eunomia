@@ -10,6 +10,7 @@ import {
   type Ping,
   type PingSanitizer,
   syncIntervalMs,
+  type Uploader,
 } from '@eunomia/agent';
 import { activeWindow } from '@miniben90/x-win';
 import { app, Menu, nativeImage, powerMonitor, Tray } from 'electron';
@@ -123,10 +124,13 @@ app.whenReady().then(async () => {
   // in config.json opts out (and removes an earlier registration).
   if (config) syncAutostart(config.autostart !== false);
 
+  let uploader: Uploader | undefined;
+
   const startUploads = (cfg: AgentConfig): void => {
-    const uploader = createUploader(cfg, outbox);
-    setInterval(() => void uploader.flush(), syncIntervalMs(cfg));
-    void uploader.flush(); // drain whatever a previous run left behind
+    uploader = createUploader(cfg, outbox);
+    const flush = () => void uploader?.flush().then(refreshTrayMenu);
+    setInterval(flush, syncIntervalMs(cfg));
+    flush(); // drain whatever a previous run left behind
     console.log(`eunomia agent pinging, uploading to ${cfg.serverUrl}`);
   };
 
@@ -145,13 +149,27 @@ app.whenReady().then(async () => {
     }
   };
 
+  // A stalled upload is otherwise invisible: pings keep queueing to disk while
+  // the tray claims all is well. Revoked key, wrong URL, server down — say so.
+  const uploadLabel = (): string => {
+    if (!config) return 'Local only — not set up yet';
+    const status = uploader?.status();
+    if (status?.error) return `Upload failing: ${status.error} (${status.pending} queued)`;
+    if (status && status.pending > 0) {
+      return `Uploading to ${config.serverUrl} (${status.pending} queued)`;
+    }
+    return `Uploading to ${config.serverUrl}`;
+  };
+
   const refreshTrayMenu = (): void => {
+    tray?.setToolTip(
+      uploader?.status().error
+        ? 'eunomia — tracking, but uploads are failing'
+        : 'eunomia — tracking active window',
+    );
     tray?.setContextMenu(
       Menu.buildFromTemplate([
-        {
-          label: config ? `Uploading to ${config.serverUrl}` : 'Local only — not set up yet',
-          enabled: false,
-        },
+        { label: uploadLabel(), enabled: false },
         { label: `Outbox: ${join(dataDir, 'outbox.jsonl')}`, enabled: false },
         ...(config ? [] : [{ label: 'Set up uploads…', click: () => void openSetup() }]),
         { type: 'separator' as const },
@@ -161,7 +179,6 @@ app.whenReady().then(async () => {
   };
 
   tray = new Tray(nativeImage.createEmpty());
-  tray.setToolTip('eunomia — tracking active window');
   refreshTrayMenu();
 
   setInterval(() => checkOnce(outbox, sanitize), CHECK_INTERVAL_MS);

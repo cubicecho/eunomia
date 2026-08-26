@@ -1,6 +1,7 @@
 import { and, asc, eq, isNull, ne, or } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
 import { activities, categoryRules, devices } from '../db/schema.ts';
+import { badInput } from '../errors.ts';
 import type { Activity } from './fold.ts';
 import { moveRolledSeconds } from './rollup.ts';
 
@@ -24,7 +25,7 @@ export function assertValidPattern(pattern: string): void {
   try {
     new RegExp(pattern, 'i');
   } catch {
-    throw new Error(`Invalid pattern: ${pattern}`);
+    throw badInput(`Invalid pattern: ${pattern}`);
   }
 }
 

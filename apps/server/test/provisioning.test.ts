@@ -20,7 +20,7 @@ describe('device provisioning', () => {
       secret: 'test-secret-test-secret-test-secret',
       baseURL: 'http://localhost:4000',
     });
-    schema = createSchema(db as never, createAuthGateway(auth));
+    schema = createSchema(db as never, createAuthGateway(auth, db as never));
     await db.insert(user).values({ id: 'user-1', name: 'u', email: 'u@example.com' });
   });
 

@@ -19,7 +19,7 @@ describe('graphql auth flow', () => {
       secret: 'test-secret-test-secret-test-secret',
       baseURL: 'http://localhost:4000',
     });
-    schema = createSchema(db as never, createAuthGateway(auth));
+    schema = createSchema(db as never, createAuthGateway(auth, db as never));
   });
 
   const anonymous = (): Context =>

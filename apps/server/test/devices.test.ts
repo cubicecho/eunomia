@@ -1,7 +1,7 @@
+import { eq } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createAuth, createAuthGateway, verifyDeviceKey } from '../src/auth.ts';
-import { eq } from 'drizzle-orm';
 import { activities, devices, user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
@@ -21,7 +21,7 @@ describe('device management', () => {
       secret: 'test-secret-test-secret-test-secret',
       baseURL: 'http://localhost:4000',
     });
-    schema = createSchema(db as never, createAuthGateway(auth));
+    schema = createSchema(db as never, createAuthGateway(auth, db as never));
     await db.insert(user).values([
       { id: 'user-1', name: 'u1', email: 'u1@example.com' },
       { id: 'user-2', name: 'u2', email: 'u2@example.com' },
@@ -54,7 +54,7 @@ describe('device management', () => {
   const remove = (userId: string | undefined, deviceId: string) =>
     graphql({
       schema,
-      source: `mutation ($id: String!) { deleteDevice(id: $id) }`,
+      source: 'mutation ($id: String!) { deleteDevice(id: $id) }',
       variableValues: { id: deviceId },
       contextValue: asUser(userId),
     });

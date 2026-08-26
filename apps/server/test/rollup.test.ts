@@ -2,7 +2,14 @@ import { sql } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { pruneActivities, rollupActivities } from '../src/activity/rollup.ts';
-import { activities, categories, categoryRules, devices, summaries, user } from '../src/db/schema.ts';
+import {
+  activities,
+  categories,
+  categoryRules,
+  devices,
+  summaries,
+  user,
+} from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
@@ -71,7 +78,15 @@ describe('rollup', () => {
 
     expect(await rollupActivities(db as never)).toBe(4);
     const rows = await db.select().from(summaries).orderBy(summaries.day, summaries.app);
-    expect(rows.map(({ day, app, context, categoryId, seconds }) => ({ day, app, context, categoryId, seconds }))).toEqual([
+    expect(
+      rows.map(({ day, app, context, categoryId, seconds }) => ({
+        day,
+        app,
+        context,
+        categoryId,
+        seconds,
+      })),
+    ).toEqual([
       { day: '2026-08-10', app: 'code', context: null, categoryId: 'work', seconds: 900 },
       { day: '2026-08-10', app: 'firefox', context: 'github.com', categoryId: null, seconds: 120 },
       { day: '2026-08-11', app: 'code', context: null, categoryId: null, seconds: 60 },
@@ -79,7 +94,12 @@ describe('rollup', () => {
 
     // Nothing new to roll — running again must not double-count.
     expect(await rollupActivities(db as never)).toBe(0);
-    expect(await db.select().from(summaries).then((r) => r.length)).toBe(3);
+    expect(
+      await db
+        .select()
+        .from(summaries)
+        .then((r) => r.length),
+    ).toBe(3);
 
     // A later close rolls incrementally into the existing row.
     await db.insert(activities).values([activity('a6', '2026-08-11T12:00:00Z', 40)]);
@@ -102,11 +122,37 @@ describe('rollup', () => {
     }
   });
 
+  it('a non-UTC range reads the same live and rolled', async () => {
+    // 01:00 UTC on the 26th is still the evening of the 25th in Chicago, and
+    // the dashboard's default range ends at the next local midnight. The live
+    // half used to be cut at UTC midnight while the rolled half was cut at
+    // local midnight, so this hour read as zero until the 15-minute rollup
+    // moved it across — the two halves must agree at every moment.
+    await db.execute(sql`set time zone 'America/Chicago'`);
+    try {
+      await db.insert(activities).values([activity('a1', '2026-08-26T01:00:00Z', 3600)]);
+      const query = '{ appSummary(from: "2026-08-19", to: "2026-08-26") { app seconds } }';
+
+      const live = await run(query);
+      expect(live.errors).toBeUndefined();
+      expect((live.data as any).appSummary).toEqual([{ app: 'code', seconds: 3600 }]);
+
+      await rollupActivities(db as never);
+      const rolled = await run(query);
+      expect(rolled.errors).toBeUndefined();
+      expect((rolled.data as any).appSummary).toEqual([{ app: 'code', seconds: 3600 }]);
+    } finally {
+      await db.execute(sql`set time zone 'UTC'`);
+    }
+  });
+
   it('categorySummary and appSummary merge rolled and live time', async () => {
-    await db.insert(activities).values([
-      activity('a1', '2026-08-10T09:00:00Z', 600, { categoryId: 'work' }),
-      activity('a2', '2026-08-10T10:00:00Z', 120, { app: 'firefox', context: 'github.com' }),
-    ]);
+    await db
+      .insert(activities)
+      .values([
+        activity('a1', '2026-08-10T09:00:00Z', 600, { categoryId: 'work' }),
+        activity('a2', '2026-08-10T10:00:00Z', 120, { app: 'firefox', context: 'github.com' }),
+      ]);
     const query = `{
       categorySummary(from: "2026-08-10T00:00:00Z", to: "2026-08-12T00:00:00Z") {
         day categoryId seconds
@@ -121,9 +167,9 @@ describe('rollup', () => {
 
     await rollupActivities(db as never);
     // Live, un-rolled time lands on top of the rolled rows.
-    await db.insert(activities).values([
-      activity('a3', '2026-08-10T20:00:00Z', 300, { categoryId: 'work', open: true }),
-    ]);
+    await db
+      .insert(activities)
+      .values([activity('a3', '2026-08-10T20:00:00Z', 300, { categoryId: 'work', open: true })]);
 
     const result = await run(query);
     expect(result.errors).toBeUndefined();
@@ -214,10 +260,12 @@ describe('rollup', () => {
   });
 
   it('deleteCategory merges its summary rows into uncategorized', async () => {
-    await db.insert(activities).values([
-      activity('a1', '2026-08-10T09:00:00Z', 600, { categoryId: 'work' }),
-      activity('a2', '2026-08-10T10:00:00Z', 100),
-    ]);
+    await db
+      .insert(activities)
+      .values([
+        activity('a1', '2026-08-10T09:00:00Z', 600, { categoryId: 'work' }),
+        activity('a2', '2026-08-10T10:00:00Z', 100),
+      ]);
     await rollupActivities(db as never);
 
     const result = await run('mutation { deleteCategory(id: "work") }');

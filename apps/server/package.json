@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.5",
+    "@eunomia/agent": "*",
     "@faker-js/faker": "^9.0.0",
     "@types/node": "^24.0.0",
     "@types/nodemailer": "^8.0.1",

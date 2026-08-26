@@ -1,5 +1,5 @@
 import { accept, type PermissionsMap, type Rule } from '@vantreeseba/graphql-casl';
-import { GraphQLError } from 'graphql';
+import { unauthenticated } from '../errors.ts';
 import type { Context } from './context.ts';
 
 /**
@@ -11,9 +11,7 @@ import type { Context } from './context.ts';
  * field ever executes anonymously, even if a resolver forgets its own check.
  */
 const authenticated: Rule = (resolve, parent, args, context: Context, info) => {
-  if (!context.userId) {
-    return Promise.reject(new GraphQLError('Not authenticated'));
-  }
+  if (!context.userId) return Promise.reject(unauthenticated());
   return resolve(parent, args, context, info);
 };
 
@@ -37,8 +35,7 @@ export const permissions: PermissionsMap<any> = {
     requestMagicLink: accept,
     verifyMagicLink: accept,
     // Public: reports false for sessionless calls rather than erroring.
-    signOut: accept,
-    registerDevice: authenticated,
+    signOut: accept,    registerDevice: authenticated,
     renameDevice: authenticated,
     deleteDevice: authenticated,
     recordPing: authenticated,

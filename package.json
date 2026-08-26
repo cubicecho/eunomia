@@ -13,7 +13,8 @@
     "dev:server": "npm run dev -w @eunomia/server",
     "dev:desktop": "npm run dev -w @eunomia/desktop",
     "dev:web": "npm run dev -w @eunomia/web",
-    "dev:mobile": "npm run start -w @eunomia/mobile"
+    "dev:mobile": "npm run start -w @eunomia/mobile",
+    "dist:win": "npm run dist:win -w @eunomia/desktop"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

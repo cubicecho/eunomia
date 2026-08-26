@@ -1,17 +1,11 @@
 import { createServer } from 'node:http';
-import { createYoga } from 'graphql-yoga';
 import { startRollupTimer } from './activity/rollup.ts';
-import { createAuth, createAuthGateway, verifyDeviceKey } from './auth.ts';
+import { createApp } from './app.ts';
+import { createAuth, createAuthGateway } from './auth.ts';
 import { createDb } from './db/client.ts';
-import type { Context } from './graphql/context.ts';
-import { createSchema } from './graphql/schema.ts';
+import { SECRET_HELP, secretProblem, secretWarning } from './env.ts';
+import { registrationPolicyFromEnv } from './registration.ts';
 import { createStaticHandler } from './static.ts';
-
-const db = createDb();
-const auth = createAuth(db);
-
-// Fold closed activities into the summaries table (once now, then periodic).
-startRollupTimer(db);
 
 // UNSAFE_LOCAL_NETWORK=true makes requestMagicLink return the sign-in token
 // directly in the response — anyone who can reach the server can log in as
@@ -21,22 +15,44 @@ if (unsafeLocalNetwork) {
   console.warn('[auth] UNSAFE_LOCAL_NETWORK is on: magic-link tokens are returned to callers');
 }
 
-// GraphQL is the only surface: no better-auth REST routes, no cookies. Auth
-// happens through signUp/signIn/signOut mutations; sessions ride the
-// `Authorization: Bearer <token>` header, device agents use `x-api-key`.
-const yoga = createYoga<Record<string, never>, Context>({
-  schema: createSchema(db, createAuthGateway(auth, { exposeMagicLinkToken: unsafeLocalNetwork })),
-  context: async ({ request }) => {
-    const headers = request.headers;
-    const apiKey = headers.get('x-api-key');
-    if (apiKey) {
-      const creds = await verifyDeviceKey(auth, apiKey);
-      return { db, userId: creds?.userId, deviceId: creds?.deviceId, headers };
-    }
-    const session = await auth.api.getSession({ headers });
-    return { db, userId: session?.user.id, deviceId: undefined, headers };
-  },
-});
+// Checked before anything connects: a forgeable session secret is not a
+// warning, it is an open door, and a server that boots anyway will be running
+// for months before anyone notices.
+const secret = process.env.BETTER_AUTH_SECRET;
+const problem = secretProblem(secret);
+if (problem && !unsafeLocalNetwork) {
+  console.error(`[auth] refusing to start: ${problem}.\n${SECRET_HELP}`);
+  process.exit(1);
+}
+if (problem) console.warn(`[auth] ${problem} (allowed by UNSAFE_LOCAL_NETWORK)`);
+const warning = secretWarning(secret);
+if (warning) console.warn(`[auth] ${warning}`);
+
+const db = createDb();
+
+// Who may hold an account here: ALLOWED_EMAILS / DISABLE_SIGNUP. Both default
+// to off, which leaves registration open — fine on a LAN, not on the internet.
+const registration = registrationPolicyFromEnv();
+const auth = createAuth(db, { disableSignUp: registration.disableSignUp });
+if (registration.allowedEmails.length > 0) {
+  console.log(`[auth] accounts limited to ${registration.allowedEmails.join(', ')}`);
+}
+if (registration.disableSignUp) console.log('[auth] sign-ups are closed');
+if (registration.allowedEmails.length === 0 && !registration.disableSignUp) {
+  console.warn(
+    '[auth] registration is open: anyone who can reach this server can create an account. ' +
+      'Set ALLOWED_EMAILS or DISABLE_SIGNUP if it is internet-reachable.',
+  );
+}
+
+// Fold closed activities into the summaries table (once now, then periodic).
+startRollupTimer(db);
+
+const yoga = createApp(
+  db,
+  auth,
+  createAuthGateway(auth, db, { exposeMagicLinkToken: unsafeLocalNetwork, registration }),
+);
 
 // WEB_DIST points at the built dashboard (set in the container image); the
 // server then serves it on every non-/graphql path, so one origin hosts both

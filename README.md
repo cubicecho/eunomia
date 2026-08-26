@@ -19,7 +19,7 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 - `apps/mobile` — Expo (Android-only for now) agent: a local Kotlin module reads
   Android's `UsageStatsManager` event log and the shared synthesizer turns it
   into pings retroactively — no live sampling service needed.
-- `apps/web` — Vite + vanilla-TS dashboard (sign-in, per-category/per-day/per-app views).
+- `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in, per-category/per-day/per-app views, rules, devices.
 - `packages/agent` — agent core shared by desktop and mobile: the generated
   GraphQL SDK (committed codegen output), crash-safe outbox, batch uploader,
   and usage-event → ping synthesizer.
@@ -177,6 +177,40 @@ docker compose up --build   # app on :4000 + postgres 17
 The app container serves the built web dashboard at `/` and GraphQL at
 `/graphql` — one origin, so magic links default to the server's own URL
 (override with `APP_URL` only if the dashboard is hosted elsewhere).
+
+### Before you expose it
+
+`BETTER_AUTH_SECRET` signs every session token and hashes every magic link.
+There is no default: the server refuses to start without a real one, and
+compose refuses to start without it in `.env`.
+
+```bash
+openssl rand -base64 32   # put the result in .env
+```
+
+Login is passwordless, so an internet-reachable server with no policy lets
+anyone who finds the port create an account. Pick one:
+
+- `ALLOWED_EMAILS=me@example.com,*@work.test` — only these addresses may sign
+  up, sign in, or receive a link. Anything else is refused outright.
+- `DISABLE_SIGNUP=true` — existing accounts keep working, new ones can't be
+  created. Requests for unknown addresses return the same "ok" as any other,
+  so the server never reveals who has an account. Set this once yours exists.
+
+Sign-in attempts are rate limited in-process (5 per address and 100 overall
+per 15 minutes), which is enough to stop a mail-sending oracle but is not a
+substitute for a proxy-level limit.
+
+**Terminate TLS in front of it.** The container speaks plain HTTP, and every
+agent sends its API key and every browser its bearer token on each request.
+Put Caddy, nginx, or a Cloudflare tunnel in front, point `BETTER_AUTH_URL` at
+the `https://` address (magic links are built from it), and publish only the
+proxy — the `4000:4000` mapping in `docker-compose.yml` is for direct LAN use
+and should be narrowed to `127.0.0.1:4000:4000` behind a local proxy.
+
+`UNSAFE_LOCAL_NETWORK=true` returns magic-link tokens directly in the GraphQL
+response and skips the secret check. It exists so a LAN install works without
+an inbox; anyone who can reach the port can then log in as anyone.
 
 Set `TZ` (IANA name, e.g. `America/Chicago`) so dashboard days split at your
 midnight instead of UTC's. Decide before real data accrues: rolled-up

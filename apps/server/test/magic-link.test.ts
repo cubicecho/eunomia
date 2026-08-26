@@ -28,7 +28,7 @@ describe('magic-link auth', () => {
     ({ db, userId: undefined, deviceId: undefined, headers: new Headers() }) as Context;
 
   const makeSchema = (exposeMagicLinkToken: boolean) =>
-    createSchema(db as never, createAuthGateway(auth, { exposeMagicLinkToken }));
+    createSchema(db as never, createAuthGateway(auth, db as never, { exposeMagicLinkToken }));
 
   const request = (schema: ReturnType<typeof createSchema>) =>
     graphql({
