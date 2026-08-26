@@ -161,6 +161,57 @@ describe('auto-categorization rules', () => {
     expect(rows.find((r) => r.id === 'old-pinned')?.categoryId).toBe(personal);
   });
 
+  it('edits a rule in place: new pattern applies, cleared fields stop matching', async () => {
+    const work = await createCategory('Work');
+    const dev = await createCategory('Dev');
+    const ruleId = await createRule(work, { app: 'firefox', title: 'youtube' });
+
+    const { recordPing: before } = await ping(0, 'firefox', 'YouTube - cats');
+    expect(before.categoryId).toBe(work);
+
+    // Same rule, different category, and the title condition dropped.
+    const { updateCategoryRule } = await data(`mutation { updateCategoryRule(
+      id: "${ruleId}", categoryId: "${dev}", appPattern: "firefox", priority: 3
+    ) { id categoryId appPattern titlePattern priority } }`);
+    expect(updateCategoryRule).toMatchObject({
+      id: ruleId,
+      categoryId: dev,
+      appPattern: 'firefox',
+      titlePattern: null,
+      priority: 3,
+    });
+
+    const { recordPing: after } = await ping(10, 'firefox', 'news');
+    expect(after.categoryId).toBe(dev);
+  });
+
+  it('rejects edits that empty a rule, break a regex, or reach across users', async () => {
+    const mine = await createCategory('Work');
+    const theirs = await createCategory('Their', 'user-2');
+    const ruleId = await createRule(mine, { app: 'code' });
+
+    const none = await run(
+      `mutation { updateCategoryRule(id: "${ruleId}", categoryId: "${mine}") { id } }`,
+    );
+    expect(none.errors?.[0]?.message).toContain('needs an appPattern');
+
+    const bad = await run(
+      `mutation { updateCategoryRule(id: "${ruleId}", categoryId: "${mine}", appPattern: "([") { id } }`,
+    );
+    expect(bad.errors?.[0]?.message).toContain('Invalid pattern');
+
+    const foreignCategory = await run(
+      `mutation { updateCategoryRule(id: "${ruleId}", categoryId: "${theirs}", appPattern: "code") { id } }`,
+    );
+    expect(foreignCategory.errors?.[0]?.message).toBe('Unknown category');
+
+    const foreignRule = await run(
+      `mutation { updateCategoryRule(id: "${ruleId}", categoryId: "${theirs}", appPattern: "code") { id } }`,
+      'user-2',
+    );
+    expect(foreignRule.errors?.[0]?.message).toBe('Unknown rule');
+  });
+
   it('rejects rules with no pattern, bad regexes, and foreign categories', async () => {
     const mine = await createCategory('Work');
     const theirs = await createCategory('Their', 'user-2');

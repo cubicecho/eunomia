@@ -19,6 +19,7 @@ import {
   loadContextRules,
 } from '../activity/context.ts';
 import { foldPing } from '../activity/fold.ts';
+import { mergeDeviceHistory } from '../activity/merge.ts';
 import { mergeCategorySummaries, moveRolledSeconds } from '../activity/rollup.ts';
 import { applyRules, assertValidPattern, loadRules, sweepRules } from '../activity/rules.ts';
 import type { AuthGateway } from '../auth.ts';
@@ -311,6 +312,33 @@ export function createSchema(db: Db, auth: AuthGateway) {
     },
   });
 
+  // Shared by registerDevice and rotateDeviceKey: the plaintext API key exists
+  // only in this response (the server stores a hash), so it rides along
+  // exactly once.
+  const deviceRegistrationType = new GraphQLObjectType({
+    name: 'DeviceRegistration',
+    fields: {
+      device: { type: new GraphQLNonNull(entities.types.Devices!) },
+      apiKey: { type: new GraphQLNonNull(GraphQLString) },
+    },
+  });
+
+  /** Deletes every stored key minted for a device. Only hashes are kept, so
+   * dropping the rows is a full revocation. */
+  const revokeDeviceKeys = async (userId: string, deviceId: string): Promise<void> => {
+    // Keys are matched by the deviceId minted into their metadata. The plugin
+    // JSON-serializes that column, so match in JS rather than guessing its
+    // exact encoding in SQL.
+    const keys = await db
+      .select({ id: apikey.id, metadata: apikey.metadata })
+      .from(apikey)
+      .where(eq(apikey.referenceId, userId));
+    const stale = keys
+      .filter((key) => keyMetadataDeviceId(key.metadata) === deviceId)
+      .map((key) => key.id);
+    if (stale.length > 0) await db.delete(apikey).where(inArray(apikey.id, stale));
+  };
+
   const perEmailLogins = createRateLimiter(LOGIN_ATTEMPTS_PER_EMAIL, LOGIN_WINDOW_MS);
   const allLogins = createRateLimiter(LOGIN_ATTEMPTS_TOTAL, LOGIN_WINDOW_MS);
   const throttleLogin = (email: string): void => {
@@ -393,17 +421,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
         },
       },
       registerDevice: {
-        // Custom payload type: the plaintext API key exists only in this
-        // response (the server stores a hash), so it rides along exactly once.
-        type: new GraphQLNonNull(
-          new GraphQLObjectType({
-            name: 'DeviceRegistration',
-            fields: {
-              device: { type: new GraphQLNonNull(entities.types.Devices!) },
-              apiKey: { type: new GraphQLNonNull(GraphQLString) },
-            },
-          }),
-        ),
+        type: new GraphQLNonNull(deviceRegistrationType),
         args: {
           name: { type: new GraphQLNonNull(GraphQLString) },
           platform: { type: new GraphQLNonNull(GraphQLString) },
@@ -445,6 +463,69 @@ export function createSchema(db: Db, auth: AuthGateway) {
           return updated;
         },
       },
+      rotateDeviceKey: {
+        // A fresh API key for a device that already exists — how an agent
+        // recovers from a revoked or lost key without re-registering, which
+        // would strand its history on an orphaned device row. The old keys are
+        // revoked here, so an agent still holding one stops uploading.
+        type: new GraphQLNonNull(deviceRegistrationType),
+        args: {
+          id: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: async (_source, args: { id: string }, ctx: Context) => {
+          if (!ctx.userId) throw unauthenticated();
+          const [device] = await db.select().from(devices).where(eq(devices.id, args.id)).limit(1);
+          if (!device || device.userId !== ctx.userId) throw notFound('Unknown device');
+          await revokeDeviceKeys(ctx.userId, device.id);
+          const apiKey = await auth.mintDeviceKey({
+            userId: ctx.userId,
+            deviceId: device.id,
+            name: device.name,
+          });
+          return { device, apiKey };
+        },
+      },
+      mergeDevice: {
+        // Folds one device into another and retires it — the fix for the same
+        // machine registered twice. Everything the source recorded becomes the
+        // target's, so the history survives what deleteDevice would have
+        // cascaded away. Merge the duplicate INTO the device whose agent is
+        // still running: only the source's key is revoked.
+        type: new GraphQLNonNull(entities.types.Devices!),
+        args: {
+          id: { type: new GraphQLNonNull(GraphQLString) },
+          intoId: { type: new GraphQLNonNull(GraphQLString) },
+        },
+        resolve: async (_source, args: { id: string; intoId: string }, ctx: Context) => {
+          if (!ctx.userId) throw unauthenticated();
+          if (args.id === args.intoId) throw badInput('Pick a different device to merge into');
+          const owned = await db
+            .select()
+            .from(devices)
+            .where(
+              and(eq(devices.userId, ctx.userId), inArray(devices.id, [args.id, args.intoId])),
+            );
+          const source = owned.find((device) => device.id === args.id);
+          const target = owned.find((device) => device.id === args.intoId);
+          if (!source || !target) throw notFound('Unknown device');
+
+          await mergeDeviceHistory(db, source.id, target.id);
+          await revokeDeviceKeys(ctx.userId, source.id);
+          await db.delete(devices).where(eq(devices.id, source.id));
+
+          // The merged device is as recently seen as the more recent of the two.
+          const seen = [source.lastSeenAt, target.lastSeenAt].filter((at) => at !== null);
+          const [updated] = await db
+            .update(devices)
+            .set({
+              lastSeenAt:
+                seen.length > 0 ? new Date(Math.max(...seen.map((at) => at.getTime()))) : null,
+            })
+            .where(eq(devices.id, target.id))
+            .returning();
+          return updated;
+        },
+      },
       deleteDevice: {
         // True when the device was deleted. Its activities cascade away, and
         // its API keys are revoked (only hashes are stored, so deleting the
@@ -457,17 +538,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
           if (!ctx.userId) throw unauthenticated();
           const [device] = await db.select().from(devices).where(eq(devices.id, args.id)).limit(1);
           if (!device || device.userId !== ctx.userId) throw notFound('Unknown device');
-          // Keys are matched by the deviceId minted into their metadata. The
-          // plugin JSON-serializes that column, so match in JS rather than
-          // guessing its exact encoding in SQL.
-          const keys = await db
-            .select({ id: apikey.id, metadata: apikey.metadata })
-            .from(apikey)
-            .where(eq(apikey.referenceId, ctx.userId));
-          const stale = keys
-            .filter((key) => keyMetadataDeviceId(key.metadata) === device.id)
-            .map((key) => key.id);
-          if (stale.length > 0) await db.delete(apikey).where(inArray(apikey.id, stale));
+          await revokeDeviceKeys(ctx.userId, device.id);
           await db.delete(devices).where(eq(devices.id, device.id));
           return true;
         },
@@ -611,6 +682,66 @@ export function createSchema(db: Db, auth: AuthGateway) {
           return row;
         },
       },
+      updateCategoryRule: {
+        // A full replacement, not a patch: the editor always submits the whole
+        // rule, and a null pattern there means "this rule no longer matches on
+        // that field" — which a patch couldn't express.
+        type: new GraphQLNonNull(entities.types.CategoryRules!),
+        args: {
+          id: { type: new GraphQLNonNull(GraphQLString) },
+          categoryId: { type: new GraphQLNonNull(GraphQLString) },
+          appPattern: { type: GraphQLString },
+          titlePattern: { type: GraphQLString },
+          contextPattern: { type: GraphQLString },
+          priority: { type: GraphQLInt },
+        },
+        resolve: async (
+          _source,
+          args: {
+            id: string;
+            categoryId: string;
+            appPattern?: string | null;
+            titlePattern?: string | null;
+            contextPattern?: string | null;
+            priority?: number | null;
+          },
+          ctx: Context,
+        ) => {
+          if (!ctx.userId) throw unauthenticated();
+          if (args.appPattern == null && args.titlePattern == null && args.contextPattern == null) {
+            throw badInput('A rule needs an appPattern, titlePattern, and/or contextPattern');
+          }
+          if (args.appPattern != null) assertValidPattern(args.appPattern);
+          if (args.titlePattern != null) assertValidPattern(args.titlePattern);
+          if (args.contextPattern != null) assertValidPattern(args.contextPattern);
+          const [rule] = await db
+            .select()
+            .from(categoryRules)
+            .where(eq(categoryRules.id, args.id))
+            .limit(1);
+          if (!rule || rule.userId !== ctx.userId) throw notFound('Unknown rule');
+          const [category] = await db
+            .select()
+            .from(categories)
+            .where(eq(categories.id, args.categoryId))
+            .limit(1);
+          if (!category || category.userId !== ctx.userId) throw notFound('Unknown category');
+          // Activities this rule already categorized keep their category until
+          // the rules are applied again — same as deleting it would.
+          const [row] = await db
+            .update(categoryRules)
+            .set({
+              categoryId: args.categoryId,
+              appPattern: args.appPattern ?? null,
+              titlePattern: args.titlePattern ?? null,
+              contextPattern: args.contextPattern ?? null,
+              priority: args.priority ?? 0,
+            })
+            .where(eq(categoryRules.id, rule.id))
+            .returning();
+          return row;
+        },
+      },
       deleteCategoryRule: {
         // Existing rule-made assignments are cleared lazily (next ping or
         // sweep), not here.
@@ -667,6 +798,48 @@ export function createSchema(db: Db, auth: AuthGateway) {
               titlePattern: args.titlePattern,
               priority: args.priority ?? 0,
             })
+            .returning();
+          return row;
+        },
+      },
+      updateContextRule: {
+        // Identity-shaping like createContextRule: rows already folded keep the
+        // context the old pattern gave them, and the new one takes over from
+        // the next fold on.
+        type: new GraphQLNonNull(entities.types.ContextRules!),
+        args: {
+          id: { type: new GraphQLNonNull(GraphQLString) },
+          appPattern: { type: GraphQLString },
+          titlePattern: { type: new GraphQLNonNull(GraphQLString) },
+          priority: { type: GraphQLInt },
+        },
+        resolve: async (
+          _source,
+          args: {
+            id: string;
+            appPattern?: string | null;
+            titlePattern: string;
+            priority?: number | null;
+          },
+          ctx: Context,
+        ) => {
+          if (!ctx.userId) throw unauthenticated();
+          if (args.appPattern != null) assertValidPattern(args.appPattern);
+          assertValidContextPattern(args.titlePattern);
+          const [rule] = await db
+            .select()
+            .from(contextRules)
+            .where(eq(contextRules.id, args.id))
+            .limit(1);
+          if (!rule || rule.userId !== ctx.userId) throw notFound('Unknown rule');
+          const [row] = await db
+            .update(contextRules)
+            .set({
+              appPattern: args.appPattern ?? null,
+              titlePattern: args.titlePattern,
+              priority: args.priority ?? 0,
+            })
+            .where(eq(contextRules.id, rule.id))
             .returning();
           return row;
         },

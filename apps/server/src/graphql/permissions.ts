@@ -46,17 +46,22 @@ export const permissions: PermissionsMap<any> = {
     // Public: reports false for sessionless calls rather than erroring.
     signOut: accept,
     // Desktop dashboard hand-off: only a device key may trade itself for a session.
-    sessionFromDeviceKey: deviceAuthenticated,    registerDevice: authenticated,
+    sessionFromDeviceKey: deviceAuthenticated,
+    registerDevice: authenticated,
     renameDevice: authenticated,
+    rotateDeviceKey: authenticated,
+    mergeDevice: authenticated,
     deleteDevice: authenticated,
     recordPing: authenticated,
     createCategory: authenticated,
     deleteCategory: authenticated,
     assignActivity: authenticated,
     createCategoryRule: authenticated,
+    updateCategoryRule: authenticated,
     deleteCategoryRule: authenticated,
     applyCategoryRules: authenticated,
     createContextRule: authenticated,
+    updateContextRule: authenticated,
     deleteContextRule: authenticated,
     // No wildcard deny here: graphql-middleware validates every key against the
     // schema, and unexposed fields simply don't exist (createSchema assembles

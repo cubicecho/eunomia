@@ -1,8 +1,16 @@
 import { useMemo, useState } from 'react';
-import { type ActivitySample, createContextRule } from '@/api';
+import {
+  type ActivitySample,
+  type ContextRule,
+  type ContextRuleInput,
+  createContextRule,
+  updateContextRule,
+} from '@/api';
 import { MatchField } from '@/components/rules/match-field';
 import { Preview, PreviewRow } from '@/components/rules/preview';
+import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
+import { DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -12,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useAction } from '@/hooks/use-query';
 import {
   compile,
   type Extract,
@@ -20,6 +29,8 @@ import {
   extractFrom,
   hasCaptureGroup,
   type Match,
+  parseExtractPattern,
+  parsePattern,
   toExtractPattern,
   toPattern,
 } from '@/lib/pattern';
@@ -34,19 +45,31 @@ const MARKER_HINT: Record<ExtractMode, [first: string, second: string]> = {
 
 interface Props {
   samples: ActivitySample[];
-  run(mutation: () => Promise<unknown>): void;
+  /** The rule being edited; omitted when writing a new one. */
+  rule?: ContextRule;
+  /** Called once the save lands — the dialog closes and the view reloads. */
+  onSaved(): void;
 }
 
-export function ContextRuleForm({ samples, run }: Props) {
-  const [app, setApp] = useState<Match>({ mode: 'contains', value: '' });
-  const [extract, setExtract] = useState<Extract>({ mode: 'before', first: '', second: '' });
-  const [priority, setPriority] = useState('0');
+/**
+ * The context-rule editor, create and edit alike. Stored patterns are read back
+ * into the modes that wrote them, so editing “text before ‘ - novelWriter’”
+ * shows exactly that and not the regex it compiled to.
+ */
+export function ContextRuleForm({ samples, rule, onSaved }: Props) {
+  const action = useAction();
+  const [app, setApp] = useState<Match>(() =>
+    rule?.appPattern != null ? parsePattern(rule.appPattern) : { mode: 'contains', value: '' },
+  );
+  const [extract, setExtract] = useState<Extract>(() =>
+    rule ? parseExtractPattern(rule.titlePattern) : { mode: 'before', first: '', second: '' },
+  );
+  const [priority, setPriority] = useState(String(rule?.priority ?? 0));
 
   const appPattern = app.value.trim() === '' ? null : toPattern(app);
   const appRegex = useMemo(() => (appPattern === null ? null : compile(appPattern)), [appPattern]);
   const needsSecond = extract.mode === 'between';
-  const complete =
-    extract.first.trim() !== '' && (!needsSecond || extract.second.trim() !== '');
+  const complete = extract.first.trim() !== '' && (!needsSecond || extract.second.trim() !== '');
   const titlePattern = complete ? toExtractPattern(extract) : null;
   // The server rejects an extractor without a capture group, so say so here
   // instead of letting the mutation round-trip fail.
@@ -71,11 +94,10 @@ export function ContextRuleForm({ samples, run }: Props) {
       onSubmit={(event) => {
         event.preventDefault();
         if (!valid || titlePattern === null) return;
-        run(() =>
-          createContextRule({ appPattern, titlePattern, priority: Number(priority) || 0 }),
-        );
-        setApp({ mode: 'contains', value: '' });
-        setExtract({ mode: 'before', first: '', second: '' });
+        const input: ContextRuleInput = { appPattern, titlePattern, priority: Number(priority) || 0 };
+        action.run(() => (rule ? updateContextRule(rule.id, input) : createContextRule(input)), {
+          onDone: onSaved,
+        });
       }}
     >
       <fieldset className="flex flex-col gap-2">
@@ -155,9 +177,6 @@ export function ContextRuleForm({ samples, run }: Props) {
             onChange={(event) => setPriority(event.target.value)}
           />
         </div>
-        <Button type="submit" disabled={!valid}>
-          Add rule
-        </Button>
       </div>
 
       {valid && (
@@ -169,6 +188,19 @@ export function ContextRuleForm({ samples, run }: Props) {
           ))}
         </Preview>
       )}
+
+      <StatusLine status={action.status} />
+
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <DialogClose asChild>
+          <Button type="button" variant="outline">
+            Cancel
+          </Button>
+        </DialogClose>
+        <Button type="submit" disabled={!valid || action.pending}>
+          {rule ? 'Save rule' : 'Add rule'}
+        </Button>
+      </div>
     </form>
   );
 }

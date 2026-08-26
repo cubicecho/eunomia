@@ -13,11 +13,20 @@ import {
 } from '@/api';
 import { ConfirmDelete } from '@/components/confirm-delete';
 import { EmptyState } from '@/components/empty-state';
+import { ApplyRules } from '@/components/rules/apply-rules';
 import { CategoryRuleForm } from '@/components/rules/category-rule-form';
 import { ContextRuleForm } from '@/components/rules/context-rule-form';
+import { AddRuleButton, EditRuleButton, RuleDialog } from '@/components/rules/rule-dialog';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
   Table,
@@ -63,8 +72,32 @@ export function RulesView() {
             The first matching rule (lowest priority first) sets an activity’s category. Manual
             assignments always win.
           </CardDescription>
+          <CardAction>
+            <RuleDialog
+              title="New category rule"
+              description="Match on the app, the window title, the context, or any combination of them."
+              trigger={<AddRuleButton label="Add rule" disabled={categories.length === 0} />}
+            >
+              {(close) => (
+                <CategoryRuleForm
+                  categories={categories}
+                  samples={samples}
+                  onSaved={() => {
+                    close();
+                    reload();
+                  }}
+                />
+              )}
+            </RuleDialog>
+          </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          {categories.length === 0 && (
+            <EmptyState>Create a category first, then add rules for it.</EmptyState>
+          )}
+          {categories.length > 0 && categoryRules.length === 0 && (
+            <EmptyState>No rules yet — new activities stay uncategorized.</EmptyState>
+          )}
           {categoryRules.length > 0 && (
             <Table>
               <TableHeader>
@@ -74,7 +107,7 @@ export function RulesView() {
                   <TableHead>Title</TableHead>
                   <TableHead>Context</TableHead>
                   <TableHead className="w-20">Priority</TableHead>
-                  <TableHead className="w-12" />
+                  <TableHead className="w-24" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -106,11 +139,30 @@ export function RulesView() {
                           {rule.priority}
                         </TableCell>
                         <TableCell>
-                          <ConfirmDelete
-                            name={`${name} rule`}
-                            description="Activities already categorized by this rule keep their category until you apply the rules again."
-                            onConfirm={() => run(() => deleteCategoryRule(rule.id))}
-                          />
+                          <span className="flex items-center justify-end">
+                            <RuleDialog
+                              title="Edit category rule"
+                              description="Saving replaces the rule. Activities it already categorized keep their category until you apply the rules again."
+                              trigger={<EditRuleButton label={`${name} rule`} />}
+                            >
+                              {(close) => (
+                                <CategoryRuleForm
+                                  categories={categories}
+                                  samples={samples}
+                                  rule={rule}
+                                  onSaved={() => {
+                                    close();
+                                    reload();
+                                  }}
+                                />
+                              )}
+                            </RuleDialog>
+                            <ConfirmDelete
+                              name={`${name} rule`}
+                              description="Activities already categorized by this rule keep their category until you apply the rules again."
+                              onConfirm={() => run(() => deleteCategoryRule(rule.id))}
+                            />
+                          </span>
                         </TableCell>
                       </TableRow>
                     );
@@ -118,11 +170,7 @@ export function RulesView() {
               </TableBody>
             </Table>
           )}
-          {categories.length === 0 ? (
-            <EmptyState>Create a category first, then add rules for it.</EmptyState>
-          ) : (
-            <CategoryRuleForm categories={categories} samples={samples} run={run} />
-          )}
+          {categoryRules.length > 0 && <ApplyRules />}
         </CardContent>
       </Card>
 
@@ -134,8 +182,28 @@ export function RulesView() {
             browser — by pulling the context out of the window title. Only applies to pings without
             a context of their own, and only going forward.
           </CardDescription>
+          <CardAction>
+            <RuleDialog
+              title="New context rule"
+              description="Pick the part of the window title that names what was open — the preview shows what it would pull out of recent titles."
+              trigger={<AddRuleButton label="Add rule" />}
+            >
+              {(close) => (
+                <ContextRuleForm
+                  samples={samples}
+                  onSaved={() => {
+                    close();
+                    reload();
+                  }}
+                />
+              )}
+            </RuleDialog>
+          </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          {contextRules.length === 0 && (
+            <EmptyState>No context rules yet — every app folds as one activity.</EmptyState>
+          )}
           {contextRules.length > 0 && (
             <Table>
               <TableHeader>
@@ -143,7 +211,7 @@ export function RulesView() {
                   <TableHead>App</TableHead>
                   <TableHead>Context is</TableHead>
                   <TableHead className="w-20">Priority</TableHead>
-                  <TableHead className="w-12" />
+                  <TableHead className="w-24" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -166,18 +234,35 @@ export function RulesView() {
                         {rule.priority}
                       </TableCell>
                       <TableCell>
-                        <ConfirmDelete
-                          name="context rule"
-                          description="Activities already split by this rule keep their contexts; new pings fold by app alone."
-                          onConfirm={() => run(() => deleteContextRule(rule.id))}
-                        />
+                        <span className="flex items-center justify-end">
+                          <RuleDialog
+                            title="Edit context rule"
+                            description="Saving replaces the rule. Activities already split by it keep the contexts they have; the new pattern applies from the next ping on."
+                            trigger={<EditRuleButton label="context rule" />}
+                          >
+                            {(close) => (
+                              <ContextRuleForm
+                                samples={samples}
+                                rule={rule}
+                                onSaved={() => {
+                                  close();
+                                  reload();
+                                }}
+                              />
+                            )}
+                          </RuleDialog>
+                          <ConfirmDelete
+                            name="context rule"
+                            description="Activities already split by this rule keep their contexts; new pings fold by app alone."
+                            onConfirm={() => run(() => deleteContextRule(rule.id))}
+                          />
+                        </span>
                       </TableCell>
                     </TableRow>
                   ))}
               </TableBody>
             </Table>
           )}
-          <ContextRuleForm samples={samples} run={run} />
         </CardContent>
       </Card>
 

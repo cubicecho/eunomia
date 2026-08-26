@@ -1,9 +1,18 @@
 import { Plus, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { type ActivitySample, applyCategoryRules, type Category, createCategoryRule } from '@/api';
+import {
+  type ActivitySample,
+  type Category,
+  type CategoryRule,
+  type CategoryRuleInput,
+  createCategoryRule,
+  updateCategoryRule,
+} from '@/api';
 import { MatchField } from '@/components/rules/match-field';
 import { Preview, PreviewRow } from '@/components/rules/preview';
+import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
+import { DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -13,8 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { errorMessage } from '@/hooks/use-query';
-import { compile, type Match, toPattern } from '@/lib/pattern';
+import { useAction } from '@/hooks/use-query';
+import { compile, type Match, parsePattern, toPattern } from '@/lib/pattern';
 
 type Field = 'app' | 'title' | 'context';
 
@@ -42,6 +51,25 @@ const blank = (field: Field): Condition => ({
   match: { mode: 'contains', value: '' },
 });
 
+/**
+ * The rule's stored regexes, read back into the modes that wrote them — an edit
+ * starts where the author left off rather than in raw-regex mode.
+ */
+function seedConditions(rule: CategoryRule | undefined): Condition[] {
+  if (!rule) return [blank('app')];
+  const stored: [Field, string | null][] = [
+    ['app', rule.appPattern],
+    ['title', rule.titlePattern],
+    ['context', rule.contextPattern],
+  ];
+  const conditions: Condition[] = [];
+  for (const [field, pattern] of stored) {
+    if (pattern === null) continue;
+    conditions.push({ id: (nextId += 1), field, match: parsePattern(pattern) });
+  }
+  return conditions.length > 0 ? conditions : [blank('app')];
+}
+
 function patternsOf(conditions: Condition[]): Patterns {
   const patterns: Patterns = { app: null, title: null, context: null };
   for (const condition of conditions) {
@@ -68,16 +96,24 @@ function matches(sample: ActivitySample, compiled: Record<Field, RegExp | null>)
 interface Props {
   categories: Category[];
   samples: ActivitySample[];
-  run(mutation: () => Promise<unknown>): void;
+  /** The rule being edited; omitted when writing a new one. */
+  rule?: CategoryRule;
+  /** Called once the save lands — the dialog closes and the view reloads. */
+  onSaved(): void;
 }
 
-export function CategoryRuleForm({ categories, samples, run }: Props) {
+/**
+ * The whole category rule, create and edit alike: the same conditions, the same
+ * preview, and a submit that either inserts or replaces. It runs its own
+ * mutation so a rejected pattern is reported next to the field that caused it,
+ * inside the dialog, with the draft still intact.
+ */
+export function CategoryRuleForm({ categories, samples, rule, onSaved }: Props) {
   const first = categories[0];
-  const [categoryId, setCategoryId] = useState(first ? first.id : '');
-  const [conditions, setConditions] = useState<Condition[]>([blank('app')]);
-  const [priority, setPriority] = useState('0');
-  const [applying, setApplying] = useState(false);
-  const [applied, setApplied] = useState<string | null>(null);
+  const action = useAction();
+  const [categoryId, setCategoryId] = useState(rule?.categoryId ?? (first ? first.id : ''));
+  const [conditions, setConditions] = useState<Condition[]>(() => seedConditions(rule));
+  const [priority, setPriority] = useState(String(rule?.priority ?? 0));
 
   const patterns = patternsOf(conditions);
   const filled = FIELDS.map((field) => patterns[field.value]).filter((p) => p !== null);
@@ -102,148 +138,135 @@ export function CategoryRuleForm({ categories, samples, run }: Props) {
     setConditions((current) => current.map((c, i) => (i === index ? condition : c)));
 
   return (
-    <div className="flex flex-col gap-4">
-      <form
-        className="flex flex-col gap-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!valid) return;
-          run(() =>
-            createCategoryRule({
-              categoryId,
-              appPattern: patterns.app,
-              titlePattern: patterns.title,
-              contextPattern: patterns.context,
-              priority: Number(priority) || 0,
-            }),
-          );
-          setConditions([blank('app')]);
-        }}
-      >
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-muted-foreground mb-2 text-sm">
-            Categorize an activity when <strong className="text-foreground">all</strong> of these
-            are true:
-          </legend>
-          {conditions.map((condition, index) => (
-            <div key={condition.id} className="flex flex-wrap items-start gap-2">
-              <Select
-                value={condition.field}
-                onValueChange={(field) => update(index, { ...condition, field: field as Field })}
-              >
-                <SelectTrigger className="w-28" aria-label="Field">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {FIELDS.filter(
-                    (field) =>
-                      field.value === condition.field ||
-                      unused.some((u) => u.value === field.value),
-                  ).map((field) => (
-                    <SelectItem key={field.value} value={field.value}>
-                      {field.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <MatchField
-                label={FIELDS.find((f) => f.value === condition.field)?.label ?? 'value'}
-                value={condition.match}
-                onChange={(match) => update(index, { ...condition, match })}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Remove condition"
-                className="text-muted-foreground hover:text-destructive size-9"
-                disabled={conditions.length === 1}
-                onClick={() => setConditions((current) => current.filter((_, i) => i !== index))}
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
-          ))}
-          {unused.length > 0 && unused[0] && (
-            <div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  setConditions((current) => [...current, blank(unused[0]?.value ?? 'title')])
-                }
-              >
-                <Plus className="size-4" />
-                Add condition
-              </Button>
-            </div>
-          )}
-        </fieldset>
-
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="rule-category">Category</Label>
-            <Select value={categoryId} onValueChange={setCategoryId}>
-              <SelectTrigger className="w-40" id="rule-category">
-                <SelectValue placeholder="Category" />
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!valid) return;
+        const input: CategoryRuleInput = {
+          categoryId,
+          appPattern: patterns.app,
+          titlePattern: patterns.title,
+          contextPattern: patterns.context,
+          priority: Number(priority) || 0,
+        };
+        action.run(() => (rule ? updateCategoryRule(rule.id, input) : createCategoryRule(input)), {
+          onDone: onSaved,
+        });
+      }}
+    >
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-muted-foreground mb-2 text-sm">
+          Categorize an activity when <strong className="text-foreground">all</strong> of these are
+          true:
+        </legend>
+        {conditions.map((condition, index) => (
+          <div key={condition.id} className="flex flex-wrap items-start gap-2">
+            <Select
+              value={condition.field}
+              onValueChange={(field) => update(index, { ...condition, field: field as Field })}
+            >
+              <SelectTrigger className="w-28" aria-label="Field">
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {categories.map((category) => (
-                  <SelectItem key={category.id} value={category.id}>
-                    {category.name}
+                {FIELDS.filter(
+                  (field) =>
+                    field.value === condition.field || unused.some((u) => u.value === field.value),
+                ).map((field) => (
+                  <SelectItem key={field.value} value={field.value}>
+                    {field.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="rule-priority">Priority</Label>
-            <Input
-              id="rule-priority"
-              type="number"
-              className="w-20"
-              value={priority}
-              onChange={(event) => setPriority(event.target.value)}
+            <MatchField
+              label={FIELDS.find((f) => f.value === condition.field)?.label ?? 'value'}
+              value={condition.match}
+              onChange={(match) => update(index, { ...condition, match })}
             />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Remove condition"
+              className="text-muted-foreground hover:text-destructive size-9"
+              disabled={conditions.length === 1}
+              onClick={() => setConditions((current) => current.filter((_, i) => i !== index))}
+            >
+              <X className="size-4" />
+            </Button>
           </div>
-          <Button type="submit" disabled={!valid}>
-            Add rule
-          </Button>
-        </div>
-
-        {valid && (
-          <Preview total={samples.length} count={hits.length} noun={['activity', 'activities']}>
-            {hits.slice(0, 5).map((sample, index) => (
-              <PreviewRow key={`${index}-${sample.app}`}>
-                {sample.app}
-                {sample.context ? ` · ${sample.context}` : ''}
-                {sample.title ? ` — ${sample.title}` : ''}
-              </PreviewRow>
-            ))}
-          </Preview>
+        ))}
+        {unused.length > 0 && unused[0] && (
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setConditions((current) => [...current, blank(unused[0]?.value ?? 'title')])
+              }
+            >
+              <Plus className="size-4" />
+              Add condition
+            </Button>
+          </div>
         )}
-      </form>
+      </fieldset>
 
-      <div className="flex flex-wrap items-center gap-3 border-t pt-3">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={applying}
-          onClick={() => {
-            setApplying(true);
-            applyCategoryRules()
-              .then((changed) =>
-                setApplied(`Re-categorized ${changed} ${changed === 1 ? 'activity' : 'activities'}.`),
-              )
-              .catch((cause: unknown) => setApplied(errorMessage(cause)))
-              .finally(() => setApplying(false));
-          }}
-        >
-          Apply rules to existing activities
-        </Button>
-        {applied && <span className="text-muted-foreground text-sm">{applied}</span>}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="rule-category">Category</Label>
+          <Select value={categoryId} onValueChange={setCategoryId}>
+            <SelectTrigger className="w-40" id="rule-category">
+              <SelectValue placeholder="Category" />
+            </SelectTrigger>
+            <SelectContent>
+              {categories.map((category) => (
+                <SelectItem key={category.id} value={category.id}>
+                  {category.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="rule-priority">Priority</Label>
+          <Input
+            id="rule-priority"
+            type="number"
+            className="w-20"
+            value={priority}
+            onChange={(event) => setPriority(event.target.value)}
+          />
+        </div>
       </div>
-    </div>
+
+      {valid && (
+        <Preview total={samples.length} count={hits.length} noun={['activity', 'activities']}>
+          {hits.slice(0, 5).map((sample, index) => (
+            <PreviewRow key={`${index}-${sample.app}`}>
+              {sample.app}
+              {sample.context ? ` · ${sample.context}` : ''}
+              {sample.title ? ` — ${sample.title}` : ''}
+            </PreviewRow>
+          ))}
+        </Preview>
+      )}
+
+      <StatusLine status={action.status} />
+
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <DialogClose asChild>
+          <Button type="button" variant="outline">
+            Cancel
+          </Button>
+        </DialogClose>
+        <Button type="submit" disabled={!valid || action.pending}>
+          {rule ? 'Save rule' : 'Add rule'}
+        </Button>
+      </div>
+    </form>
   );
 }

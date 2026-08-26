@@ -172,13 +172,16 @@ export const createCategory = (name: string, color: string | null) =>
 export const deleteCategory = (id: string) =>
   gql('mutation ($id: String!) { deleteCategory(id: $id) }', { id });
 
-export const createCategoryRule = (rule: {
+/** Everything a category rule is, minus its id — what the rule editor submits. */
+export type CategoryRuleInput = {
   categoryId: string;
   appPattern: string | null;
   titlePattern: string | null;
   contextPattern: string | null;
   priority: number;
-}) =>
+};
+
+export const createCategoryRule = (rule: CategoryRuleInput) =>
   gql(
     `mutation ($categoryId: String!, $appPattern: String, $titlePattern: String, $contextPattern: String, $priority: Int) {
       createCategoryRule(categoryId: $categoryId, appPattern: $appPattern, titlePattern: $titlePattern, contextPattern: $contextPattern, priority: $priority) { id }
@@ -186,19 +189,38 @@ export const createCategoryRule = (rule: {
     rule,
   );
 
+/** A whole-rule replacement: a null pattern clears that condition. */
+export const updateCategoryRule = (id: string, rule: CategoryRuleInput) =>
+  gql(
+    `mutation ($id: String!, $categoryId: String!, $appPattern: String, $titlePattern: String, $contextPattern: String, $priority: Int) {
+      updateCategoryRule(id: $id, categoryId: $categoryId, appPattern: $appPattern, titlePattern: $titlePattern, contextPattern: $contextPattern, priority: $priority) { id }
+    }`,
+    { id, ...rule },
+  );
+
 export const deleteCategoryRule = (id: string) =>
   gql('mutation ($id: String!) { deleteCategoryRule(id: $id) }', { id });
 
-export const createContextRule = (rule: {
+export type ContextRuleInput = {
   appPattern: string | null;
   titlePattern: string;
   priority: number;
-}) =>
+};
+
+export const createContextRule = (rule: ContextRuleInput) =>
   gql(
     `mutation ($appPattern: String, $titlePattern: String!, $priority: Int) {
       createContextRule(appPattern: $appPattern, titlePattern: $titlePattern, priority: $priority) { id }
     }`,
     rule,
+  );
+
+export const updateContextRule = (id: string, rule: ContextRuleInput) =>
+  gql(
+    `mutation ($id: String!, $appPattern: String, $titlePattern: String!, $priority: Int) {
+      updateContextRule(id: $id, appPattern: $appPattern, titlePattern: $titlePattern, priority: $priority) { id }
+    }`,
+    { id, ...rule },
   );
 
 export const deleteContextRule = (id: string) =>
@@ -215,6 +237,13 @@ export const renameDevice = (id: string, name: string) =>
     id,
     name,
   });
+
+/** Moves `id`'s history onto `intoId` and retires `id`. */
+export const mergeDevice = (id: string, intoId: string) =>
+  gql(
+    'mutation ($id: String!, $intoId: String!) { mergeDevice(id: $id, intoId: $intoId) { id } }',
+    { id, intoId },
+  );
 
 export const deleteDevice = (id: string) =>
   gql('mutation ($id: String!) { deleteDevice(id: $id) }', { id });

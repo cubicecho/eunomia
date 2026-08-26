@@ -21,7 +21,7 @@ interface SummaryKey {
 }
 
 /** Upserts `seconds` (possibly negative) into the summary row for `key`. */
-async function addSeconds(db: Db, key: SummaryKey, seconds: number): Promise<void> {
+export async function addSeconds(db: Db, key: SummaryKey, seconds: number): Promise<void> {
   await db
     .insert(summaries)
     .values({ id: crypto.randomUUID(), ...key, seconds })

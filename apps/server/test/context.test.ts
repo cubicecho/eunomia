@@ -152,6 +152,50 @@ describe('context over GraphQL', () => {
     expect(deleted.deleteContextRule).toBe(true);
   });
 
+  it('edits a context rule in place, from the next fold on', async () => {
+    const created = await data(`mutation { createContextRule(
+      appPattern: "^novelwriter$", titlePattern: "^(.+?) - novelWriter$"
+    ) { id } }`);
+    const ruleId = created.createContextRule.id as string;
+
+    const book = await ping(0, 'app: "novelwriter", title: "My Book - novelWriter"');
+    expect(book.recordPing.context).toBe('My Book');
+
+    const updated = await data(`mutation { updateContextRule(
+      id: "${ruleId}", appPattern: "^novelwriter$", titlePattern: "^novelWriter: (.+)$", priority: 2
+    ) { id appPattern titlePattern priority } }`);
+    expect(updated.updateContextRule).toMatchObject({
+      id: ruleId,
+      titlePattern: '^novelWriter: (.+)$',
+      priority: 2,
+    });
+
+    // The row folded under the old pattern keeps its context; new titles use
+    // the new one.
+    const renamed = await ping(10, 'app: "novelwriter", title: "novelWriter: Sequel"');
+    expect(renamed.recordPing.context).toBe('Sequel');
+    const stale = await ping(20, 'app: "novelwriter", title: "My Book - novelWriter"');
+    expect(stale.recordPing.context).toBeNull();
+  });
+
+  it('rejects context-rule edits with a bad pattern or another user’s rule', async () => {
+    const created = await data(
+      'mutation { createContextRule(titlePattern: "(.+) - novelWriter") { id } }',
+    );
+    const ruleId = created.createContextRule.id as string;
+
+    const bad = await run(
+      `mutation { updateContextRule(id: "${ruleId}", titlePattern: "no capture") { id } }`,
+    );
+    expect(bad.errors?.[0]?.message).toMatch(/capture group/);
+
+    const denied = await run(
+      `mutation { updateContextRule(id: "${ruleId}", titlePattern: "(.+) - x") { id } }`,
+      'user-2',
+    );
+    expect(denied.errors?.[0]?.message).toMatch(/Unknown rule/);
+  });
+
   it('categorizes by contextPattern', async () => {
     const category = await data('mutation { createCategory(name: "Distraction") { id } }');
     await data(`mutation { createCategoryRule(

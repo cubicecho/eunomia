@@ -31,14 +31,18 @@ describe('graphql schema', () => {
       'deleteCategoryRule',
       'deleteContextRule',
       'deleteDevice',
+      'mergeDevice',
       'recordPing',
       'registerDevice',
       'renameDevice',
       'requestMagicLink',
+      'rotateDeviceKey',
       'sessionFromDeviceKey',
       'signIn',
       'signOut',
       'signUp',
+      'updateCategoryRule',
+      'updateContextRule',
       'verifyMagicLink',
     ]);
   });
