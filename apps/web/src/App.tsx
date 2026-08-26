@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getToken, signOut, verifyMagicLink } from '@/api';
+import { ClockMark } from '@/components/clock-mark';
 import { DashboardView } from '@/components/dashboard/dashboard-view';
 import { DevicesView } from '@/components/devices-view';
 import { RulesView } from '@/components/rules-view';
@@ -56,7 +57,8 @@ export function App() {
       <div className="mx-auto flex min-h-svh w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
         <Tabs defaultValue="dashboard" className="gap-6">
           <header className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-baseline gap-3">
+            <div className="flex items-center gap-2.5">
+              <ClockMark className="size-6 shrink-0" />
               <h1 className="text-xl font-semibold tracking-tight">eunomia</h1>
               <span className="text-muted-foreground text-sm">activity tracker</span>
             </div>

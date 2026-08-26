@@ -6,6 +6,10 @@
 //
 // The icon is white-on-transparent: tray areas on Windows and most Linux
 // desktops are dark. Electron's nativeImage can't rasterize SVG, hence PNG.
+//
+// The dashboard draws the same mark as vectors — apps/web/public/icon.svg
+// (favicon) and apps/web/src/components/clock-mark.tsx (header) mirror the
+// geometry below, so a design change here means editing those two too.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
