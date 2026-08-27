@@ -220,8 +220,13 @@ export function StatusScreen({
 function privacyDetail(config: MobileConfig): string {
   const ignored = config.ignoreApps?.length ?? 0;
   const redacted = config.redactApps?.length ?? 0;
-  if (ignored === 0 && redacted === 0) return 'No apps ignored or redacted';
-  return `${ignored} ignored, ${redacted} redacted`;
+  const parts: string[] = [];
+  if (ignored > 0 || redacted > 0) parts.push(`${ignored} ignored, ${redacted} redacted`);
+  // Only mentioned when off: on is the default, and this is the line that
+  // explains an entry nobody recognizes turning up in the dashboard.
+  if (config.launchableAppsOnly === false) parts.push('system screens recorded');
+  if (parts.length === 0) return 'No apps ignored or redacted';
+  return parts.join(' · ');
 }
 
 const styles = StyleSheet.create({

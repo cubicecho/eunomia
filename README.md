@@ -130,6 +130,17 @@ the site's hostname — full URLs never leave the machine. On Android there is
 no shell to edit `config.json` from, so the app edits both lists itself:
 **Privacy…** on the status screen, one pattern per line.
 
+Android adds a third control on the same screen, **Only apps you can open**
+(`launchableAppsOnly`, on unless set to `false`). The OS usage log records
+every activity that reaches the screen, and much of that is not an app anyone
+spent time in — the launcher between two apps, the notification shade, a
+permission dialog, a Play Services hand-off. The filter keeps only packages
+with a launcher entry, the same question the app drawer asks, so system
+screens are never queued. It applies after pings are synthesized, so the app
+you left is not credited with the launcher's time; as with `ignoreApps`, the
+gap a dropped span leaves accrues to whatever comes back, capped at 30
+seconds.
+
 ### Packaging the desktop agent
 
 ```bash

@@ -31,6 +31,27 @@ function appLabel(packageName: string): string | null {
   return labelCache.get(packageName) ?? null;
 }
 
+const launchableCache = new Map<string, boolean>();
+
+/**
+ * Whether a package is an app the user can open, cached for the process.
+ *
+ * Android has no "this one is a real app" event: UsageStatsManager logs an
+ * ACTIVITY_RESUMED for anything that puts an activity on screen, so the log
+ * carries the launcher between every pair of apps, the notification shade, a
+ * permission dialog, an OEM's gesture overlay, a Play Services trampoline that
+ * resumes and hands straight off. Nothing about the event says which is which
+ * — but a launcher entry does, and it is the same question the app drawer
+ * asks. See the native isLaunchable.
+ */
+function isUserApp(packageName: string): boolean {
+  const known = launchableCache.get(packageName);
+  if (known !== undefined) return known;
+  const launchable = UsageEvents.isLaunchable(packageName);
+  launchableCache.set(packageName, launchable);
+  return launchable;
+}
+
 /**
  * Trades the package name for the name the launcher shows — "YouTube", not
  * `com.google.android.youtube`, since that is what the dashboard groups and
@@ -87,9 +108,18 @@ async function syncOnce(): Promise<SyncResult> {
   const { pings, state: synth } = synthesizePings(state.synth, events, now);
   // Privacy rules apply before pings ever hit disk (see @eunomia/agent).
   const sanitize = createSanitizer(config ?? {});
+  // On by default, and by omission: an install predating the setting means a
+  // user who has never been asked, and the noise is worth more gone than kept.
+  const appsOnly = config?.launchableAppsOnly !== false;
   const clean = pings
     .map(sanitize)
     .filter((p): p is Ping => p !== null)
+    // Dropped after synthesis rather than before it, so the launcher's minutes
+    // are not back-credited to the app the user left: the outgoing app's
+    // closing ping still lands, and what happens next is nobody's. The server
+    // accrues its 30s cap against the gap to whatever comes back — the same
+    // small leak ignoreApps has always had, and the same reason it's capped.
+    .filter((ping) => !appsOnly || !ping.app || isUserApp(ping.app))
     .map(relabel);
 
   // Outbox first, checkpoint second: a crash in between re-reads the same

@@ -39,6 +39,8 @@ class UsageEventsModule : Module() {
     Function("queryEvents") { beginMs: Long, endMs: Long -> queryEvents(beginMs, endMs) }
 
     Function("getAppLabel") { packageName: String -> appLabel(packageName) }
+
+    Function("isLaunchable") { packageName: String -> isLaunchable(packageName) }
   }
 
   /**
@@ -130,6 +132,27 @@ class UsageEventsModule : Module() {
     } catch (_: PackageManager.NameNotFoundException) {
       null
     }
+
+  /**
+   * Whether the package is an app the user can open — one with an entry in the
+   * launcher — as opposed to the rest of what puts an activity on screen.
+   *
+   * The usage log records an ACTIVITY_RESUMED for everything that comes to the
+   * foreground, and plenty of that is not time spent in an app: the launcher
+   * itself between two apps, the notification shade, a permission dialog, a
+   * Play Services trampoline that resumes and hands straight off. None of them
+   * have a launcher icon, and the user has no name for them.
+   *
+   * The same question the launcher itself asks, rather than ApplicationInfo's
+   * FLAG_SYSTEM: half the apps on a phone ship in the system image (Chrome,
+   * Phone, Messages) and are exactly the ones worth recording.
+   *
+   * Costs nothing extra in visibility terms — plugins/with-package-visibility.js
+   * already scopes this app to packages with a launcher intent, so anything
+   * this returns false for was invisible to getAppLabel anyway.
+   */
+  private fun isLaunchable(packageName: String): Boolean =
+    context.packageManager.getLaunchIntentForPackage(packageName) != null
 
   private companion object {
     const val FOREGROUND = "foreground"
