@@ -41,6 +41,7 @@ export type SignOutMutation = { signOut: boolean };
 export type CategorySummaryQueryVariables = Exact<{
   from: string;
   to: string;
+  deviceId?: string | null | undefined;
 }>;
 
 
@@ -49,10 +50,19 @@ export type CategorySummaryQuery = { categorySummary: Array<{ day: string, categ
 export type AppSummaryQueryVariables = Exact<{
   from: string;
   to: string;
+  deviceId?: string | null | undefined;
 }>;
 
 
 export type AppSummaryQuery = { appSummary: Array<{ app: string, context: string | null, seconds: number }> };
+
+export type DeviceSummaryQueryVariables = Exact<{
+  from: string;
+  to: string;
+}>;
+
+
+export type DeviceSummaryQuery = { deviceSummary: Array<{ deviceId: string, name: string, platform: string, seconds: number }> };
 
 export type RecentActivitiesQueryVariables = Exact<{
   limit?: number | null | undefined;
@@ -201,8 +211,8 @@ export const SignOutDocument = new TypedDocumentString(`
 }
     `);
 export const CategorySummaryDocument = new TypedDocumentString(`
-    query CategorySummary($from: String!, $to: String!) {
-  categorySummary(from: $from, to: $to) {
+    query CategorySummary($from: String!, $to: String!, $deviceId: String) {
+  categorySummary(from: $from, to: $to, deviceId: $deviceId) {
     day
     categoryId
     name
@@ -212,10 +222,20 @@ export const CategorySummaryDocument = new TypedDocumentString(`
 }
     `);
 export const AppSummaryDocument = new TypedDocumentString(`
-    query AppSummary($from: String!, $to: String!) {
-  appSummary(from: $from, to: $to) {
+    query AppSummary($from: String!, $to: String!, $deviceId: String) {
+  appSummary(from: $from, to: $to, deviceId: $deviceId) {
     app
     context
+    seconds
+  }
+}
+    `);
+export const DeviceSummaryDocument = new TypedDocumentString(`
+    query DeviceSummary($from: String!, $to: String!) {
+  deviceSummary(from: $from, to: $to) {
+    deviceId
+    name
+    platform
     seconds
   }
 }
@@ -384,6 +404,9 @@ export function getSdk<C>(requester: Requester<C>) {
     },
     AppSummary(variables: AppSummaryQueryVariables, options?: C): Promise<AppSummaryQuery> {
       return requester<AppSummaryQuery, AppSummaryQueryVariables>(AppSummaryDocument, variables, options) as Promise<AppSummaryQuery>;
+    },
+    DeviceSummary(variables: DeviceSummaryQueryVariables, options?: C): Promise<DeviceSummaryQuery> {
+      return requester<DeviceSummaryQuery, DeviceSummaryQueryVariables>(DeviceSummaryDocument, variables, options) as Promise<DeviceSummaryQuery>;
     },
     RecentActivities(variables?: RecentActivitiesQueryVariables, options?: C): Promise<RecentActivitiesQuery> {
       return requester<RecentActivitiesQuery, RecentActivitiesQueryVariables>(RecentActivitiesDocument, variables, options) as Promise<RecentActivitiesQuery>;

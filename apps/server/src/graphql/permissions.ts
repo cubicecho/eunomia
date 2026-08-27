@@ -48,6 +48,7 @@ export const permissions = {
     contextRules: authenticated,
     categorySummary: authenticated,
     appSummary: authenticated,
+    deviceSummary: authenticated,
     // Public by design: returns the caller's id or null.
     me: accept,
   },

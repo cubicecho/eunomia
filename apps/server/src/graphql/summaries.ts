@@ -1,4 +1,5 @@
 import { and, eq, type SQL, sql } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
   GraphQLFloat,
   GraphQLList,
@@ -45,15 +46,48 @@ const appContextSummaryType = new GraphQLObjectType({
   },
 });
 
+/**
+ * Dashboard aggregate row: active seconds per device over a range — the
+ * "split by device" view, and the picker's source for which devices actually
+ * contributed time (a device with none is not worth offering to filter to).
+ */
+const deviceSummaryType = new GraphQLObjectType({
+  name: 'DeviceSummary',
+  fields: {
+    deviceId: { type: new GraphQLNonNull(GraphQLString) },
+    name: { type: new GraphQLNonNull(GraphQLString) },
+    platform: { type: new GraphQLNonNull(GraphQLString) },
+    seconds: { type: new GraphQLNonNull(GraphQLFloat) },
+  },
+});
+
 interface RangeArgs {
   from: string;
   to: string;
+  /** One device, or every device the user owns when absent. */
+  deviceId?: string | null;
 }
 
 const rangeArgs = {
   from: { type: new GraphQLNonNull(GraphQLString) },
   to: { type: new GraphQLNonNull(GraphQLString) },
 };
+
+/** A range plus the optional device narrowing the two grouped aggregates take. */
+const scopedRangeArgs = {
+  ...rangeArgs,
+  deviceId: { type: GraphQLString },
+};
+
+/**
+ * Narrows an aggregate to one device, or to nothing at all when omitted.
+ *
+ * No ownership check needed: every query here already joins devices on
+ * `userId`, so another user's id simply matches no rows rather than leaking
+ * theirs.
+ */
+const deviceFilter = (column: AnyPgColumn, deviceId: string | null | undefined) =>
+  deviceId ? [eq(column, deviceId)] : [];
 
 /**
  * Whole-day window [from, to) resolved in the SERVER's time zone — the same
@@ -126,7 +160,7 @@ export function summaryFields(db: Db) {
       // activities are short-lived (auto-closed after 15 min unfocused), so
       // midnight-spanning error is negligible for a dashboard.
       type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(categoryDaySummaryType))),
-      args: rangeArgs,
+      args: scopedRangeArgs,
       resolve: async (_source, args: RangeArgs, ctx: Context) => {
         const userId = requireUser(ctx);
         const { from, to } = parseRange(args);
@@ -143,7 +177,13 @@ export function summaryFields(db: Db) {
             .from(summaries)
             .innerJoin(devices, eq(summaries.deviceId, devices.id))
             .leftJoin(categories, eq(summaries.categoryId, categories.id))
-            .where(and(eq(devices.userId, userId), ...summaryDayBounds(from, to)))
+            .where(
+              and(
+                eq(devices.userId, userId),
+                ...deviceFilter(summaries.deviceId, args.deviceId),
+                ...summaryDayBounds(from, to),
+              ),
+            )
             .groupBy(summaries.day, summaries.categoryId, categories.name, categories.color),
           db
             .select({
@@ -159,6 +199,7 @@ export function summaryFields(db: Db) {
             .where(
               and(
                 eq(devices.userId, userId),
+                ...deviceFilter(activities.deviceId, args.deviceId),
                 eq(activities.rolledUp, false),
                 ...liveDayBounds(from, to),
               ),
@@ -178,7 +219,7 @@ export function summaryFields(db: Db) {
       // Seconds of active time per (app, context) for [from, to), largest
       // first — the dashboard's top-apps list without shipping raw activities.
       type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(appContextSummaryType))),
-      args: rangeArgs,
+      args: scopedRangeArgs,
       resolve: async (_source, args: RangeArgs, ctx: Context) => {
         const userId = requireUser(ctx);
         const { from, to } = parseRange(args);
@@ -191,7 +232,13 @@ export function summaryFields(db: Db) {
             })
             .from(summaries)
             .innerJoin(devices, eq(summaries.deviceId, devices.id))
-            .where(and(eq(devices.userId, userId), ...summaryDayBounds(from, to)))
+            .where(
+              and(
+                eq(devices.userId, userId),
+                ...deviceFilter(summaries.deviceId, args.deviceId),
+                ...summaryDayBounds(from, to),
+              ),
+            )
             .groupBy(summaries.app, summaries.context),
           db
             .select({
@@ -204,12 +251,59 @@ export function summaryFields(db: Db) {
             .where(
               and(
                 eq(devices.userId, userId),
+                ...deviceFilter(activities.deviceId, args.deviceId),
                 eq(activities.rolledUp, false),
                 ...liveDayBounds(from, to),
               ),
             )
             .groupBy(activities.app, activities.context),
           (row) => `${row.app}\n${row.context ?? ''}`,
+        );
+        return rows.sort((a, b) => b.seconds - a.seconds);
+      },
+    },
+    deviceSummary: {
+      // Seconds of active time per device for [from, to), busiest first. No
+      // deviceId arg: this is the aggregate the device filter is chosen from,
+      // so narrowing it to one device would defeat its purpose.
+      type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(deviceSummaryType))),
+      args: rangeArgs,
+      resolve: async (_source, args: RangeArgs, ctx: Context) => {
+        const userId = requireUser(ctx);
+        const { from, to } = parseRange(args);
+        // name and platform come along for the ride: they're functionally
+        // dependent on the id, so grouping by all three costs nothing and
+        // saves the dashboard a second round-trip to label the picker.
+        const rows = await rolledPlusLive(
+          db
+            .select({
+              deviceId: summaries.deviceId,
+              name: devices.name,
+              platform: devices.platform,
+              seconds: sql<number>`sum(${summaries.seconds})::float`,
+            })
+            .from(summaries)
+            .innerJoin(devices, eq(summaries.deviceId, devices.id))
+            .where(and(eq(devices.userId, userId), ...summaryDayBounds(from, to)))
+            .groupBy(summaries.deviceId, devices.name, devices.platform),
+          db
+            .select({
+              deviceId: activities.deviceId,
+              name: devices.name,
+              platform: devices.platform,
+              seconds: sql<number>`sum(${activities.activeSeconds})::float`,
+            })
+            .from(activities)
+            .innerJoin(devices, eq(activities.deviceId, devices.id))
+            .where(
+              and(
+                eq(devices.userId, userId),
+                eq(activities.rolledUp, false),
+                ...liveDayBounds(from, to),
+              ),
+            )
+            .groupBy(activities.deviceId, devices.name, devices.platform),
+          (row) => row.deviceId,
         );
         return rows.sort((a, b) => b.seconds - a.seconds);
       },

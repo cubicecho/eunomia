@@ -383,6 +383,13 @@ type DeviceRegistration {
   device: Devices!
 }
 
+type DeviceSummary {
+  deviceId: String!
+  name: String!
+  platform: String!
+  seconds: Float!
+}
+
 type Devices {
   activities(limit: Int, offset: Int, orderBy: ActivitiesOrderBy, where: ActivitiesFilters): [Activities!]!
 
@@ -577,11 +584,12 @@ input PingInput {
 
 type Query {
   activities(limit: Int, offset: Int, orderBy: ActivitiesOrderBy, where: ActivitiesFilters): [Activities!]!
-  appSummary(from: String!, to: String!): [AppContextSummary!]!
+  appSummary(deviceId: String, from: String!, to: String!): [AppContextSummary!]!
   categories(limit: Int, offset: Int, orderBy: CategoriesOrderBy, where: CategoriesFilters): [Categories!]!
   categoryRules(limit: Int, offset: Int, orderBy: CategoryRulesOrderBy, where: CategoryRulesFilters): [CategoryRules!]!
-  categorySummary(from: String!, to: String!): [CategoryDaySummary!]!
+  categorySummary(deviceId: String, from: String!, to: String!): [CategoryDaySummary!]!
   contextRules(limit: Int, offset: Int, orderBy: ContextRulesOrderBy, where: ContextRulesFilters): [ContextRules!]!
+  deviceSummary(from: String!, to: String!): [DeviceSummary!]!
   devices(limit: Int, offset: Int, orderBy: DevicesOrderBy, where: DevicesFilters): [Devices!]!
   me: String
 }

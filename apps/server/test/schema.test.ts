@@ -19,6 +19,7 @@ describe('graphql schema', () => {
       'categoryRules',
       'categorySummary',
       'contextRules',
+      'deviceSummary',
       'devices',
       'me',
     ]);

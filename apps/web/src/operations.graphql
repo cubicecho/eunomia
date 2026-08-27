@@ -18,8 +18,10 @@ mutation SignOut {
   signOut
 }
 
-query CategorySummary($from: String!, $to: String!) {
-  categorySummary(from: $from, to: $to) {
+# deviceId is optional throughout: omitted, the aggregates fold every device
+# the user owns together, which is the default view.
+query CategorySummary($from: String!, $to: String!, $deviceId: String) {
+  categorySummary(from: $from, to: $to, deviceId: $deviceId) {
     day
     categoryId
     name
@@ -28,10 +30,21 @@ query CategorySummary($from: String!, $to: String!) {
   }
 }
 
-query AppSummary($from: String!, $to: String!) {
-  appSummary(from: $from, to: $to) {
+query AppSummary($from: String!, $to: String!, $deviceId: String) {
+  appSummary(from: $from, to: $to, deviceId: $deviceId) {
     app
     context
+    seconds
+  }
+}
+
+# Per-device totals for the same range — what the device filter is chosen from,
+# so it deliberately takes no deviceId of its own.
+query DeviceSummary($from: String!, $to: String!) {
+  deviceSummary(from: $from, to: $to) {
+    deviceId
+    name
+    platform
     seconds
   }
 }

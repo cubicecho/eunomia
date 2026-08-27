@@ -12,6 +12,7 @@ import {
   type ContextRulesQuery,
   type CreateCategoryRuleMutationVariables,
   type CreateContextRuleMutationVariables,
+  type DeviceSummaryQuery,
   type DevicesQuery,
   getSdk,
   type RecentActivitiesQuery,
@@ -78,6 +79,7 @@ export type Category = CategoriesQuery['categories'][number];
 export type CategoryRule = CategoryRulesQuery['categoryRules'][number];
 export type ContextRule = ContextRulesQuery['contextRules'][number];
 export type Device = DevicesQuery['devices'][number];
+export type DeviceSummaryRow = DeviceSummaryQuery['deviceSummary'][number];
 
 /** Everything a category rule is, minus its id — what the rule editor submits. */
 export type CategoryRuleInput = CreateCategoryRuleMutationVariables;
@@ -101,11 +103,26 @@ export const signOut = async (): Promise<void> => {
   clearToken();
 };
 
-export const fetchSummary = (from: string, to: string): Promise<CategoryDaySummary[]> =>
-  sdk.CategorySummary({ from, to }).then((d) => d.categorySummary);
+/** deviceId null = every device the user owns, folded together. */
+export const fetchSummary = (
+  from: string,
+  to: string,
+  deviceId: string | null = null,
+): Promise<CategoryDaySummary[]> =>
+  sdk.CategorySummary({ from, to, deviceId }).then((d) => d.categorySummary);
 
-export const fetchAppSummary = (from: string, to: string): Promise<AppSummaryRow[]> =>
-  sdk.AppSummary({ from, to }).then((d) => d.appSummary);
+export const fetchAppSummary = (
+  from: string,
+  to: string,
+  deviceId: string | null = null,
+): Promise<AppSummaryRow[]> => sdk.AppSummary({ from, to, deviceId }).then((d) => d.appSummary);
+
+/**
+ * Per-device totals for the range, busiest first — what the device filter is
+ * chosen from, so it takes no deviceId itself.
+ */
+export const fetchDeviceSummary = (from: string, to: string): Promise<DeviceSummaryRow[]> =>
+  sdk.DeviceSummary({ from, to }).then((d) => d.deviceSummary);
 
 /**
  * The most recent activities, newest first — the corpus the rule builder tests
