@@ -13,5 +13,9 @@ web-build/
 
 # `eas build --json` writes here (CI, and anyone running the same command).
 /build.json
+# The same, for the fingerprint lookup that decides build-versus-update.
+/fingerprint.json
+/builds.json
+/update.json
 
 node_modules/

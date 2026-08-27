@@ -161,10 +161,12 @@ npm run apk:eas -w @eunomia/mobile      # eas build -p android -e preview
 npm run dist:apk                        # local gradle fallback (needs JDK + SDK)
 ```
 
-`.github/workflows/android.yml` runs the same EAS build on every push to `main`
-that touches the app, and on demand from the Actions tab with a profile picker.
-It needs an `EXPO_TOKEN` repository secret; without one it skips rather than
-fails. The result is an installable APK, not a Play-Store bundle — sideload it
+`.github/workflows/android.yml` ships the app on every push to `main` that
+touches it, and on demand from the Actions tab with a profile picker. It needs
+an `EXPO_TOKEN` repository secret; without one it skips rather than fails.
+Commits that change only JavaScript go out as an over-the-air update rather than
+a new APK — the phone picks one up on its next launch, background sync included
+— and only a change to the native runtime triggers a build. The result is an installable APK, not a Play-Store bundle — sideload it
 with `adb install` or by opening the file on the phone. Android's "Start at
 login" is the **Sync in the background** toggle: WorkManager keeps the
 registration across reboots. Account setup, the keystore step, and the local

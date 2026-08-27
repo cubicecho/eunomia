@@ -11,6 +11,7 @@ import { type BackgroundState, backgroundState } from './background.ts';
 import { getOutbox, type MobileConfig, outboxPath, writeConfig } from './store.ts';
 import { performSync, type SyncResult } from './sync.ts';
 import { MenuItem, Row, Screen, ui } from './ui.tsx';
+import { UpdateRow } from './updates.tsx';
 
 // Main screen once provisioned — the phone's version of the desktop tray
 // menu: what the agent is doing, whether uploads are getting through, and the
@@ -160,6 +161,7 @@ export function StatusScreen({
           ? `${lastSync.at.toLocaleTimeString()} — ${lastSync.result.synthesized} new`
           : 'never'}
       </Row>
+      <UpdateRow busy={syncing} />
       <Row label="Sync every">
         <View style={styles.intervalEdit}>
           <TextInput

@@ -78,17 +78,20 @@ The switch has to be present for **prebuild**, which is when the plugin runs.
 
 ### In CI
 
-[`.github/workflows/android.yml`](../../.github/workflows/android.yml) starts an
-EAS build on every push to `main` that touches the app (`apps/mobile`,
-`packages/agent`, `packages/shared`, or the lockfile), and on demand from the
-Actions tab — **Run workflow** takes a profile, so `production` is a click away
-without editing anything.
+[`.github/workflows/android.yml`](../../.github/workflows/android.yml) ships the
+app on every push to `main` that touches it (`apps/mobile`, `packages/agent`,
+`packages/shared`, or the lockfile), and on demand from the Actions tab —
+**Run workflow** takes a profile, so `production` is a click away without
+editing anything.
 
-The job triggers the build with `--no-wait` and exits: it doesn't hold a runner
-in the EAS queue. The build page is linked from the run summary, and the APK
-downloads from there once EAS finishes. Until `EXPO_TOKEN` exists the workflow
-skips with a warning instead of failing — nothing is red just because the secret
-hasn't been added yet.
+Whether shipping means an update or a build is the fingerprint's call; see
+"How CI chooses" above. A build is triggered with `--no-wait` and the job exits:
+it doesn't hold a runner in the EAS queue, the build page is linked from the run
+summary, and the APK downloads from there once EAS finishes. An update is
+published outright, in seconds — so on the build path a green run means EAS
+accepted the job, while on the update path it means the update is already live.
+Until `EXPO_TOKEN` exists the workflow skips with a warning instead of failing —
+nothing is red just because the secret hasn't been added yet.
 
 Version numbers are EAS's job (`cli.appVersionSource` is `remote`, with
 `autoIncrement` on `preview` and `production`), so `versionCode` climbs on its
@@ -108,6 +111,112 @@ EAS uploads the repo's tracked files from the root (npm workspaces), so
 `@eunomia/agent` comes along as a workspace dependency and needs no publishing.
 `expo/metro-config` handles workspace resolution on its own since SDK 52 — there
 is no `metro.config.js` here on purpose.
+
+## Over-the-air updates
+
+Most commits here change TypeScript and nothing else, and a twenty-minute build
+to ship a changed string is twenty minutes plus an APK everyone has to reinstall
+by hand. EAS Update publishes the JavaScript bundle and its assets to a channel;
+the installed app fetches it and runs it on its next launch. No build, no
+reinstall.
+
+What an update can carry, and what it can't:
+
+| changed                                | ships as  |
+| -------------------------------------- | --------- |
+| anything under `src/`, `App.tsx`       | an update |
+| `@eunomia/agent`, `@eunomia/shared`    | an update |
+| assets the bundler resolves            | an update |
+| `modules/usage-events` (the Kotlin)    | a build   |
+| `plugins/*.js`, the native half of `app.json` | a build |
+| the cleartext allowance, permissions   | a build   |
+| the app icon, the package name         | a build   |
+| the SDK, or any native dependency      | a build   |
+
+Nobody has to remember that table. `runtimeVersion` is
+`{ "policy": "fingerprint" }` — a hash over everything that determines the
+binary: the SDK, the native dependency set, the config plugin *files*,
+`modules/usage-events`. An update carries the fingerprint it was published
+against and a build only accepts updates that match, so an update needing native
+code the phone doesn't have is not something it can install.
+
+The alternative, `appVersion`, would have tied compatibility to
+`"version": "0.1.0"` — a string nobody in this repo maintains, since EAS owns
+the version numbers. The failure it permits is the worst one this app has: a
+native call landing on the wrong ABI, from a background task, on a phone that is
+not in the room.
+
+### Channels
+
+A build carries the channel of the profile that made it, and an update is
+published to a channel — so the profile table above is also the routing table:
+
+| profile / channel | who is on it                            |
+| ----------------- | --------------------------------------- |
+| `development`     | dev builds (updates are off in them)    |
+| `preview`         | the testers holding an APK              |
+| `production`      | Play Store installs                     |
+
+A locally built APK (`npm run apk`) is on no channel at all — EAS is what stamps
+one into the manifest — so it never receives an update. Same separation as the
+keystore: local builds are their own world.
+
+Nothing needs creating up front. `eas build` creates the channel the first time
+a profile with that name builds, and `eas update --channel preview` creates the
+branch it points at. `eas channel:edit` is for later, when you want a channel
+pointing at a branch of a different name — rolling `production` back onto an
+older one, say.
+
+### How CI chooses
+
+[`.github/workflows/android.yml`](../../.github/workflows/android.yml)
+fingerprints the commit, then asks EAS whether a finished build **on that
+channel** already carries the same fingerprint. If one does, the APK people have
+installed can run this commit's JavaScript, so the workflow publishes an update.
+If none does, the native runtime changed and it starts a build. The run summary
+says which happened, and links to it.
+
+It asks per channel rather than by hash alone because the fingerprint does not
+see `EUNOMIA_ALLOW_CLEARTEXT`: that switch is applied by a prebuild mod, after
+the config is evaluated, so a `preview` APK and a `production` AAB fingerprint
+identically while shipping different manifests. Matching on the hash alone would
+find the AAB and skip the APK the testers are actually on.
+
+Forcing a build is a click: **Run workflow** → *Build a binary even if one
+already matches the fingerprint*.
+
+To publish by hand:
+
+```sh
+eas update --platform android --channel preview --environment preview --message "why"
+```
+
+`--environment` is required from SDK 55 on. It selects which EAS environment's
+variables are visible while the app config is evaluated — and since nothing
+under `src/` reads `process.env` (the server URL and the API key are typed into
+the app and live on the phone), it is a formality here that only has to match
+the profile.
+
+To take an update back: `eas update:rollback`, or publish the previous commit
+again.
+
+### What a phone does with it
+
+`updates.checkAutomatically` is `ON_LOAD` and `fallbackToCacheTimeout` is `0`:
+every launch checks, downloads in the background, and runs the bundle it already
+has in the meantime. Startup is never held up waiting on the network, which
+matters most on the launches nobody sees.
+
+Because the background sync starts the JavaScript runtime about once an hour
+whether or not anyone opens the app, that is also how an update reaches a phone
+nobody touches: one background launch downloads it, the next one runs it.
+
+The status screen's **Running** row shows which bundle is live — the version in
+the subtitle won't move, since an update doesn't change `versionCode` — and
+offers a restart when one is waiting. Restarting only ever skips the wait, and
+it is only ever offered in the foreground: a reload during a headless background
+run would leave the WorkManager task's promise unsettled, and Android reads that
+as a failed task and backs it off.
 
 ## Local builds
 
@@ -157,7 +266,8 @@ release variant. That installs and upgrades over itself fine, but it is a
 different key from the one EAS uses — so a locally built APK and an EAS one
 can't replace each other on a phone, and neither is a distribution key. Bump
 `app.json`'s `android.versionCode` by hand for local builds meant to replace one
-another; EAS handles its own.
+another; EAS handles its own. It is also on no update channel, so it stays
+exactly the commit you built until you build again.
 
 Prefer `assembleRelease` over `assembleDebug` for anything you hand to a
 tester: a debug APK expects a Metro server on the network and does nothing
@@ -172,6 +282,8 @@ npm start -w @eunomia/mobile         # Metro alone, against an installed debug b
 
 Only re-run `prebuild` when something native changes (`app.json`, the local
 module, a new native dependency). JS and TypeScript changes reload over Metro.
+That is the same line that decides update-versus-build in CI, for the same
+reason.
 
 ## Usage access
 

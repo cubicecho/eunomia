@@ -3,6 +3,9 @@
     "name": "eunomia",
     "slug": "eunomia-mobile",
     "version": "0.1.0",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -23,6 +26,11 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8766e902-3e68-429e-b7b1-a2fc0d92fa1f",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
     },
     "plugins": [
       "expo-background-task",
