@@ -93,6 +93,10 @@ jobs:
             --message "${{ github.ref_name }} ${{ github.sha }}" \
             > build.json
 
+      # The JSON carries no ready-made link, so build it the way the CLI prints
+      # it — from the account, the slug and the build id. Anything unreadable
+      # falls back to the log above rather than failing a build that started
+      # fine.
       - name: Link the build
         if: always()
         run: |
@@ -103,9 +107,13 @@ jobs:
               const builds = [].concat(JSON.parse(fs.readFileSync("build.json", "utf8")));
               body = builds
                 .map((build) => {
-                  const url = build.buildDetailsPageUrl || "";
-                  const id = build.id || "unknown";
-                  return `- \`${process.env.PROFILE}\` build \`${id}\`${url ? ` — [open in EAS](${url})` : ""}`;
+                  const account = build.project?.ownerAccount?.name;
+                  const slug = build.project?.slug;
+                  const link =
+                    account && slug && build.id
+                      ? `[open in EAS](https://expo.dev/accounts/${account}/projects/${slug}/builds/${build.id})`
+                      : `build \`${build.id || "unknown"}\``;
+                  return `- \`${process.env.PROFILE}\` — version ${build.appVersion} (${build.appBuildVersion}) — ${link}`;
                 })
                 .join("\n");
             } catch (error) {
