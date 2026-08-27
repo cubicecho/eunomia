@@ -262,6 +262,13 @@ the `https://` address (magic links are built from it), and publish only the
 proxy — the `4000:4000` mapping in `docker-compose.yml` is for direct LAN use
 and should be narrowed to `127.0.0.1:4000:4000` behind a local proxy.
 
+The Android agent makes this concrete. Android blocks plain HTTP by default, so
+only its test builds — the `development` and `preview` EAS profiles, and a
+locally built APK — are allowed to reach an `http://` server; a `production`
+build won't connect to one at all. A phone is also the strongest argument for
+the proxy: it follows you onto networks your desktop never touches, and on each
+of them an `http://` server hands out that device's API key in the clear.
+
 `UNSAFE_LOCAL_NETWORK=true` returns magic-link tokens directly in the GraphQL
 response and skips the secret check. It exists so a LAN install works without
 an inbox; anyone who can reach the port can then log in as anyone.

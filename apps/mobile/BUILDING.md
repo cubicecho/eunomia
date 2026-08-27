@@ -32,6 +32,23 @@ npm run apk:eas -w @eunomia/mobile   # eas build -p android -e preview
 The build runs in the cloud and ends with a download link and a QR code for
 installing straight onto a phone.
 
+### Plain-HTTP servers
+
+Android refuses cleartext HTTP on target SDK 28+, and Expo's template waives
+that for **debug** builds only. So a Metro-attached app reaches
+`http://server.lan:4000` happily while an APK of the same commit fails with
+`CLEARTEXT communication to … not permitted by network security policy` — the
+release manifest simply never had the allowance.
+
+`plugins/with-cleartext-traffic.js` puts it back, but only when
+`EUNOMIA_ALLOW_CLEARTEXT=1`. `eas.json` sets that on `development` and
+`preview`, and `npm run apk` / `npm run android:release` set it locally.
+`production` does not, so a production build won't talk to an `http://` server
+at all — that is the point, not an oversight. Give a production build a server
+behind TLS.
+
+The switch has to be present for **prebuild**, which is when the plugin runs.
+
 ### One-time account setup
 
 1. **`eas init`** — creates the project on Expo and writes `extra.eas.projectId`

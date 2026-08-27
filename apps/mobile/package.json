@@ -23,9 +23,9 @@
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
-    "android:release": "expo run:android --variant release",
+    "android:release": "EUNOMIA_ALLOW_CLEARTEXT=1 expo run:android --variant release",
     "prebuild": "expo prebuild --platform android",
-    "apk": "expo prebuild --platform android && cd android && ./gradlew assembleRelease && echo \"APK: $(pwd)/app/build/outputs/apk/release/app-release.apk\"",
+    "apk": "EUNOMIA_ALLOW_CLEARTEXT=1 expo prebuild --platform android && cd android && ./gradlew assembleRelease && echo \"APK: $(pwd)/app/build/outputs/apk/release/app-release.apk\"",
     "apk:eas": "eas build --platform android --profile preview",
     "apk:eas:local": "eas build --platform android --profile preview --local",
     "ios": "expo run:ios",

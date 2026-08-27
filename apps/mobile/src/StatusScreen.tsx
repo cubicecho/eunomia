@@ -141,6 +141,13 @@ export function StatusScreen({
 
       <Row label="Device">{config.deviceName ?? 'this phone'}</Row>
       <Row label="Uploading to">{config.serverUrl}</Row>
+      {config.serverUrl.startsWith('http://') ? (
+        // A desktop agent stays on the LAN; a phone follows you onto café wifi,
+        // where this device's API key and every ping are readable in transit.
+        <Row label="Encryption">
+          <Text style={ui.warn}>off — this network can read what's sent</Text>
+        </Row>
+      ) : null}
       {lastSync?.result.uploadError ? (
         // Pings are safe in the outbox, but silence here would read as success.
         <Row label="Upload">

@@ -60,3 +60,21 @@ jobs:
       - name: Android app config resolves
         run: npx expo config --type prebuild
         working-directory: apps/mobile
+
+      # Test builds are allowed to talk to a plain-HTTP LAN server; release
+      # builds are not. That second half is one typo away from regressing
+      # silently, and the failure mode is an APK that ships cleartext — so
+      # generate both manifests and read them.
+      - name: Android release builds refuse cleartext
+        run: |
+          npx expo prebuild --platform android --no-install --clean
+          if grep -q usesCleartextTraffic android/app/src/main/AndroidManifest.xml; then
+            echo '::error::the release manifest permits cleartext'
+            exit 1
+          fi
+          EUNOMIA_ALLOW_CLEARTEXT=1 npx expo prebuild --platform android --no-install --clean
+          grep -q 'android:usesCleartextTraffic="true"' android/app/src/main/AndroidManifest.xml || {
+            echo '::error::test builds lost their cleartext allowance'
+            exit 1
+          }
+        working-directory: apps/mobile
