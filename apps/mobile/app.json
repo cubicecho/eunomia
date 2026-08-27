@@ -24,7 +24,11 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-background-task", "./plugins/with-cleartext-traffic"],
+    "plugins": [
+      "expo-background-task",
+      "./plugins/with-cleartext-traffic",
+      "./plugins/with-package-visibility"
+    ],
     "extra": {
       "eas": {
         "projectId": "8766e902-3e68-429e-b7b1-a2fc0d92fa1f"

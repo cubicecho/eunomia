@@ -31,11 +31,34 @@ function appLabel(packageName: string): string | null {
   return labelCache.get(packageName) ?? null;
 }
 
+/**
+ * Trades the package name for the name the launcher shows — "YouTube", not
+ * `com.google.android.youtube`, since that is what the dashboard groups and
+ * charts by.
+ *
+ * Deliberately after sanitizing: privacy patterns are documented to match the
+ * app identifier (@eunomia/agent's privacy.ts), and a rule written against
+ * `com.instagram` must not quietly stop ignoring an app because its label
+ * changed. It also means a redacted app has already lost its title here.
+ *
+ * Falls back to the package when the label won't resolve — a package with no
+ * launcher entry stays invisible to us even with the queries declaration in
+ * plugins/with-package-visibility.js.
+ */
+function relabel(ping: Ping): Ping {
+  if (!ping.app) return ping;
+  return { ...ping, app: appLabel(ping.app) ?? ping.app };
+}
+
 function toUsageEvent(event: NativeUsageEvent): UsageEvent | null {
   switch (event.kind) {
     case 'foreground':
       if (!event.app) return null;
-      return { at: event.at, kind: 'foreground', app: event.app, title: appLabel(event.app) };
+      // `app` stays the package name through synthesis and sanitization; the
+      // human label is swapped in afterwards (see relabel below). The package
+      // rides along in `title`, which is where the phone's closest equivalent
+      // of a window title would go and keeps the stable identifier on record.
+      return { at: event.at, kind: 'foreground', app: event.app, title: event.app };
     case 'screenOn':
     case 'screenOff':
       return { at: event.at, kind: event.kind };
@@ -64,7 +87,10 @@ async function syncOnce(): Promise<SyncResult> {
   const { pings, state: synth } = synthesizePings(state.synth, events, now);
   // Privacy rules apply before pings ever hit disk (see @eunomia/agent).
   const sanitize = createSanitizer(config ?? {});
-  const clean = pings.map(sanitize).filter((p): p is Ping => p !== null);
+  const clean = pings
+    .map(sanitize)
+    .filter((p): p is Ping => p !== null)
+    .map(relabel);
 
   // Outbox first, checkpoint second: a crash in between re-reads the same
   // window and duplicates some pings, which merely re-touch their activity —
