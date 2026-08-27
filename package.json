@@ -16,7 +16,8 @@
     "dev:desktop": "npm run dev -w @eunomia/desktop",
     "dev:web": "npm run dev -w @eunomia/web",
     "dev:mobile": "npm run start -w @eunomia/mobile",
-    "dist:win": "npm run dist:win -w @eunomia/desktop"
+    "dist:win": "npm run dist:win -w @eunomia/desktop",
+    "dist:apk": "npm run apk -w @eunomia/mobile"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.13",

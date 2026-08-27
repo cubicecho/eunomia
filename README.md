@@ -126,7 +126,9 @@ on desktop, package name on Android):
 
 Invalid regexes are skipped with a console warning rather than blocking
 tracking. Independently of these lists, browser tracking only ever reports
-the site's hostname — full URLs never leave the machine.
+the site's hostname — full URLs never leave the machine. On Android there is
+no shell to edit `config.json` from, so the app edits both lists itself:
+**Privacy…** on the status screen, one pattern per line.
 
 ### Packaging the desktop agent
 
@@ -148,6 +150,20 @@ never touches login items. Uninstalling on Windows
 removes the login item too; on Linux there is no uninstaller, so deleting the
 AppImage leaves `~/.config/autostart/eunomia-agent.desktop` behind for you to
 remove as well.
+
+### Packaging the Android agent
+
+```bash
+npm run dist:apk                        # local gradle build → APK
+npm run apk:eas -w @eunomia/mobile      # or build it on EAS
+```
+
+The local build needs a JDK (17+) and an Android SDK on the machine; EAS needs
+neither. Either way the result is an installable APK, not a Play-Store bundle —
+sideload it with `adb install` or by opening the file on the phone. Android's
+"Start at login" is the **Sync in the background** toggle: WorkManager keeps the
+registration across reboots. Full setup, both paths, and the signing caveats are
+in [apps/mobile/BUILDING.md](apps/mobile/BUILDING.md).
 
 Only one agent runs per machine — launching it again (Start menu, shortcut)
 opens the dashboard from the instance already running rather than starting a

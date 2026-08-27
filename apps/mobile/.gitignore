@@ -4,8 +4,11 @@ dist/
 web-build/
 
 # Native prebuild output (continuous native generation — `npx expo prebuild`).
-# The local native module source lives in modules/, which IS committed.
-android/
-ios/
+# Anchored to this directory: a bare `android/` also matches
+# modules/usage-events/android/, and silently swallowed the local module's
+# Kotlin source — the app then can't build, because the module it autolinks
+# has no implementation.
+/android/
+/ios/
 
 node_modules/

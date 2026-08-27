@@ -3,28 +3,44 @@ import {
   MIN_SYNC_INTERVAL_SECONDS,
   syncIntervalMs,
 } from '@eunomia/agent';
+import * as Application from 'expo-application';
 import { useCallback, useEffect, useState } from 'react';
-import { AppState, Button, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AppState, Button, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import UsageEvents from '../modules/usage-events';
-import { getOutbox, type MobileConfig, writeConfig } from './store.ts';
+import { type BackgroundState, backgroundState } from './background.ts';
+import { getOutbox, type MobileConfig, outboxPath, writeConfig } from './store.ts';
 import { performSync, type SyncResult } from './sync.ts';
+import { MenuItem, Row, Screen, ui } from './ui.tsx';
 
-// Main screen once provisioned: usage-access gate, outbox status, manual
-// sync, sync-interval setting. Syncs on the configured interval while the
-// app is in the foreground (plus on every return to the foreground) — the
-// background task covers the stretches in between.
+// Main screen once provisioned — the phone's version of the desktop tray
+// menu: what the agent is doing, whether uploads are getting through, and the
+// same set of actions (dashboard, change server, privacy, log). Syncs on the
+// configured interval while the app is in the foreground (plus on every return
+// to the foreground); the background task covers the stretches in between.
 
 interface Props {
   config: MobileConfig;
   onConfigChange: (config: MobileConfig) => void;
+  onOpenDashboard: () => void;
+  onChangeServer: () => void;
+  onOpenPrivacy: () => void;
+  onOpenLog: () => void;
 }
 
-export function StatusScreen({ config, onConfigChange }: Props) {
+export function StatusScreen({
+  config,
+  onConfigChange,
+  onOpenDashboard,
+  onChangeServer,
+  onOpenPrivacy,
+  onOpenLog,
+}: Props) {
   const [usageAccess, setUsageAccess] = useState(() => UsageEvents.isUsageAccessGranted());
   const [pending, setPending] = useState(() => getOutbox().size);
   const [lastSync, setLastSync] = useState<{ at: Date; result: SyncResult } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
+  const [background, setBackground] = useState<BackgroundState | null>(null);
   const [intervalText, setIntervalText] = useState(() =>
     String(config.syncIntervalSeconds ?? DEFAULT_SYNC_INTERVAL_SECONDS),
   );
@@ -49,13 +65,29 @@ export function StatusScreen({ config, onConfigChange }: Props) {
   }, []);
 
   // Re-check access and sync every time the app comes back to the foreground
-  // (including the return from the usage-access settings screen).
+  // (including the return from the usage-access settings screen). The
+  // background-task state is read back here too rather than assumed: the OS
+  // can refuse background work outright, and a toggle that says "on" over a
+  // task Android is not running would be a lie.
   useEffect(() => {
+    let live = true;
+    const refresh = (): void => {
+      void sync();
+      backgroundState().then(
+        (state) => {
+          if (live) setBackground(state);
+        },
+        (err: unknown) => console.error('background status failed', err),
+      );
+    };
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void sync();
+      if (state === 'active') refresh();
     });
-    void sync();
-    return () => subscription.remove();
+    refresh();
+    return () => {
+      live = false;
+      subscription.remove();
+    };
   }, [sync]);
 
   // Periodic sync while the app stays in the foreground. Backgrounded, timers
@@ -77,16 +109,22 @@ export function StatusScreen({ config, onConfigChange }: Props) {
     const seconds = Math.max(MIN_SYNC_INTERVAL_SECONDS, parsed);
     setIntervalText(String(seconds));
     if (seconds === current) return;
-    const next = { ...config, syncIntervalSeconds: seconds };
+    update({ syncIntervalSeconds: seconds });
+  };
+
+  const update = (patch: Partial<MobileConfig>): void => {
+    const next = { ...config, ...patch };
     writeConfig(next);
     onConfigChange(next);
   };
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>eunomia</Text>
-      <Text style={styles.sub}>Uploading to {config.serverUrl}</Text>
+  // The phone's "Start at login": WorkManager keeps the registration across
+  // reboots, so this is the difference between an agent that tracks all day
+  // and one that tracks while you're looking at it. App.tsx applies the change.
+  const backgroundEnabled = config.backgroundSync !== false;
 
+  return (
+    <Screen title="eunomia" subtitle={`agent ${Application.nativeApplicationVersion ?? '—'}`}>
       {!usageAccess && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Usage access needed</Text>
@@ -101,30 +139,24 @@ export function StatusScreen({ config, onConfigChange }: Props) {
         </View>
       )}
 
-      <View style={styles.row}>
-        <Text style={styles.rowLabel}>Pending pings</Text>
-        <Text>{pending}</Text>
-      </View>
-      <View style={styles.row}>
-        <Text style={styles.rowLabel}>Last sync</Text>
-        <Text>
-          {lastSync
-            ? `${lastSync.at.toLocaleTimeString()} — ${lastSync.result.synthesized} new`
-            : 'never'}
-        </Text>
-      </View>
+      <Row label="Device">{config.deviceName ?? 'this phone'}</Row>
+      <Row label="Uploading to">{config.serverUrl}</Row>
       {lastSync?.result.uploadError ? (
         // Pings are safe in the outbox, but silence here would read as success.
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Upload</Text>
-          <Text style={styles.uploadError}>failing — {lastSync.result.uploadError}</Text>
-        </View>
+        <Row label="Upload">
+          <Text style={ui.warn}>failing — {lastSync.result.uploadError}</Text>
+        </Row>
       ) : null}
-      <View style={styles.row}>
-        <Text style={styles.rowLabel}>Sync every</Text>
+      <Row label="Pending pings">{String(pending)}</Row>
+      <Row label="Last sync">
+        {lastSync
+          ? `${lastSync.at.toLocaleTimeString()} — ${lastSync.result.synthesized} new`
+          : 'never'}
+      </Row>
+      <Row label="Sync every">
         <View style={styles.intervalEdit}>
           <TextInput
-            style={styles.intervalInput}
+            style={[ui.input, styles.intervalInput]}
             value={intervalText}
             onChangeText={setIntervalText}
             onEndEditing={saveInterval}
@@ -132,9 +164,24 @@ export function StatusScreen({ config, onConfigChange }: Props) {
           />
           <Text>seconds</Text>
         </View>
-      </View>
+      </Row>
+      <Row label="Sync in the background">
+        <Switch
+          value={backgroundEnabled}
+          onValueChange={(value) => update({ backgroundSync: value })}
+        />
+      </Row>
+      {backgroundEnabled && background ? (
+        <Text style={background.available ? ui.hint : ui.warn}>
+          {!background.available
+            ? 'Android is not running background work for eunomia — check battery optimization for this app.'
+            : background.registered
+              ? 'Enrolled with Android — runs at least every 15 minutes, reboots included.'
+              : 'Not enrolled yet; it registers the next time the app opens.'}
+        </Text>
+      ) : null}
 
-      <View style={styles.button}>
+      <View style={ui.button}>
         <Button
           title={syncing ? 'Syncing…' : 'Sync now'}
           onPress={() => void sync()}
@@ -142,15 +189,33 @@ export function StatusScreen({ config, onConfigChange }: Props) {
         />
       </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-    </View>
+      {error ? <Text style={ui.error}>{error}</Text> : null}
+
+      <Text style={ui.section}>Actions</Text>
+      <MenuItem label="Open dashboard" detail={config.serverUrl} onPress={onOpenDashboard} />
+      <MenuItem
+        label="Change server / API key…"
+        detail="Move this device to another server, or re-key it"
+        onPress={onChangeServer}
+      />
+      <MenuItem label="Privacy…" detail={privacyDetail(config)} onPress={onOpenPrivacy} />
+      <MenuItem label="View log…" detail="What the agent has been saying" onPress={onOpenLog} />
+
+      <Text style={[ui.hint, styles.path]} selectable>
+        Outbox: {outboxPath()}
+      </Text>
+    </Screen>
   );
 }
 
+function privacyDetail(config: MobileConfig): string {
+  const ignored = config.ignoreApps?.length ?? 0;
+  const redacted = config.redactApps?.length ?? 0;
+  if (ignored === 0 && redacted === 0) return 'No apps ignored or redacted';
+  return `${ignored} ignored, ${redacted} redacted`;
+}
+
 const styles = StyleSheet.create({
-  container: { padding: 28 },
-  title: { fontSize: 22, fontWeight: '600', marginBottom: 4 },
-  sub: { opacity: 0.7, marginBottom: 20 },
   card: {
     borderWidth: 1,
     borderColor: '#e0b060',
@@ -162,25 +227,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontWeight: '600' },
   cardBody: { opacity: 0.8 },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#ccc',
-  },
-  rowLabel: { fontWeight: '600' },
-  uploadError: { color: '#b3261e', flexShrink: 1, textAlign: 'right' },
   intervalEdit: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  intervalInput: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    minWidth: 60,
-    textAlign: 'right',
-  },
-  button: { marginTop: 22 },
-  error: { color: '#d33', marginTop: 12 },
+  intervalInput: { paddingVertical: 2, minWidth: 60, textAlign: 'right' },
+  path: { marginTop: 20 },
 });

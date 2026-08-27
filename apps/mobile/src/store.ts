@@ -6,6 +6,7 @@ import {
   type SynthState,
 } from '@eunomia/agent';
 import { File, Paths } from 'expo-file-system';
+import type { BackgroundConfig } from './background.ts';
 
 // Document-directory persistence, mirroring the desktop agent's userData
 // layout: config.json (server + device API key), outbox.jsonl (crash-safe
@@ -32,9 +33,10 @@ function jsonFile<T>(name: string) {
 /**
  * Mobile-only additions to the shared agent config, matching the desktop
  * agent's: the device this install registered as, so setting it up again
- * re-keys that device rather than leaving its history on a duplicate.
+ * re-keys that device rather than leaving its history on a duplicate, plus
+ * the background-sync choice (the phone's "start at login").
  */
-export interface MobileConfig extends AgentConfig {
+export interface MobileConfig extends AgentConfig, BackgroundConfig {
   deviceId?: string;
   deviceName?: string;
 }
@@ -50,6 +52,7 @@ export function loadConfig(): MobileConfig | null {
     const config: MobileConfig = { serverUrl: parsed.serverUrl, apiKey: parsed.apiKey };
     if (typeof parsed.deviceId === 'string') config.deviceId = parsed.deviceId;
     if (typeof parsed.deviceName === 'string') config.deviceName = parsed.deviceName;
+    if (typeof parsed.backgroundSync === 'boolean') config.backgroundSync = parsed.backgroundSync;
     if (typeof parsed.syncIntervalSeconds === 'number') {
       config.syncIntervalSeconds = parsed.syncIntervalSeconds;
     }
@@ -73,6 +76,8 @@ export interface SyncState {
   synth: SynthState;
 }
 
+const OUTBOX_FILE = 'outbox.jsonl';
+
 const syncStateFile = jsonFile<SyncState>('sync-state.json');
 
 export function loadSyncState(): SyncState {
@@ -88,8 +93,13 @@ export function writeSyncState(state: SyncState): void {
   syncStateFile.write(state);
 }
 
+/** Where the queued pings live — shown in the app the way the tray shows it. */
+export function outboxPath(): string {
+  return new File(Paths.document, OUTBOX_FILE).uri;
+}
+
 export function outboxStore(): OutboxStore {
-  const file = new File(Paths.document, 'outbox.jsonl');
+  const file = new File(Paths.document, OUTBOX_FILE);
   return {
     read: () => (file.exists ? file.textSync() : null),
     append: (data) => file.write(data, { append: true }),

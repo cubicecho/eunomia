@@ -1,25 +1,36 @@
 import { normalizeServerUrl, provisionDevice, requestMagicLink } from '@eunomia/agent';
 import { useState } from 'react';
-import { Button, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Button, Text, TextInput, View } from 'react-native';
 import { loadConfig, type MobileConfig, writeConfig } from './store.ts';
+import { Screen, ui } from './ui.tsx';
 
 // Mobile counterpart of the desktop onboarding window: server URL + email +
 // device name, magic-link sign-in, then provisionDevice writes config.json and
 // syncing starts — the same shared flow the desktop agent provisions with,
 // down to re-keying an existing device rather than registering a twin.
+//
+// The same screen reconnects an install that already has a config (status →
+// "Change server / API key…"). Which of register-or-re-key that means is
+// provisionDevice's call, from the config passed as `existing`; this screen
+// only collects the answers and writes what comes back.
 
 interface Props {
+  /** The live config when reconnecting; null while onboarding. */
+  current?: MobileConfig | null;
   onDone: (config: MobileConfig) => void;
+  /** Leaves without changing anything — absent while onboarding. */
+  onCancel?: () => void;
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function SetupScreen({ onDone }: Props) {
-  const [serverUrl, setServerUrl] = useState('http://localhost:4000');
+export function SetupScreen({ current = null, onDone, onCancel }: Props) {
+  const reconfigure = current !== null;
+  const [serverUrl, setServerUrl] = useState(current?.serverUrl ?? 'http://localhost:4000');
   const [email, setEmail] = useState('');
-  const [deviceName, setDeviceName] = useState('Android phone');
+  const [deviceName, setDeviceName] = useState(current?.deviceName ?? 'Android phone');
   const [pastedLink, setPastedLink] = useState('');
   const [stage, setStage] = useState<'details' | 'link'>('details');
   const [busy, setBusy] = useState(false);
@@ -28,17 +39,17 @@ export function SetupScreen({ onDone }: Props) {
   const finish = async (tokenOrLink: string): Promise<void> => {
     // Whatever is on disk decides register-or-re-key; privacy rules and the
     // sync interval on it are the user's and carry across a reconnect.
-    const current = loadConfig();
+    const existing = current ?? loadConfig();
     const name = deviceName.trim();
     const provisioned = await provisionDevice({
       serverUrl,
       tokenOrLink,
       name,
       platform: 'android',
-      existing: current,
+      existing,
     });
     const config: MobileConfig = {
-      ...current,
+      ...existing,
       serverUrl: provisioned.serverUrl,
       apiKey: provisioned.apiKey,
       // Recorded so setting this device up again re-keys it rather than
@@ -80,34 +91,47 @@ export function SetupScreen({ onDone }: Props) {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Set up eunomia</Text>
-      <Text style={styles.sub}>Connect this device to your eunomia server.</Text>
-
+    <Screen
+      title={reconfigure ? 'Change server' : 'Set up eunomia'}
+      subtitle={
+        reconfigure
+          ? 'Sign in to move this device to another server, or to issue it a new API key.'
+          : 'Connect this device to your eunomia server.'
+      }
+      onBack={onCancel}
+    >
       {stage === 'details' ? (
         <>
-          <Text style={styles.label}>Server URL</Text>
+          <Text style={ui.label}>Server URL</Text>
           <TextInput
-            style={styles.input}
+            style={ui.input}
             value={serverUrl}
             onChangeText={setServerUrl}
             autoCapitalize="none"
+            autoCorrect={false}
             keyboardType="url"
           />
-          <Text style={styles.label}>Email</Text>
+          <Text style={ui.label}>Email</Text>
           <TextInput
-            style={styles.input}
+            style={ui.input}
             value={email}
             onChangeText={setEmail}
             placeholder="you@example.com"
             autoCapitalize="none"
+            autoCorrect={false}
             keyboardType="email-address"
           />
-          <Text style={styles.label}>Device name</Text>
-          <TextInput style={styles.input} value={deviceName} onChangeText={setDeviceName} />
-          <View style={styles.button}>
+          <Text style={ui.label}>Device name</Text>
+          <TextInput style={ui.input} value={deviceName} onChangeText={setDeviceName} />
+          <View style={ui.button}>
             <Button
-              title={busy ? 'Signing in…' : 'Sign in & register device'}
+              title={
+                busy
+                  ? 'Signing in…'
+                  : reconfigure
+                    ? 'Sign in & update'
+                    : 'Sign in & register device'
+              }
               onPress={() => void submitDetails()}
               disabled={busy || !serverUrl.trim() || !email.trim() || !deviceName.trim()}
             />
@@ -115,20 +139,21 @@ export function SetupScreen({ onDone }: Props) {
         </>
       ) : (
         <>
-          <Text style={styles.sub}>
+          <Text style={ui.sub}>
             A sign-in link was sent to {email.trim().toLowerCase()}. Paste it below.
           </Text>
-          <Text style={styles.label}>Sign-in link (or token)</Text>
+          <Text style={ui.label}>Sign-in link (or token)</Text>
           <TextInput
-            style={styles.input}
+            style={ui.input}
             value={pastedLink}
             onChangeText={setPastedLink}
             placeholder="http://…/?token=…"
             autoCapitalize="none"
+            autoCorrect={false}
           />
-          <View style={styles.button}>
+          <View style={ui.button}>
             <Button
-              title={busy ? 'Verifying…' : 'Verify & register device'}
+              title={busy ? 'Verifying…' : reconfigure ? 'Verify & update' : 'Verify & register'}
               onPress={() => void submitLink()}
               disabled={busy || !pastedLink.trim()}
             />
@@ -136,23 +161,7 @@ export function SetupScreen({ onDone }: Props) {
         </>
       )}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-    </View>
+      {error ? <Text style={ui.error}>{error}</Text> : null}
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { padding: 28 },
-  title: { fontSize: 22, fontWeight: '600', marginBottom: 4 },
-  sub: { opacity: 0.7, marginBottom: 20 },
-  label: { fontWeight: '600', marginTop: 14, marginBottom: 4 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#bbb',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  button: { marginTop: 22 },
-  error: { color: '#d33', marginTop: 12 },
-});

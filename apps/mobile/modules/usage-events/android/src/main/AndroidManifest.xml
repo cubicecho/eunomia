@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Held by the module that reads it. Granting it is not something an app
+         can ask for at runtime: the user has to switch it on in
+         Settings → Special app access → Usage access (openUsageAccessSettings). -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Android 11+ hides other packages by default. queryEvents still reports
+         their package names, but getApplicationLabel needs visibility to turn
+         one into a human-readable name — launchable apps are exactly the ones
+         worth labelling, and this block is not a restricted permission. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+</manifest>
