@@ -4,19 +4,18 @@ type Activities {
   category(where: CategoriesFilters): Categories
   categoryId: String
   categorySource: ActivitiesCategorySourceEnum
-
-  """DateTime"""
   closedAt: DateTime
   context: String
+
+  """
+  Opaque cursor of this row's position in the query's ordering. Pass it as `after` to resume from here. Only set on rows returned by a list query.
+  """
+  cursor: String
   device(where: DevicesFilters): Devices
   deviceId: String!
   id: String!
-
-  """DateTime"""
   lastActiveAt: DateTime!
   rolledUp: Boolean!
-
-  """DateTime"""
   startedAt: DateTime!
   title: String
 }
@@ -30,86 +29,127 @@ enum ActivitiesCategorySourceEnum {
 }
 
 input ActivitiesCategorySourceEnumFilter {
-  OR: [ActivitiesCategorySourceEnumFilterOr!]
+  """Every branch matches"""
+  AND: [ActivitiesCategorySourceEnumFilter!]
+
+  """Negates the nested operators"""
+  NOT: ActivitiesCategorySourceEnumFilter
+
+  """At least one branch matches; ANDed with any sibling operators"""
+  OR: [ActivitiesCategorySourceEnumFilter!]
+
+  """
+  Matches values containing the given string. `%`, `_` and `\` are matched literally.
+  """
+  contains: String
+
+  """
+  Matches values ending with the given string. `%`, `_` and `\` are matched literally.
+  """
+  endsWith: String
+
+  """Equal to"""
   eq: ActivitiesCategorySourceEnum
+
+  """Greater than"""
   gt: ActivitiesCategorySourceEnum
+
+  """Greater than or equal to"""
   gte: ActivitiesCategorySourceEnum
+
+  """Case-insensitive `contains`."""
+  iContains: String
+
+  """Case-insensitive `endsWith`."""
+  iEndsWith: String
+
+  """Case-insensitive `startsWith`."""
+  iStartsWith: String
   ilike: String
 
-  """Array<undefined>"""
+  """Matches any one of these values (SQL `IN`)"""
   inArray: [ActivitiesCategorySourceEnum!]
+
+  """When true, matches rows where the column is not NULL"""
   isNotNull: Boolean
+
+  """When true, matches rows where the column is NULL"""
   isNull: Boolean
   like: String
+
+  """Less than"""
   lt: ActivitiesCategorySourceEnum
+
+  """Less than or equal to"""
   lte: ActivitiesCategorySourceEnum
+
+  """Not equal to"""
   ne: ActivitiesCategorySourceEnum
   notIlike: String
 
-  """Array<undefined>"""
+  """Matches none of these values (SQL `NOT IN`)"""
   notInArray: [ActivitiesCategorySourceEnum!]
   notLike: String
-}
 
-input ActivitiesCategorySourceEnumFilterOr {
-  eq: ActivitiesCategorySourceEnum
-  gt: ActivitiesCategorySourceEnum
-  gte: ActivitiesCategorySourceEnum
-  ilike: String
-
-  """Array<undefined>"""
-  inArray: [ActivitiesCategorySourceEnum!]
-  isNotNull: Boolean
-  isNull: Boolean
-  like: String
-  lt: ActivitiesCategorySourceEnum
-  lte: ActivitiesCategorySourceEnum
-  ne: ActivitiesCategorySourceEnum
-  notIlike: String
-
-  """Array<undefined>"""
-  notInArray: [ActivitiesCategorySourceEnum!]
-  notLike: String
+  """
+  Matches values starting with the given string. `%`, `_` and `\` are matched literally.
+  """
+  startsWith: String
 }
 
 input ActivitiesFilters {
-  OR: [ActivitiesFiltersOr!]
-  activeSeconds: StringFilter
+  """Every branch matches"""
+  AND: [ActivitiesFilters!]
+
+  """Negates the nested filters"""
+  NOT: ActivitiesFilters
+
+  """At least one branch matches; ANDed with any sibling fields"""
+  OR: [ActivitiesFilters!]
+  activeSeconds: FloatFilter
   app: StringFilter
-  categoryId: IdFilter
+
+  """Matches rows whose category matches these filters"""
+  category: CategoriesFilters
+  categoryId: StringFilter
   categorySource: ActivitiesCategorySourceEnumFilter
   closedAt: DateTimeFilter
   context: StringFilter
-  deviceId: IdFilter
-  id: IdFilter
+
+  """Matches rows whose device matches these filters"""
+  device: DevicesFilters
+  deviceId: StringFilter
+  id: StringFilter
   lastActiveAt: DateTimeFilter
   rolledUp: BooleanFilter
   startedAt: DateTimeFilter
   title: StringFilter
 }
 
-input ActivitiesFiltersOr {
-  activeSeconds: StringFilter
-  app: StringFilter
-  categoryId: IdFilter
-  categorySource: ActivitiesCategorySourceEnumFilter
-  closedAt: DateTimeFilter
-  context: StringFilter
-  deviceId: IdFilter
-  id: IdFilter
-  lastActiveAt: DateTimeFilter
-  rolledUp: BooleanFilter
-  startedAt: DateTimeFilter
-  title: StringFilter
+input ActivitiesListRelationFilter {
+  """Every related row matches"""
+  every: ActivitiesFilters
+
+  """No related row matches"""
+  none: ActivitiesFilters
+
+  """At least one related row matches"""
+  some: ActivitiesFilters
 }
 
 input ActivitiesOrderBy {
   activeSeconds: InnerOrder
   app: InnerOrder
+
+  """Order by columns of the related category row"""
+  category: CategoriesOrderBy
   categoryId: InnerOrder
   categorySource: InnerOrder
   closedAt: InnerOrder
   context: InnerOrder
+
+  """Order by columns of the related device row"""
+  device: DevicesOrderBy
   deviceId: InnerOrder
   id: InnerOrder
   lastActiveAt: InnerOrder
@@ -130,76 +170,123 @@ type AuthSession {
 }
 
 input BooleanFilter {
-  OR: [BooleanFilterOr!]
+  """Every branch matches"""
+  AND: [BooleanFilter!]
+
+  """Negates the nested operators"""
+  NOT: BooleanFilter
+
+  """At least one branch matches; ANDed with any sibling operators"""
+  OR: [BooleanFilter!]
+
+  """
+  Matches values containing the given string. `%`, `_` and `\` are matched literally.
+  """
+  contains: String
+
+  """
+  Matches values ending with the given string. `%`, `_` and `\` are matched literally.
+  """
+  endsWith: String
+
+  """Equal to"""
   eq: Boolean
+
+  """Greater than"""
   gt: Boolean
+
+  """Greater than or equal to"""
   gte: Boolean
+
+  """Case-insensitive `contains`."""
+  iContains: String
+
+  """Case-insensitive `endsWith`."""
+  iEndsWith: String
+
+  """Case-insensitive `startsWith`."""
+  iStartsWith: String
   ilike: String
 
-  """Array<undefined>"""
+  """Matches any one of these values (SQL `IN`)"""
   inArray: [Boolean!]
+
+  """When true, matches rows where the column is not NULL"""
   isNotNull: Boolean
+
+  """When true, matches rows where the column is NULL"""
   isNull: Boolean
   like: String
+
+  """Less than"""
   lt: Boolean
+
+  """Less than or equal to"""
   lte: Boolean
+
+  """Not equal to"""
   ne: Boolean
   notIlike: String
 
-  """Array<undefined>"""
+  """Matches none of these values (SQL `NOT IN`)"""
   notInArray: [Boolean!]
   notLike: String
-}
 
-input BooleanFilterOr {
-  eq: Boolean
-  gt: Boolean
-  gte: Boolean
-  ilike: String
-
-  """Array<undefined>"""
-  inArray: [Boolean!]
-  isNotNull: Boolean
-  isNull: Boolean
-  like: String
-  lt: Boolean
-  lte: Boolean
-  ne: Boolean
-  notIlike: String
-
-  """Array<undefined>"""
-  notInArray: [Boolean!]
-  notLike: String
+  """
+  Matches values starting with the given string. `%`, `_` and `\` are matched literally.
+  """
+  startsWith: String
 }
 
 type Categories {
-  activities(limit: Int, offset: Int, orderBy: ActivitiesOrderBy, where: ActivitiesFilters): [Activities!]!
+  activities(
+    """
+    Keyset pagination: only return related rows strictly after this cursor (a row's `cursor` field from a previous page of this relation, under the same orderBy).
+    """
+    after: String
+    limit: Int
+    offset: Int
+    orderBy: ActivitiesOrderBy
+    where: ActivitiesFilters
+  ): [Activities!]!
   color: String
-
-  """DateTime"""
   createdAt: DateTime!
+
+  """
+  Opaque cursor of this row's position in the query's ordering. Pass it as `after` to resume from here. Only set on rows returned by a list query.
+  """
+  cursor: String
   id: String!
   name: String!
-  rules(limit: Int, offset: Int, orderBy: CategoryRulesOrderBy, where: CategoryRulesFilters): [CategoryRules!]!
-  user(where: UserFilters): User
+  rules(
+    """
+    Keyset pagination: only return related rows strictly after this cursor (a row's `cursor` field from a previous page of this relation, under the same orderBy).
+    """
+    after: String
+    limit: Int
+    offset: Int
+    orderBy: CategoryRulesOrderBy
+    where: CategoryRulesFilters
+  ): [CategoryRules!]!
   userId: String!
 }
 
 input CategoriesFilters {
-  OR: [CategoriesFiltersOr!]
-  color: StringFilter
-  createdAt: DateTimeFilter
-  id: IdFilter
-  name: StringFilter
-  userId: IdFilter
-}
+  """Every branch matches"""
+  AND: [CategoriesFilters!]
 
-input CategoriesFiltersOr {
+  """Negates the nested filters"""
+  NOT: CategoriesFilters
+
+  """At least one branch matches; ANDed with any sibling fields"""
+  OR: [CategoriesFilters!]
+  activities: ActivitiesListRelationFilter
   color: StringFilter
   createdAt: DateTimeFilter
-  id: IdFilter
+  id: StringFilter
   name: StringFilter
-  userId: IdFilter
+  rules: CategoryRulesListRelationFilter
+  userId: StringFilter
 }
 
 input CategoriesOrderBy {
@@ -223,41 +310,56 @@ type CategoryRules {
   category(where: CategoriesFilters): Categories
   categoryId: String!
   contextPattern: String
-
-  """DateTime"""
   createdAt: DateTime!
+
+  """
+  Opaque cursor of this row's position in the query's ordering. Pass it as `after` to resume from here. Only set on rows returned by a list query.
+  """
+  cursor: String
   id: String!
   priority: Int!
   titlePattern: String
-  user(where: UserFilters): User
   userId: String!
 }
 
 input CategoryRulesFilters {
-  OR: [CategoryRulesFiltersOr!]
+  """Every branch matches"""
+  AND: [CategoryRulesFilters!]
+
+  """Negates the nested filters"""
+  NOT: CategoryRulesFilters
+
+  """At least one branch matches; ANDed with any sibling fields"""
+  OR: [CategoryRulesFilters!]
   appPattern: StringFilter
-  categoryId: IdFilter
+
+  """Matches rows whose category matches these filters"""
+  category: CategoriesFilters
+  categoryId: StringFilter
   contextPattern: StringFilter
   createdAt: DateTimeFilter
-  id: IdFilter
-  priority: StringFilter
+  id: StringFilter
+  priority: IntFilter
   titlePattern: StringFilter
-  userId: IdFilter
+  userId: StringFilter
 }
 
-input CategoryRulesFiltersOr {
-  appPattern: StringFilter
-  categoryId: IdFilter
-  contextPattern: StringFilter
-  createdAt: DateTimeFilter
-  id: IdFilter
-  priority: StringFilter
-  titlePattern: StringFilter
-  userId: IdFilter
+input CategoryRulesListRelationFilter {
+  """Every related row matches"""
+  every: CategoryRulesFilters
+
+  """No related row matches"""
+  none: CategoryRulesFilters
+
+  """At least one related row matches"""
+  some: CategoryRulesFilters
 }
 
 input CategoryRulesOrderBy {
   appPattern: InnerOrder
+
+  """Order by columns of the related category row"""
+  category: CategoriesOrderBy
   categoryId: InnerOrder
   contextPattern: InnerOrder
   createdAt: InnerOrder
@@ -269,33 +371,33 @@ input CategoryRulesOrderBy {
 
 type ContextRules {
   appPattern: String
-
-  """DateTime"""
   createdAt: DateTime!
+
+  """
+  Opaque cursor of this row's position in the query's ordering. Pass it as `after` to resume from here. Only set on rows returned by a list query.
+  """
+  cursor: String
   id: String!
   priority: Int!
   titlePattern: String!
-  user(where: UserFilters): User
   userId: String!
 }
 
 input ContextRulesFilters {
-  OR: [ContextRulesFiltersOr!]
-  appPattern: StringFilter
-  createdAt: DateTimeFilter
-  id: IdFilter
-  priority: StringFilter
-  titlePattern: StringFilter
-  userId: IdFilter
-}
+  """Every branch matches"""
+  AND: [ContextRulesFilters!]
 
-input ContextRulesFiltersOr {
+  """Negates the nested filters"""
+  NOT: ContextRulesFilters
+
+  """At least one branch matches; ANDed with any sibling fields"""
+  OR: [ContextRulesFilters!]
   appPattern: StringFilter
   createdAt: DateTimeFilter
-  id: IdFilter
-  priority: StringFilter
+  id: StringFilter
+  priority: IntFilter
   titlePattern: StringFilter
-  userId: IdFilter
+  userId: StringFilter
 }
 
 input ContextRulesOrderBy {
@@ -313,69 +415,72 @@ A date-time string at UTC, such as 2007-12-03T10:15:30Z, compliant with the `dat
 scalar DateTime
 
 input DateTimeFilter {
-  OR: [DateTimeFilterOr!]
+  """Every branch matches"""
+  AND: [DateTimeFilter!]
 
-  """DateTime"""
+  """Negates the nested operators"""
+  NOT: DateTimeFilter
+
+  """At least one branch matches; ANDed with any sibling operators"""
+  OR: [DateTimeFilter!]
+
+  """
+  Matches values containing the given string. `%`, `_` and `\` are matched literally.
+  """
+  contains: String
+
+  """
+  Matches values ending with the given string. `%`, `_` and `\` are matched literally.
+  """
+  endsWith: String
+
+  """Equal to"""
   eq: DateTime
 
-  """DateTime"""
+  """Greater than"""
   gt: DateTime
 
-  """DateTime"""
+  """Greater than or equal to"""
   gte: DateTime
+
+  """Case-insensitive `contains`."""
+  iContains: String
+
+  """Case-insensitive `endsWith`."""
+  iEndsWith: String
+
+  """Case-insensitive `startsWith`."""
+  iStartsWith: String
   ilike: String
 
-  """Array<DateTime>"""
+  """Matches any one of these values (SQL `IN`)"""
   inArray: [DateTime!]
+
+  """When true, matches rows where the column is not NULL"""
   isNotNull: Boolean
+
+  """When true, matches rows where the column is NULL"""
   isNull: Boolean
   like: String
 
-  """DateTime"""
+  """Less than"""
   lt: DateTime
 
-  """DateTime"""
+  """Less than or equal to"""
   lte: DateTime
 
-  """DateTime"""
+  """Not equal to"""
   ne: DateTime
   notIlike: String
 
-  """Array<DateTime>"""
+  """Matches none of these values (SQL `NOT IN`)"""
   notInArray: [DateTime!]
   notLike: String
-}
 
-input DateTimeFilterOr {
-  """DateTime"""
-  eq: DateTime
-
-  """DateTime"""
-  gt: DateTime
-
-  """DateTime"""
-  gte: DateTime
-  ilike: String
-
-  """Array<DateTime>"""
-  inArray: [DateTime!]
-  isNotNull: Boolean
-  isNull: Boolean
-  like: String
-
-  """DateTime"""
-  lt: DateTime
-
-  """DateTime"""
-  lte: DateTime
-
-  """DateTime"""
-  ne: DateTime
-  notIlike: String
-
-  """Array<DateTime>"""
-  notInArray: [DateTime!]
-  notLike: String
+  """
+  Matches values starting with the given string. `%`, `_` and `\` are matched literally.
+  """
+  startsWith: String
 }
 
 type DeviceRegistration {
@@ -391,38 +496,56 @@ type DeviceSummary {
 }
 
 type Devices {
-  activities(limit: Int, offset: Int, orderBy: ActivitiesOrderBy, where: ActivitiesFilters): [Activities!]!
-
-  """DateTime"""
+  activities(
+    """
+    Keyset pagination: only return related rows strictly after this cursor (a row's `cursor` field from a previous page of this relation, under the same orderBy).
+    """
+    after: String
+    limit: Int
+    offset: Int
+    orderBy: ActivitiesOrderBy
+    where: ActivitiesFilters
+  ): [Activities!]!
   createdAt: DateTime!
-  id: String!
 
-  """DateTime"""
+  """
+  Opaque cursor of this row's position in the query's ordering. Pass it as `after` to resume from here. Only set on rows returned by a list query.
+  """
+  cursor: String
+  id: String!
   lastSeenAt: DateTime
   name: String!
   platform: DevicesPlatformEnum!
-  summaries(limit: Int, offset: Int, orderBy: SummariesOrderBy, where: SummariesFilters): [Summaries!]!
-  user(where: UserFilters): User
+  summaries(
+    """
+    Keyset pagination: only return related rows strictly after this cursor (a row's `cursor` field from a previous page of this relation, under the same orderBy).
+    """
+    after: String
+    limit: Int
+    offset: Int
+    orderBy: SummariesOrderBy
+    where: SummariesFilters
+  ): [Summaries!]!
   userId: String!
 }
 
 input DevicesFilters {
-  OR: [DevicesFiltersOr!]
-  createdAt: DateTimeFilter
-  id: IdFilter
-  lastSeenAt: DateTimeFilter
-  name: StringFilter
-  platform: DevicesPlatformEnumFilter
-  userId: IdFilter
-}
+  """Every branch matches"""
+  AND: [DevicesFilters!]
 
-input DevicesFiltersOr {
+  """Negates the nested filters"""
+  NOT: DevicesFilters
+
+  """At least one branch matches; ANDed with any sibling fields"""
+  OR: [DevicesFilters!]
+  activities: ActivitiesListRelationFilter
   createdAt: DateTimeFilter
-  id: IdFilter
+  id: StringFilter
   lastSeenAt: DateTimeFilter
   name: StringFilter
   platform: DevicesPlatformEnumFilter
-  userId: IdFilter
+  summaries: SummariesListRelationFilter
+  userId: StringFilter
 }
 
 input DevicesOrderBy {
@@ -449,88 +572,171 @@ enum DevicesPlatformEnum {
 }
 
 input DevicesPlatformEnumFilter {
-  OR: [DevicesPlatformEnumFilterOr!]
+  """Every branch matches"""
+  AND: [DevicesPlatformEnumFilter!]
+
+  """Negates the nested operators"""
+  NOT: DevicesPlatformEnumFilter
+
+  """At least one branch matches; ANDed with any sibling operators"""
+  OR: [DevicesPlatformEnumFilter!]
+
+  """
+  Matches values containing the given string. `%`, `_` and `\` are matched literally.
+  """
+  contains: String
+
+  """
+  Matches values ending with the given string. `%`, `_` and `\` are matched literally.
+  """
+  endsWith: String
+
+  """Equal to"""
   eq: DevicesPlatformEnum
+
+  """Greater than"""
   gt: DevicesPlatformEnum
+
+  """Greater than or equal to"""
   gte: DevicesPlatformEnum
+
+  """Case-insensitive `contains`."""
+  iContains: String
+
+  """Case-insensitive `endsWith`."""
+  iEndsWith: String
+
+  """Case-insensitive `startsWith`."""
+  iStartsWith: String
   ilike: String
 
-  """Array<undefined>"""
+  """Matches any one of these values (SQL `IN`)"""
   inArray: [DevicesPlatformEnum!]
+
+  """When true, matches rows where the column is not NULL"""
   isNotNull: Boolean
+
+  """When true, matches rows where the column is NULL"""
   isNull: Boolean
   like: String
+
+  """Less than"""
   lt: DevicesPlatformEnum
+
+  """Less than or equal to"""
   lte: DevicesPlatformEnum
+
+  """Not equal to"""
   ne: DevicesPlatformEnum
   notIlike: String
 
-  """Array<undefined>"""
+  """Matches none of these values (SQL `NOT IN`)"""
   notInArray: [DevicesPlatformEnum!]
   notLike: String
+
+  """
+  Matches values starting with the given string. `%`, `_` and `\` are matched literally.
+  """
+  startsWith: String
 }
 
-input DevicesPlatformEnumFilterOr {
-  eq: DevicesPlatformEnum
-  gt: DevicesPlatformEnum
-  gte: DevicesPlatformEnum
-  ilike: String
+input FloatFilter {
+  """Every branch matches"""
+  AND: [FloatFilter!]
 
-  """Array<undefined>"""
-  inArray: [DevicesPlatformEnum!]
+  """Negates the nested operators"""
+  NOT: FloatFilter
+
+  """At least one branch matches; ANDed with any sibling operators"""
+  OR: [FloatFilter!]
+
+  """Equal to"""
+  eq: Float
+
+  """Greater than"""
+  gt: Float
+
+  """Greater than or equal to"""
+  gte: Float
+
+  """Matches any one of these values (SQL `IN`)"""
+  inArray: [Float!]
+
+  """When true, matches rows where the column is not NULL"""
   isNotNull: Boolean
+
+  """When true, matches rows where the column is NULL"""
   isNull: Boolean
-  like: String
-  lt: DevicesPlatformEnum
-  lte: DevicesPlatformEnum
-  ne: DevicesPlatformEnum
-  notIlike: String
 
-  """Array<undefined>"""
-  notInArray: [DevicesPlatformEnum!]
-  notLike: String
-}
+  """Less than"""
+  lt: Float
 
-input IdFilter {
-  OR: [IdFilterOr!]
-  eq: String
-  gt: String
-  gte: String
+  """Less than or equal to"""
+  lte: Float
 
-  """Array<undefined>"""
-  inArray: [String!]
-  isNotNull: Boolean
-  isNull: Boolean
-  lt: String
-  lte: String
-  ne: String
+  """Not equal to"""
+  ne: Float
 
-  """Array<undefined>"""
-  notInArray: [String!]
-}
-
-input IdFilterOr {
-  eq: String
-  gt: String
-  gte: String
-
-  """Array<undefined>"""
-  inArray: [String!]
-  isNotNull: Boolean
-  isNull: Boolean
-  lt: String
-  lte: String
-  ne: String
-
-  """Array<undefined>"""
-  notInArray: [String!]
+  """Matches none of these values (SQL `NOT IN`)"""
+  notInArray: [Float!]
 }
 
 input InnerOrder {
   direction: OrderDirection!
 
+  """
+  Sort by this column's position in the `inArray` list the same request's `where` gives it, rather than by the column's own value — `direction: asc` keeps the list's order, `desc` reverses it. Requires an `inArray` filter on the same column at the top level of `where`, and cannot be combined with `after` or `distinct`.
+  """
+  matchFilterOrder: Boolean
+
+  """
+  Where NULL values sort. Defaults to the database's own rule (PostgreSQL: last on asc, first on desc; MySQL/SQLite: first on asc, last on desc)
+  """
+  nulls: OrderNulls
+
   """Priority of current field"""
   priority: Int!
+}
+
+input IntFilter {
+  """Every branch matches"""
+  AND: [IntFilter!]
+
+  """Negates the nested operators"""
+  NOT: IntFilter
+
+  """At least one branch matches; ANDed with any sibling operators"""
+  OR: [IntFilter!]
+
+  """Equal to"""
+  eq: Int
+
+  """Greater than"""
+  gt: Int
+
+  """Greater than or equal to"""
+  gte: Int
+
+  """Matches any one of these values (SQL `IN`)"""
+  inArray: [Int!]
+
+  """When true, matches rows where the column is not NULL"""
+  isNotNull: Boolean
+
+  """When true, matches rows where the column is NULL"""
+  isNull: Boolean
+
+  """Less than"""
+  lt: Int
+
+  """Less than or equal to"""
+  lte: Int
+
+  """Not equal to"""
+  ne: Int
+
+  """Matches none of these values (SQL `NOT IN`)"""
+  notInArray: [Int!]
 }
 
 type MagicLinkRequest {
@@ -539,36 +745,36 @@ type MagicLinkRequest {
 }
 
 type MergeRules {
-  """DateTime"""
   createdAt: DateTime!
+
+  """
+  Opaque cursor of this row's position in the query's ordering. Pass it as `after` to resume from here. Only set on rows returned by a list query.
+  """
+  cursor: String
   fromApp: String!
   fromContext: String
   id: String!
   toApp: String!
   toContext: String
-  user(where: UserFilters): User
   userId: String!
 }
 
 input MergeRulesFilters {
-  OR: [MergeRulesFiltersOr!]
-  createdAt: DateTimeFilter
-  fromApp: StringFilter
-  fromContext: StringFilter
-  id: IdFilter
-  toApp: StringFilter
-  toContext: StringFilter
-  userId: IdFilter
-}
+  """Every branch matches"""
+  AND: [MergeRulesFilters!]
 
-input MergeRulesFiltersOr {
+  """Negates the nested filters"""
+  NOT: MergeRulesFilters
+
+  """At least one branch matches; ANDed with any sibling fields"""
+  OR: [MergeRulesFilters!]
   createdAt: DateTimeFilter
   fromApp: StringFilter
   fromContext: StringFilter
-  id: IdFilter
+  id: StringFilter
   toApp: StringFilter
   toContext: StringFilter
-  userId: IdFilter
+  userId: StringFilter
 }
 
 input MergeRulesOrderBy {
@@ -619,6 +825,15 @@ enum OrderDirection {
   desc
 }
 
+"""Where NULL values sort relative to non-NULL values"""
+enum OrderNulls {
+  """NULL values sort before all non-NULL values"""
+  first
+
+  """NULL values sort after all non-NULL values"""
+  last
+}
+
 """A stateless report of what a device looked like at one instant."""
 input PingInput {
   app: String
@@ -629,65 +844,150 @@ input PingInput {
 }
 
 type Query {
-  activities(limit: Int, offset: Int, orderBy: ActivitiesOrderBy, where: ActivitiesFilters): [Activities!]!
+  activities(
+    """
+    Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
+    """
+    after: String
+    limit: Int
+    offset: Int
+    orderBy: ActivitiesOrderBy
+    where: ActivitiesFilters
+  ): [Activities!]!
   appSummary(deviceId: String, from: String!, to: String!): [AppContextSummary!]!
-  categories(limit: Int, offset: Int, orderBy: CategoriesOrderBy, where: CategoriesFilters): [Categories!]!
-  categoryRules(limit: Int, offset: Int, orderBy: CategoryRulesOrderBy, where: CategoryRulesFilters): [CategoryRules!]!
+  categories(
+    """
+    Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
+    """
+    after: String
+    limit: Int
+    offset: Int
+    orderBy: CategoriesOrderBy
+    where: CategoriesFilters
+  ): [Categories!]!
+  categoryRules(
+    """
+    Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
+    """
+    after: String
+    limit: Int
+    offset: Int
+    orderBy: CategoryRulesOrderBy
+    where: CategoryRulesFilters
+  ): [CategoryRules!]!
   categorySummary(deviceId: String, from: String!, to: String!): [CategoryDaySummary!]!
-  contextRules(limit: Int, offset: Int, orderBy: ContextRulesOrderBy, where: ContextRulesFilters): [ContextRules!]!
+  contextRules(
+    """
+    Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
+    """
+    after: String
+    limit: Int
+    offset: Int
+    orderBy: ContextRulesOrderBy
+    where: ContextRulesFilters
+  ): [ContextRules!]!
   deviceSummary(from: String!, to: String!): [DeviceSummary!]!
-  devices(limit: Int, offset: Int, orderBy: DevicesOrderBy, where: DevicesFilters): [Devices!]!
+  devices(
+    """
+    Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
+    """
+    after: String
+    limit: Int
+    offset: Int
+    orderBy: DevicesOrderBy
+    where: DevicesFilters
+  ): [Devices!]!
   me: String
-  mergeRules(limit: Int, offset: Int, orderBy: MergeRulesOrderBy, where: MergeRulesFilters): [MergeRules!]!
+  mergeRules(
+    """
+    Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
+    """
+    after: String
+    limit: Int
+    offset: Int
+    orderBy: MergeRulesOrderBy
+    where: MergeRulesFilters
+  ): [MergeRules!]!
 }
 
 input StringFilter {
-  OR: [StringFilterOr!]
+  """Every branch matches"""
+  AND: [StringFilter!]
+
+  """Negates the nested operators"""
+  NOT: StringFilter
+
+  """At least one branch matches; ANDed with any sibling operators"""
+  OR: [StringFilter!]
+
+  """
+  Matches values containing the given string. `%`, `_` and `\` are matched literally.
+  """
+  contains: String
+
+  """
+  Matches values ending with the given string. `%`, `_` and `\` are matched literally.
+  """
+  endsWith: String
+
+  """Equal to"""
   eq: String
+
+  """Greater than"""
   gt: String
+
+  """Greater than or equal to"""
   gte: String
+
+  """Case-insensitive `contains`."""
+  iContains: String
+
+  """Case-insensitive `endsWith`."""
+  iEndsWith: String
+
+  """Case-insensitive `startsWith`."""
+  iStartsWith: String
   ilike: String
 
-  """Array<undefined>"""
+  """Matches any one of these values (SQL `IN`)"""
   inArray: [String!]
+
+  """When true, matches rows where the column is not NULL"""
   isNotNull: Boolean
+
+  """When true, matches rows where the column is NULL"""
   isNull: Boolean
   like: String
+
+  """Less than"""
   lt: String
+
+  """Less than or equal to"""
   lte: String
+
+  """Not equal to"""
   ne: String
   notIlike: String
 
-  """Array<undefined>"""
+  """Matches none of these values (SQL `NOT IN`)"""
   notInArray: [String!]
   notLike: String
-}
 
-input StringFilterOr {
-  eq: String
-  gt: String
-  gte: String
-  ilike: String
-
-  """Array<undefined>"""
-  inArray: [String!]
-  isNotNull: Boolean
-  isNull: Boolean
-  like: String
-  lt: String
-  lte: String
-  ne: String
-  notIlike: String
-
-  """Array<undefined>"""
-  notInArray: [String!]
-  notLike: String
+  """
+  Matches values starting with the given string. `%`, `_` and `\` are matched literally.
+  """
+  startsWith: String
 }
 
 type Summaries {
   app: String!
   categoryId: String
   context: String
+
+  """
+  Opaque cursor of this row's position in the query's ordering. Pass it as `after` to resume from here. Only set on rows returned by a list query.
+  """
+  cursor: String
   day: String!
   device(where: DevicesFilters): Devices
   deviceId: String!
@@ -696,24 +996,35 @@ type Summaries {
 }
 
 input SummariesFilters {
-  OR: [SummariesFiltersOr!]
+  """Every branch matches"""
+  AND: [SummariesFilters!]
+
+  """Negates the nested filters"""
+  NOT: SummariesFilters
+
+  """At least one branch matches; ANDed with any sibling fields"""
+  OR: [SummariesFilters!]
   app: StringFilter
-  categoryId: IdFilter
+  categoryId: StringFilter
   context: StringFilter
   day: StringFilter
-  deviceId: IdFilter
-  id: IdFilter
-  seconds: StringFilter
+
+  """Matches rows whose device matches these filters"""
+  device: DevicesFilters
+  deviceId: StringFilter
+  id: StringFilter
+  seconds: FloatFilter
 }
 
-input SummariesFiltersOr {
-  app: StringFilter
-  categoryId: IdFilter
-  context: StringFilter
-  day: StringFilter
-  deviceId: IdFilter
-  id: IdFilter
-  seconds: StringFilter
+input SummariesListRelationFilter {
+  """Every related row matches"""
+  every: SummariesFilters
+
+  """No related row matches"""
+  none: SummariesFilters
+
+  """At least one related row matches"""
+  some: SummariesFilters
 }
 
 input SummariesOrderBy {
@@ -721,47 +1032,10 @@ input SummariesOrderBy {
   categoryId: InnerOrder
   context: InnerOrder
   day: InnerOrder
+
+  """Order by columns of the related device row"""
+  device: DevicesOrderBy
   deviceId: InnerOrder
   id: InnerOrder
   seconds: InnerOrder
-}
-
-type User {
-  categories(limit: Int, offset: Int, orderBy: CategoriesOrderBy, where: CategoriesFilters): [Categories!]!
-  categoryRules(limit: Int, offset: Int, orderBy: CategoryRulesOrderBy, where: CategoryRulesFilters): [CategoryRules!]!
-  contextRules(limit: Int, offset: Int, orderBy: ContextRulesOrderBy, where: ContextRulesFilters): [ContextRules!]!
-
-  """DateTime"""
-  createdAt: DateTime!
-  devices(limit: Int, offset: Int, orderBy: DevicesOrderBy, where: DevicesFilters): [Devices!]!
-  email: String!
-  emailVerified: Boolean!
-  id: String!
-  image: String
-  mergeRules(limit: Int, offset: Int, orderBy: MergeRulesOrderBy, where: MergeRulesFilters): [MergeRules!]!
-  name: String!
-
-  """DateTime"""
-  updatedAt: DateTime!
-}
-
-input UserFilters {
-  OR: [UserFiltersOr!]
-  createdAt: DateTimeFilter
-  email: StringFilter
-  emailVerified: BooleanFilter
-  id: IdFilter
-  image: StringFilter
-  name: StringFilter
-  updatedAt: DateTimeFilter
-}
-
-input UserFiltersOr {
-  createdAt: DateTimeFilter
-  email: StringFilter
-  emailVerified: BooleanFilter
-  id: IdFilter
-  image: StringFilter
-  name: StringFilter
-  updatedAt: DateTimeFilter
 }

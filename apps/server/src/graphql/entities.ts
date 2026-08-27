@@ -1,20 +1,19 @@
 import { buildSchema as buildDrizzleSchema } from '@vantreeseba/drizzle-graphql';
-import type { GraphQLFieldConfig, GraphQLInputObjectType, GraphQLObjectType } from 'graphql';
+import { GraphQLError, type GraphQLFieldConfig, type GraphQLObjectType } from 'graphql';
 import type { Db } from '../db/client.ts';
 import type { Context } from './context.ts';
+import { rowScopes } from './scope.ts';
 
 /**
- * What drizzle-graphql generates from the tables: CRUD queries and mutations,
- * plus the object types the domain resolvers return.
+ * What drizzle-graphql generates from the tables: the list queries, and the
+ * object types the domain resolvers return.
  *
- * Only what createSchema picks ends up in the public schema — the generated
- * auth-table CRUD and raw device mutations are never exposed.
+ * Only what createSchema picks ends up in the public schema, and everything
+ * that writes is hand-written — so nothing generated needs to be a mutation.
  */
 export interface Entities {
   queries: Record<string, GraphQLFieldConfig<unknown, Context>>;
-  mutations: Record<string, GraphQLFieldConfig<unknown, Context>>;
   types: Record<string, GraphQLObjectType>;
-  inputs: Record<string, GraphQLInputObjectType>;
 }
 
 /**
@@ -25,8 +24,48 @@ export interface Entities {
  * fail loudly if a table is renamed.
  */
 export function buildEntities(db: Db): Entities {
-  return buildDrizzleSchema(db).entities as unknown as Entities;
+  const { entities } = buildDrizzleSchema(db, {
+    // Every write in this schema is a domain mutation with its own ownership
+    // check and its own side effects (rollups, summary merges, key rotation).
+    // Generating CRUD mutations nobody picks would only add Create/Update
+    // input types to the printed SDL for operations that don't exist.
+    mutations: false,
+    features: {
+      aggregates: false,
+      groupBy: false,
+      relationAggregates: false,
+      distinct: false,
+    },
+    // better-auth's own table. Excluding it drops the `Devices.user` relation
+    // with it, so an email address is not two hops from any device row.
+    exclude: { tables: ['user'] },
+    // Ownership, on every path the generated resolvers take (see scope.ts).
+    scope: rowScopes,
+    // A list query with no `limit` means "every row", which is a promise this
+    // server cannot keep for activities. A ceiling, not a clamp: an explicit
+    // over-limit is refused rather than quietly truncated, since a short page
+    // tells a paginating client it has reached the end when it has not.
+    limits: { maxLimit: 1000 },
+    // Activities have no natural order in the table. "Recent" is the only
+    // reading anyone wants, so a request that names no order gets it.
+    defaults: { activities: { orderBy: { startedAt: 'desc' } } },
+    onError,
+  });
+  return entities as unknown as Entities;
 }
+
+/**
+ * Errors written for a client pass through; everything else is sanitized to
+ * `Internal server error` by the library's default.
+ *
+ * The line is the same one errors.ts draws: a GraphQLError was built to be
+ * read (and carries the extensions.code clients branch on), while a driver
+ * error carries the statement, its bound parameters and the constraint name.
+ * It matters here because a scope hook throws UNAUTHENTICATED from inside a
+ * generated resolver, where the sanitizer would otherwise flatten it.
+ */
+const onError = (error: unknown): Error | undefined =>
+  error instanceof GraphQLError ? error : undefined;
 
 /** The field shape every domain module in this directory returns. */
 export type Fields = Record<string, GraphQLFieldConfig<unknown, Context>>;

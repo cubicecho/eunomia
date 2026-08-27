@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { assertObjectType } from 'graphql';
 import { describe, expect, it } from 'vitest';
 import { permissions } from '../src/graphql/permissions.ts';
 import { createSchema } from '../src/graphql/schema.ts';
@@ -54,6 +55,26 @@ describe('graphql schema', () => {
     ]);
   });
 
+  it('keeps the auth tables out of the graph entirely', () => {
+    // `user` is excluded from generation, so there is no User type to reach
+    // and no `Devices.user` field to reach it through — an email address is
+    // not one hop from a device row, for any caller.
+    const schema = createSchema(createTestDb() as never, stubAuthGateway());
+
+    expect(schema.getType('User')).toBeUndefined();
+    expect(Object.keys(assertObjectType(schema.getType('Devices')).getFields()).sort()).toEqual([
+      'activities',
+      'createdAt',
+      'cursor',
+      'id',
+      'lastSeenAt',
+      'name',
+      'platform',
+      'summaries',
+      'userId',
+    ]);
+  });
+
   it('gives every exposed field an explicit permission rule', () => {
     // The rule that keeps this project honest: adding a field to the schema
     // without adding a rule for it silently ships an unauthenticated mutation.
@@ -68,8 +89,13 @@ describe('graphql schema', () => {
     // "public on purpose" and "nobody thought about it" should not look the
     // same in the source.
     const schema = createSchema(createTestDb() as never, stubAuthGateway());
+    // The '*' entry is the backstop under the named rules, not a field — a
+    // field that reached the schema without a rule is denied by it rather than
+    // served, and this assertion is what says no field is relying on that.
     const covered = (type: 'Query' | 'Mutation') =>
-      Object.keys(permissions[type] as Record<string, unknown>).sort();
+      Object.keys(permissions[type] as Record<string, unknown>)
+        .filter((field) => field !== '*')
+        .sort();
 
     expect(Object.keys(schema.getQueryType()?.getFields() ?? {}).sort()).toEqual(covered('Query'));
     expect(Object.keys(schema.getMutationType()?.getFields() ?? {}).sort()).toEqual(

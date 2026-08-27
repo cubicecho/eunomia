@@ -1,64 +1,33 @@
 import { applyPermissions } from '@vantreeseba/graphql-casl';
-import { eq, inArray } from 'drizzle-orm';
 import { GraphQLObjectType, GraphQLSchema, GraphQLString } from 'graphql';
 import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
-import {
-  activities,
-  categories,
-  categoryRules,
-  contextRules,
-  devices,
-  mergeRules,
-} from '../db/schema.ts';
 import { authFields } from './auth-fields.ts';
 import { categoryFields } from './category-fields.ts';
 import type { Context } from './context.ts';
 import { deviceFields } from './device-fields.ts';
 import { buildEntities, type Entities, type Fields } from './entities.ts';
 import { mergeFields } from './merge-fields.ts';
-import { permissions } from './permissions.ts';
+import { permissions, type Resolvers } from './permissions.ts';
 import { pingFields } from './ping-fields.ts';
 import { ruleFields } from './rule-fields.ts';
-import { scopedListField } from './scoped.ts';
 import { summaryFields } from './summaries.ts';
 
 /**
- * The read side: drizzle-graphql's generated list queries, each rebuilt so the
- * caller can only ever see their own rows.
+ * The read side: drizzle-graphql's generated list queries, taken as generated.
  *
- * Activities carry no userId — ownership runs through the owning device, so
- * their fence is a subquery rather than a column comparison.
+ * Each is already fenced to the caller's own rows — the ownership predicate is
+ * part of the build (scope.ts), not something re-imposed on the resolver here,
+ * so it holds on the nested and aggregate paths this pick doesn't cover.
  */
 function listQueries(entities: Entities) {
-  const ownDeviceIds = (ctx: Context & { userId: string }) =>
-    ctx.db.select({ id: devices.id }).from(devices).where(eq(devices.userId, ctx.userId));
-
   return {
-    devices: scopedListField(entities.queries.devices!, devices, 'devices', (ctx) =>
-      eq(devices.userId, ctx.userId),
-    ),
-    activities: scopedListField(entities.queries.activities!, activities, 'activities', (ctx) =>
-      inArray(activities.deviceId, ownDeviceIds(ctx)),
-    ),
-    categories: scopedListField(entities.queries.categories!, categories, 'categories', (ctx) =>
-      eq(categories.userId, ctx.userId),
-    ),
-    categoryRules: scopedListField(
-      entities.queries.categoryRules!,
-      categoryRules,
-      'categoryRules',
-      (ctx) => eq(categoryRules.userId, ctx.userId),
-    ),
-    contextRules: scopedListField(
-      entities.queries.contextRules!,
-      contextRules,
-      'contextRules',
-      (ctx) => eq(contextRules.userId, ctx.userId),
-    ),
-    mergeRules: scopedListField(entities.queries.mergeRules!, mergeRules, 'mergeRules', (ctx) =>
-      eq(mergeRules.userId, ctx.userId),
-    ),
+    devices: entities.queries.devices!,
+    activities: entities.queries.activities!,
+    categories: entities.queries.categories!,
+    categoryRules: entities.queries.categoryRules!,
+    contextRules: entities.queries.contextRules!,
+    mergeRules: entities.queries.mergeRules!,
   } satisfies Fields;
 }
 
@@ -108,5 +77,5 @@ export function createSchema(db: Db, auth: AuthGateway) {
     name: 'Mutation',
     fields: mutationFields(db, auth, entities),
   });
-  return applyPermissions(new GraphQLSchema({ query, mutation }), permissions);
+  return applyPermissions<Resolvers>(new GraphQLSchema({ query, mutation }), permissions);
 }

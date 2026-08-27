@@ -109,6 +109,24 @@ describe('authorization scoping', () => {
     expect(byDevice.activities).toEqual([]);
   });
 
+  it('relation filters cannot widen the fence either', async () => {
+    // A filter that reaches through a relation is a second way to name rows,
+    // and the scope is ANDed on after it — so naming someone else's device
+    // through activities.device narrows to nothing rather than reaching it.
+    const throughDevice = await data(
+      '{ activities(where: { device: { userId: { eq: "user-1" } } }) { id } }',
+      'user-2',
+    );
+    expect(throughDevice.activities).toEqual([]);
+  });
+
+  it('refuses a page larger than the maximum', async () => {
+    // Rejected, not truncated: a short page tells a paginating client it has
+    // reached the end when it has not.
+    const result = await run('{ activities(limit: 5000) { id } }');
+    expect(result.errors?.[0]?.message).toMatch(/exceeds the maximum/);
+  });
+
   it('filters, ordering, and pagination still work inside the fence', async () => {
     const filtered = await data('{ activities(where: { app: { eq: "code" } }) { id app } }');
     expect(filtered.activities).toEqual([{ id: 'act-1', app: 'code' }]);
@@ -127,8 +145,10 @@ describe('authorization scoping', () => {
       '{ categories { id activities { id } } devices { id activities { id } } }',
     );
     expect(result.categories).toEqual([{ id: 'cat-1', activities: [{ id: 'act-1' }] }]);
+    // Newest first, relation reads included: activities carry a default
+    // orderBy (entities.ts) for requests that name none.
     expect(result.devices).toEqual([
-      { id: 'device-1', activities: [{ id: 'act-1' }, { id: 'act-2' }] },
+      { id: 'device-1', activities: [{ id: 'act-2' }, { id: 'act-1' }] },
     ]);
   });
 
