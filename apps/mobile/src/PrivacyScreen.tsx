@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Button, Text, TextInput, View } from 'react-native';
+import { Button, Switch, Text, TextInput, View } from 'react-native';
 import { type MobileConfig, writeConfig } from './store.ts';
-import { Screen, ui } from './ui.tsx';
+import { Row, Screen, ui } from './ui.tsx';
 
 // Privacy rules — the same ignoreApps/redactApps the desktop agent reads out
 // of config.json, which on a phone nobody can open a text editor on. Patterns
@@ -30,11 +30,14 @@ interface Props {
 export function PrivacyScreen({ config, onConfigChange, onBack }: Props) {
   const [ignore, setIgnore] = useState(() => toLines(config.ignoreApps));
   const [redact, setRedact] = useState(() => toLines(config.redactApps));
+  // Absent means on — see sync.ts.
+  const [appsOnly, setAppsOnly] = useState(config.launchableAppsOnly !== false);
   const [saved, setSaved] = useState(false);
 
   const save = (): void => {
     const next: MobileConfig = {
       ...config,
+      launchableAppsOnly: appsOnly,
       ignoreApps: toPatterns(ignore),
       redactApps: toPatterns(redact),
     };
@@ -46,9 +49,24 @@ export function PrivacyScreen({ config, onConfigChange, onBack }: Props) {
   return (
     <Screen
       title="Privacy"
-      subtitle="One pattern per line. Applied on this device, before anything is stored or uploaded."
+      subtitle="Applied on this device, before anything is stored or uploaded."
       onBack={onBack}
     >
+      <Row label="Only apps you can open">
+        <Switch
+          value={appsOnly}
+          onValueChange={(value) => {
+            setAppsOnly(value);
+            setSaved(false);
+          }}
+        />
+      </Row>
+      <Text style={ui.hint}>
+        Android counts anything that reaches the screen as time in an app — the launcher between two
+        apps, the notification shade, a permission dialog. With this on, only apps with an icon in
+        your launcher are recorded.
+      </Text>
+
       <Text style={ui.label}>Ignored apps</Text>
       <Text style={ui.hint}>Dropped entirely — their time shows up nowhere.</Text>
       <TextInput
@@ -82,8 +100,8 @@ export function PrivacyScreen({ config, onConfigChange, onBack }: Props) {
       />
 
       <Text style={ui.hint}>
-        Patterns are case-insensitive regular expressions matched against the Android package name.
-        An invalid pattern is skipped rather than applied.
+        One pattern per line. Patterns are case-insensitive regular expressions matched against the
+        Android package name. An invalid pattern is skipped rather than applied.
       </Text>
 
       <View style={ui.button}>

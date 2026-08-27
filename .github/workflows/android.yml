@@ -1,10 +1,18 @@
-name: Android APK
+name: Android
 
-# Test APKs come from EAS Build, not from this runner: the Android SDK, the JDK
+# Every push to main that touches the app ships it — as an over-the-air update
+# when the binary already on people's phones can run the new JavaScript, and as
+# a full EAS build when it can't. "Can it run this" is not a judgement call: it
+# is the fingerprint that `runtimeVersion: { policy: "fingerprint" }` resolves
+# to, a hash over the SDK, the native dependencies, the config plugins and
+# modules/usage-events.
+#
+# Binaries come from EAS Build, not from this runner: the Android SDK, the JDK
 # and — the part that actually matters — the signing keystore all live on Expo's
 # side, so every APK this produces upgrades over the last one instead of being a
 # fresh debug-signed app. Setup (`eas init`, the EXPO_TOKEN secret, the one-time
-# keystore) is in apps/mobile/BUILDING.md.
+# keystore) and what an update can and cannot change are in
+# apps/mobile/BUILDING.md.
 
 on:
   workflow_dispatch:
@@ -14,6 +22,10 @@ on:
         type: choice
         options: [preview, production]
         default: preview
+      force_build:
+        description: Build a binary even if one already matches the fingerprint
+        type: boolean
+        default: false
   push:
     branches: [main]
     # Only what actually ends up in the app. The server and the dashboard share
@@ -25,7 +37,9 @@ on:
       - 'package-lock.json'
       - '.github/workflows/android.yml'
 
-# EAS builds queue and cost money; two for the same branch is one wasted.
+# EAS builds queue and cost money; two for the same branch is one wasted. An
+# update published by a run this cancels is harmless — the next run publishes a
+# newer one to the same channel, and an update group lands whole or not at all.
 concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true
@@ -48,10 +62,10 @@ jobs:
             echo 'configured=true' >> "$GITHUB_OUTPUT"
           else
             echo 'configured=false' >> "$GITHUB_OUTPUT"
-            echo '::warning::EXPO_TOKEN is not set, so no APK was built. See apps/mobile/BUILDING.md.'
+            echo '::warning::EXPO_TOKEN is not set, so nothing shipped. See apps/mobile/BUILDING.md.'
           fi
 
-  build:
+  ship:
     needs: guard
     if: needs.guard.outputs.configured == 'true'
     runs-on: ubuntu-latest
@@ -60,7 +74,14 @@ jobs:
         working-directory: apps/mobile
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      # One word per lane: `preview` and `production` name the build profile,
+      # the update channel and the EAS environment, all three.
       PROFILE: ${{ inputs.profile || 'preview' }}
+      # eas.json sets this for the build itself, but fingerprinting and
+      # publishing evaluate the app config out here, where eas.json's `env`
+      # doesn't reach. Mirror it, so the config this job hashes is the config it
+      # ships.
+      EUNOMIA_ALLOW_CLEARTEXT: ${{ (inputs.profile || 'preview') == 'production' && '0' || '1' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -79,10 +100,68 @@ jobs:
         run: npm ci
         working-directory: .
 
+      - name: Fingerprint the native runtime
+        id: fingerprint
+        run: |
+          eas fingerprint:generate \
+            --platform android \
+            --build-profile "$PROFILE" \
+            --json \
+            --non-interactive \
+            > fingerprint.json
+          HASH=$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync("fingerprint.json", "utf8")).hash)')
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Fingerprint \`$HASH\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # If a finished build on this channel already carries this fingerprint,
+      # the APK people have installed can run this commit's JavaScript, and the
+      # JavaScript is all that changed — publish, don't rebuild.
+      #
+      # Filtered by --channel and not by the hash alone: preview and production
+      # differ in a manifest attribute the fingerprint does not hash (the
+      # cleartext allowance is applied by a prebuild mod, after the config is
+      # evaluated), so the hash by itself would happily match a production AAB
+      # and then skip the preview APK the testers are actually on.
+      - name: Decide — update or build
+        id: decide
+        run: |
+          eas build:list \
+            --platform android \
+            --channel "$PROFILE" \
+            --status finished \
+            --fingerprint-hash "${{ steps.fingerprint.outputs.hash }}" \
+            --limit 1 \
+            --json \
+            --non-interactive \
+            > builds.json
+          COUNT=$(node -e 'process.stdout.write(String([].concat(JSON.parse(require("node:fs").readFileSync("builds.json", "utf8"))).length))')
+          if [ "$COUNT" -gt 0 ] && [ "${{ inputs.force_build }}" != 'true' ]; then
+            echo 'action=update' >> "$GITHUB_OUTPUT"
+          else
+            echo 'action=build' >> "$GITHUB_OUTPUT"
+          fi
+
+      # --environment is required from SDK 55 on. Nothing under apps/mobile/src
+      # reads process.env — the server URL and the API key are typed into the
+      # app and live on the phone — so it only picks which EAS environment's
+      # variables are visible while the app config is evaluated.
+      - name: Publish an update
+        if: steps.decide.outputs.action == 'update'
+        run: |
+          eas update \
+            --platform android \
+            --channel "$PROFILE" \
+            --environment "$PROFILE" \
+            --message "${{ github.ref_name }} ${{ github.sha }}" \
+            --non-interactive \
+            --json \
+            > update.json
+
       # --no-wait returns as soon as EAS accepts the job, so the runner isn't
       # sitting in the build queue on the clock. The APK lands on the build page
       # linked in the summary below.
       - name: Build on EAS
+        if: steps.decide.outputs.action == 'build'
         run: |
           eas build \
             --platform android \
@@ -98,7 +177,7 @@ jobs:
       # falls back to the log above rather than failing a build that started
       # fine.
       - name: Link the build
-        if: always()
+        if: always() && steps.decide.outputs.action == 'build'
         run: |
           node -e '
             const fs = require("node:fs");
@@ -121,6 +200,36 @@ jobs:
             }
             fs.appendFileSync(
               process.env.GITHUB_STEP_SUMMARY,
-              `## EAS Android build\n\n${body}\n\nThe APK downloads from the build page once EAS finishes.\n`,
+              `## EAS Android build\n\nThe native runtime changed, so this commit needs a binary.\n\n${body}\n\nThe APK downloads from the build page once EAS finishes.\n`,
+            );
+          '
+
+      # Same idea, one difference: the update response carries no project, so
+      # the account and the slug come from app.json — which is where the update
+      # URL gets them anyway.
+      - name: Link the update
+        if: always() && steps.decide.outputs.action == 'update'
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            let body;
+            try {
+              const { expo } = JSON.parse(fs.readFileSync("app.json", "utf8"));
+              const updates = [].concat(JSON.parse(fs.readFileSync("update.json", "utf8")));
+              body = updates
+                .map((update) => {
+                  const link = update.group
+                    ? `[open in EAS](https://expo.dev/accounts/${expo.owner}/projects/${expo.slug}/updates/${update.group})`
+                    : "the job’s log above";
+                  const branch = update.branch ?? update.branchName ?? "?";
+                  return `- \`${process.env.PROFILE}\` — branch \`${branch}\`, runtime \`${update.runtimeVersion}\` — ${link}`;
+                })
+                .join("\n");
+            } catch (error) {
+              body = `Could not read the EAS response — the update is in this job’s log. (${error.message})`;
+            }
+            fs.appendFileSync(
+              process.env.GITHUB_STEP_SUMMARY,
+              `## EAS Update\n\nThe native runtime is unchanged, so this commit ships as JavaScript — it is live now, not queued.\n\n${body}\n\nPhones on \`${process.env.PROFILE}\` pick it up on their next launch, background sync included.\n`,
             );
           '

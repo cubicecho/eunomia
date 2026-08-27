@@ -198,3 +198,43 @@ mutation MergeDevice($id: String!, $intoId: String!) {
 mutation DeleteDevice($id: String!) {
   deleteDevice(id: $id)
 }
+
+# Identity merges: "this entry IS that one". Exact (app, context) pairs rather
+# than patterns — the user picks them off what has actually been recorded.
+query MergeRules {
+  mergeRules {
+    id
+    fromApp
+    fromContext
+    toApp
+    toContext
+  }
+}
+
+# Creating a merge also rewrites the history it covers, so the chart changes
+# immediately rather than once new pings outweigh the old ones.
+mutation CreateMergeRule(
+  $fromApp: String!
+  $fromContext: String
+  $toApp: String!
+  $toContext: String
+) {
+  createMergeRule(
+    fromApp: $fromApp
+    fromContext: $fromContext
+    toApp: $toApp
+    toContext: $toContext
+  ) {
+    id
+  }
+}
+
+# Stops the merge applying to new pings; history already rewritten stays merged.
+mutation DeleteMergeRule($id: String!) {
+  deleteMergeRule(id: $id)
+}
+
+# Re-runs every merge over past activity; resolves to the number changed.
+mutation ApplyMergeRules {
+  applyMergeRules
+}

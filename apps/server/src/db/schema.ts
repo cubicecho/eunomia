@@ -180,6 +180,50 @@ export const contextRules = pgTable(
   (t) => [index('context_rules_user_idx').on(t.userId, t.priority)],
 );
 
+// Identity merging: per-user, exact-value rules that rewrite one entry's
+// (app, context) key into another's. The fix for the same thing recorded under
+// two names — a phone reporting "com.instagram.android" before its agent
+// learned to report "Instagram", a browser context left behind by a rewritten
+// context rule, an app renamed between agent versions.
+//
+// Exact strings, not regexes: the user picks the entry to merge off a list of
+// what has actually been recorded, so there is nothing for a pattern to
+// generalize over and a typo'd regex would silently merge the wrong thing.
+//
+// fromContext NULL means "every context of fromApp", and then each row keeps
+// the context it had (toContext must be null — an app-wide merge renames the
+// app, it does not collapse what is inside it). A fromContext that is set
+// names one exact entry, and toContext is where that entry lands — null there
+// meaning the app's contextless time.
+//
+// Applied at fold time so future pings land merged, and swept over history
+// (activities AND summaries) when created. See src/activity/merge-rules.ts;
+// src/activity/merge.ts is the unrelated device merge.
+export const mergeRules = pgTable(
+  'merge_rules',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    fromApp: text('from_app').notNull(),
+    fromContext: text('from_context'),
+    toApp: text('to_app').notNull(),
+    toContext: text('to_context'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('merge_rules_user_idx').on(t.userId),
+    // One rule per source entry, so which rule wins is never a question. NULLS
+    // NOT DISTINCT for the same reason summaries needs it: an app-wide rule
+    // (from_context NULL) is a source key like any other and must collide with
+    // a second one.
+    unique('merge_rules_source_idx')
+      .on(t.userId, t.fromApp, t.fromContext)
+      .nullsNotDistinct(),
+  ],
+);
+
 // Activity model (decided 2026-08-16): stateless pings folded inline, with
 // MULTIPLE open activities per device so context switching doesn't shred the
 // data — alternating IDE/browser for an hour is two rows, not a hundred twenty.
@@ -274,17 +318,28 @@ const r = createRelationsHelper({
   categories,
   categoryRules,
   contextRules,
+  mergeRules,
   summaries,
 });
 
 export const relations = buildRelations(
-  { user, devices, activities, categories, categoryRules, contextRules, summaries },
+  {
+    user,
+    devices,
+    activities,
+    categories,
+    categoryRules,
+    contextRules,
+    mergeRules,
+    summaries,
+  },
   {
     user: {
       devices: r.many.devices({ from: r.user.id, to: r.devices.userId }),
       categories: r.many.categories({ from: r.user.id, to: r.categories.userId }),
       categoryRules: r.many.categoryRules({ from: r.user.id, to: r.categoryRules.userId }),
       contextRules: r.many.contextRules({ from: r.user.id, to: r.contextRules.userId }),
+      mergeRules: r.many.mergeRules({ from: r.user.id, to: r.mergeRules.userId }),
     },
     devices: {
       user: r.one.user({ from: r.devices.userId, to: r.user.id }),
@@ -309,6 +364,9 @@ export const relations = buildRelations(
     },
     contextRules: {
       user: r.one.user({ from: r.contextRules.userId, to: r.user.id }),
+    },
+    mergeRules: {
+      user: r.one.user({ from: r.mergeRules.userId, to: r.user.id }),
     },
   },
 );

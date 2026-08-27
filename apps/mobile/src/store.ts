@@ -39,6 +39,12 @@ function jsonFile<T>(name: string) {
 export interface MobileConfig extends AgentConfig, BackgroundConfig {
   deviceId?: string;
   deviceName?: string;
+  /**
+   * Record only apps with a launcher entry, dropping the launcher itself,
+   * system UI, permission dialogs and the rest of what the usage log calls a
+   * foreground activity. Defaults to on — see sync.ts.
+   */
+  launchableAppsOnly?: boolean;
 }
 
 const configFile = jsonFile<Partial<MobileConfig>>('config.json');
@@ -55,6 +61,9 @@ export function loadConfig(): MobileConfig | null {
     if (typeof parsed.backgroundSync === 'boolean') config.backgroundSync = parsed.backgroundSync;
     if (typeof parsed.syncIntervalSeconds === 'number') {
       config.syncIntervalSeconds = parsed.syncIntervalSeconds;
+    }
+    if (typeof parsed.launchableAppsOnly === 'boolean') {
+      config.launchableAppsOnly = parsed.launchableAppsOnly;
     }
     if (isStringArray(parsed.ignoreApps)) config.ignoreApps = parsed.ignoreApps;
     if (isStringArray(parsed.redactApps)) config.redactApps = parsed.redactApps;

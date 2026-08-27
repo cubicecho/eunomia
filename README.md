@@ -20,8 +20,8 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
   Android's `UsageStatsManager` event log and the shared synthesizer turns it
   into pings retroactively — no live sampling service needed.
 - `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in,
-  per-category/per-day/per-app views, rules, devices. Talks to the server
-  through its own generated GraphQL SDK (committed codegen output).
+  per-category/per-day/per-app views, rules, entry merges, devices. Talks to the
+  server through its own generated GraphQL SDK (committed codegen output).
 - `packages/agent` — agent core shared by desktop and mobile: the generated
   GraphQL SDK (committed codegen output), crash-safe outbox, batch uploader,
   the usage-event → ping synthesizer, and the shared provisioning flow.
@@ -130,6 +130,17 @@ the site's hostname — full URLs never leave the machine. On Android there is
 no shell to edit `config.json` from, so the app edits both lists itself:
 **Privacy…** on the status screen, one pattern per line.
 
+Android adds a third control on the same screen, **Only apps you can open**
+(`launchableAppsOnly`, on unless set to `false`). The OS usage log records
+every activity that reaches the screen, and much of that is not an app anyone
+spent time in — the launcher between two apps, the notification shade, a
+permission dialog, a Play Services hand-off. The filter keeps only packages
+with a launcher entry, the same question the app drawer asks, so system
+screens are never queued. It applies after pings are synthesized, so the app
+you left is not credited with the launcher's time; as with `ignoreApps`, the
+gap a dropped span leaves accrues to whatever comes back, capped at 30
+seconds.
+
 ### Packaging the desktop agent
 
 ```bash
@@ -161,10 +172,12 @@ npm run apk:eas -w @eunomia/mobile      # eas build -p android -e preview
 npm run dist:apk                        # local gradle fallback (needs JDK + SDK)
 ```
 
-`.github/workflows/android.yml` runs the same EAS build on every push to `main`
-that touches the app, and on demand from the Actions tab with a profile picker.
-It needs an `EXPO_TOKEN` repository secret; without one it skips rather than
-fails. The result is an installable APK, not a Play-Store bundle — sideload it
+`.github/workflows/android.yml` ships the app on every push to `main` that
+touches it, and on demand from the Actions tab with a profile picker. It needs
+an `EXPO_TOKEN` repository secret; without one it skips rather than fails.
+Commits that change only JavaScript go out as an over-the-air update rather than
+a new APK — the phone picks one up on its next launch, background sync included
+— and only a change to the native runtime triggers a build. The result is an installable APK, not a Play-Store bundle — sideload it
 with `adb install` or by opening the file on the phone. Android's "Start at
 login" is the **Sync in the background** toggle: WorkManager keeps the
 registration across reboots. Account setup, the keystore step, and the local
@@ -221,6 +234,47 @@ Category rules can match on context too (`contextPattern:
 "youtube\\.com"` → Distraction); a context pattern never matches an activity
 that has no context. Context is part of the row's identity, so rules apply
 **forward-only** — time already folded into a contextless row stays there.
+
+### Merging entries (one thing, two names)
+
+The dashboard's unit of time is an **entry** — the `(app, context)` pair that
+activities fold into and summaries roll up under. The same real thing acquires
+two of them whenever the name it arrives under changes: a phone reporting
+`com.instagram.android` until its agent learns to ask Android for `Instagram`,
+a browser context left behind by a rewritten `contextRule`, an app renamed
+between agent versions.
+
+Nothing else puts those back together — category rules label time rather than
+rename it, and context rules only shape rows folded from now on. So a
+**merge rule** says "this entry IS that one", by exact value rather than by
+pattern (the entry is picked off what has actually been recorded, so there is
+nothing for a regex to generalize over):
+
+```graphql
+mutation {
+  createMergeRule(fromApp: "com.instagram.android", toApp: "Instagram") { id }
+  # One entry inside an app, rather than the whole app:
+  createMergeRule(fromApp: "chrome", fromContext: "x.com",
+    toApp: "chrome", toContext: "twitter.com") { id }
+}
+```
+
+It is applied twice: at fold time, so pings still arriving under the old name
+land under the new one, and over stored history — **activities and summaries
+both**, so days whose raw activities have already aged out under
+`ACTIVITY_RETENTION_DAYS` move too. Creating a merge sweeps immediately;
+`applyMergeRules` re-runs the sweep for activity that arrived afterwards.
+
+Omitting `fromContext` merges the whole app and carries each entry's context
+across, so `toContext` must be omitted as well. Chains resolve in one pass
+(merge A into B today, B into C next month), and a rule whose target leads back
+to its source is refused rather than resolved arbitrarily. Deleting a merge is
+a forward switch, not an undo: new pings fold under the old name again, but the
+two names were folded into one row and nothing records which seconds came from
+which.
+
+The **Merge entries** tab drives all of this — every recorded entry with its
+total, and a merge on each.
 
 ## Self-hosting
 

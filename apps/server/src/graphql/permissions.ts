@@ -1,4 +1,4 @@
-import { accept, type Rule } from '@vantreeseba/graphql-casl';
+import { accept, deny, type PermissionsMap, type Rule } from '@vantreeseba/graphql-casl';
 import { unauthenticated } from '../errors.ts';
 import type { Context } from './context.ts';
 // Type-only, so this doesn't make a cycle at runtime: schema.ts imports the
@@ -8,10 +8,10 @@ import type { mutationFields, queryFields } from './schema.ts';
 /**
  * Passes only when the request carries an identity (session bearer token or
  * device API key). Row-level scoping is NOT done here — graphql-middleware
- * gates fields but can't rewrite queries, so ownership fences live in the
- * resolvers themselves (scopedListField for generated list queries, explicit
- * owner checks in the domain mutations). This layer guarantees no protected
- * field ever executes anonymously, even if a resolver forgets its own check.
+ * gates fields but can't rewrite queries, so ownership fences live below: the
+ * generated reads are fenced at build time (scope.ts) and the domain mutations
+ * check ownership themselves. This layer guarantees no protected field ever
+ * executes anonymously, even if a resolver forgets its own check.
  */
 const authenticated: Rule = (resolve, parent, args, context: Context, info) => {
   if (!context.userId) return Promise.reject(unauthenticated());
@@ -28,24 +28,40 @@ const deviceAuthenticated: Rule = (resolve, parent, args, context: Context, info
 };
 
 /**
+ * The schema as the permissions map is typed against: field names come from
+ * what createSchema actually assembles, so a renamed field is a compile error
+ * on both sides at once.
+ */
+export type Resolvers = {
+  Query: ReturnType<typeof queryFields>;
+  Mutation: ReturnType<typeof mutationFields>;
+};
+
+/**
  * A rule for every exposed field, and only for fields that exist. Both halves
  * matter: a field with no rule is an unauthenticated one, and a rule for a
  * field that was renamed away guards nothing while looking like it does.
  * `PermissionsMap` alone can't say this — its keys are all optional — so the
- * shape is spelled out here against what createSchema actually assembles.
+ * exhaustive shape is spelled out here on top of it.
  */
-type SchemaPermissions = {
-  Query: Record<keyof ReturnType<typeof queryFields>, Rule>;
-  Mutation: Record<keyof ReturnType<typeof mutationFields>, Rule>;
+type SchemaPermissions = PermissionsMap<Resolvers> & {
+  Query: Record<keyof ReturnType<typeof queryFields> | '*', Rule>;
+  Mutation: Record<keyof ReturnType<typeof mutationFields> | '*', Rule>;
 };
 
 export const permissions = {
   Query: {
+    // The runtime half of the exhaustiveness above: a named field wins over
+    // the wildcard, so a field added without a rule is refused rather than
+    // served openly. The type says it can't happen; this says what happens if
+    // it does anyway — a rule map built from stale types, say.
+    '*': deny,
     devices: authenticated,
     activities: authenticated,
     categories: authenticated,
     categoryRules: authenticated,
     contextRules: authenticated,
+    mergeRules: authenticated,
     categorySummary: authenticated,
     appSummary: authenticated,
     deviceSummary: authenticated,
@@ -53,6 +69,7 @@ export const permissions = {
     me: accept,
   },
   Mutation: {
+    '*': deny,
     signUp: accept,
     signIn: accept,
     // Public: these ARE the login flow.
@@ -79,8 +96,8 @@ export const permissions = {
     createContextRule: authenticated,
     updateContextRule: authenticated,
     deleteContextRule: authenticated,
-    // No wildcard deny here: graphql-middleware validates every key against the
-    // schema, and unexposed fields simply don't exist (createSchema assembles
-    // only what's picked). New fields must get an explicit rule when added.
+    createMergeRule: authenticated,
+    deleteMergeRule: authenticated,
+    applyMergeRules: authenticated,
   },
 } satisfies SchemaPermissions;

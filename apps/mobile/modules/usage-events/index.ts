@@ -15,6 +15,8 @@ interface UsageEventsModule {
   openUsageAccessSettings(): void;
   queryEvents(beginMs: number, endMs: number): NativeUsageEvent[];
   getAppLabel(packageName: string): string | null;
+  /** Whether the package has a launcher entry — an app the user can open. */
+  isLaunchable(packageName: string): boolean;
 }
 
 export default requireNativeModule<UsageEventsModule>('UsageEvents');

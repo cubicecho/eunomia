@@ -8,6 +8,7 @@ import {
 } from 'graphql';
 import { type ContextRule, extractContext, loadContextRules } from '../activity/context.ts';
 import { type Activity, foldPing, lockDevice } from '../activity/fold.ts';
+import { loadMergeRules, type MergeRule, mergeEntry } from '../activity/merge-rules.ts';
 import { applyRules, type CategoryRule, loadRules } from '../activity/rules.ts';
 import type { Db } from '../db/client.ts';
 import { devices } from '../db/schema.ts';
@@ -110,16 +111,25 @@ async function foldBatch(
   pings: PingArgs[],
   capturedAts: Date[],
 ): Promise<(Activity | null)[]> {
-  const [contextRules, categoryRules] = await Promise.all([
+  const [contextRules, categoryRules, mergeRules] = await Promise.all([
     loadContextRules(db, device.userId),
     loadRules(db, device.userId),
+    loadMergeRules(db, device.userId),
   ]);
   return db.transaction(async (tx) => {
     await lockDevice(tx, device.id);
     const touched: (Activity | null)[] = [];
     for (const [i, ping] of pings.entries()) {
       touched.push(
-        await foldOne(tx, device.id, ping, capturedAts[i]!, contextRules, categoryRules),
+        await foldOne(
+          tx,
+          device.id,
+          ping,
+          capturedAts[i]!,
+          contextRules,
+          categoryRules,
+          mergeRules,
+        ),
       );
     }
     return touched;
@@ -133,14 +143,21 @@ async function foldOne(
   capturedAt: Date,
   contextRules: ContextRule[],
   categoryRules: CategoryRule[],
+  mergeRules: MergeRule[],
 ): Promise<Activity | null> {
   const context =
     ping.context ?? extractContext(contextRules, ping.app ?? null, ping.title ?? null);
+  // Merges apply to the FINAL fold key, so after context extraction and to
+  // both halves of it: the user merged what the dashboard showed them, which
+  // is the (app, context) pair, not the raw app the agent reported.
+  const entry = ping.app
+    ? mergeEntry(mergeRules, { app: ping.app, context })
+    : { app: null, context };
   const activity = await foldPing(tx, deviceId, {
     capturedAt,
-    app: ping.app ?? null,
+    app: entry.app,
     title: ping.title ?? null,
-    context,
+    context: entry.context,
     idleSeconds: ping.idleSeconds,
   });
   if (!activity) return null;

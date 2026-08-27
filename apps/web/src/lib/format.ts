@@ -55,6 +55,20 @@ export function rangeOfLastDays(days: number): DateRange {
   return { from: localDay(from), to: localDay(to) };
 }
 
+/**
+ * Everything ever recorded, as a range.
+ *
+ * The dashboard plots windows; the merge view is an inventory of names, and
+ * the name someone came to fix is usually the one that stopped appearing. The
+ * floor is a date no agent's history predates rather than an unbounded query —
+ * the server's aggregates take whole days, and there is no "all" to ask for.
+ */
+export function rangeOfEverything(): DateRange {
+  const to = new Date();
+  to.setHours(24, 0, 0, 0);
+  return { from: '2000-01-01', to: localDay(to) };
+}
+
 /** 'YYYY-MM-DD' shifted by whole local days. */
 export function addDays(day: string, delta: number): string {
   const date = new Date(`${day}T00:00:00`);
