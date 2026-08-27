@@ -112,3 +112,51 @@ export function topApps(rows: AppSummaryRow[], count = 10): AppTotal[] {
 
 export const sumSeconds = (rows: { seconds: number }[]): number =>
   rows.reduce((total, row) => total + row.seconds, 0);
+
+export interface EntryGroup {
+  app: string;
+  seconds: number;
+  /** Contexts recorded under the app, largest first. */
+  contexts: { context: string; seconds: number }[];
+  /** Time in the app under no context at all. */
+  contextless: number;
+}
+
+/**
+ * Every (app, context) pair the user has recorded, grouped by app, largest
+ * first — the merge view's inventory of names.
+ *
+ * Unlike topApps this caps nothing and rolls nothing into an "(other)": the
+ * entry someone came here to fix is exactly the one too small to make a top
+ * ten, and a bucket you can't name is one you can't merge.
+ */
+export function allEntries(rows: AppSummaryRow[]): EntryGroup[] {
+  const byApp = new Map<
+    string,
+    { seconds: number; contextless: number; contexts: Map<string, number> }
+  >();
+  for (const row of rows) {
+    const entry = byApp.get(row.app) ?? {
+      seconds: 0,
+      contextless: 0,
+      contexts: new Map<string, number>(),
+    };
+    entry.seconds += row.seconds;
+    if (row.context) {
+      entry.contexts.set(row.context, (entry.contexts.get(row.context) ?? 0) + row.seconds);
+    } else {
+      entry.contextless += row.seconds;
+    }
+    byApp.set(row.app, entry);
+  }
+  return [...byApp.entries()]
+    .map(([app, entry]) => ({
+      app,
+      seconds: entry.seconds,
+      contextless: entry.contextless,
+      contexts: [...entry.contexts.entries()]
+        .map(([context, seconds]) => ({ context, seconds }))
+        .sort((a, b) => b.seconds - a.seconds),
+    }))
+    .sort((a, b) => b.seconds - a.seconds);
+}

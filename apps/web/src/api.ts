@@ -12,9 +12,11 @@ import {
   type ContextRulesQuery,
   type CreateCategoryRuleMutationVariables,
   type CreateContextRuleMutationVariables,
+  type CreateMergeRuleMutationVariables,
   type DeviceSummaryQuery,
   type DevicesQuery,
   getSdk,
+  type MergeRulesQuery,
   type RecentActivitiesQuery,
   type Requester,
 } from '@/gql/sdk';
@@ -78,12 +80,16 @@ export type ActivitySample = RecentActivitiesQuery['activities'][number];
 export type Category = CategoriesQuery['categories'][number];
 export type CategoryRule = CategoryRulesQuery['categoryRules'][number];
 export type ContextRule = ContextRulesQuery['contextRules'][number];
+/** One “this entry IS that one” rule, as the merge view lists it. */
+export type MergeRule = MergeRulesQuery['mergeRules'][number];
 export type Device = DevicesQuery['devices'][number];
 export type DeviceSummaryRow = DeviceSummaryQuery['deviceSummary'][number];
 
 /** Everything a category rule is, minus its id — what the rule editor submits. */
 export type CategoryRuleInput = CreateCategoryRuleMutationVariables;
 export type ContextRuleInput = CreateContextRuleMutationVariables;
+/** The two ends of a merge — what the merge dialog submits. */
+export type MergeRuleInput = CreateMergeRuleMutationVariables;
 
 /**
  * Emails a single-use sign-in link. Returns the raw token only when the
@@ -141,6 +147,9 @@ export const fetchCategoryRules = (): Promise<CategoryRule[]> =>
 export const fetchContextRules = (): Promise<ContextRule[]> =>
   sdk.ContextRules().then((d) => d.contextRules);
 
+export const fetchMergeRules = (): Promise<MergeRule[]> =>
+  sdk.MergeRules().then((d) => d.mergeRules);
+
 export const fetchDevices = (): Promise<Device[]> => sdk.Devices().then((d) => d.devices);
 
 export const createCategory = (name: string, color: string | null): Promise<unknown> =>
@@ -168,6 +177,22 @@ export const deleteContextRule = (id: string): Promise<unknown> => sdk.DeleteCon
 /** Re-runs category rules over past activities; resolves to the number changed. */
 export const applyCategoryRules = (): Promise<number> =>
   sdk.ApplyCategoryRules().then((d) => d.applyCategoryRules);
+
+/**
+ * Merges one entry into another and rewrites the history it covers, so the
+ * chart changes now. A null context on the source means the whole app, and
+ * then the target context must be null too — renaming an app carries each
+ * entry's context across rather than collapsing them.
+ */
+export const createMergeRule = (rule: MergeRuleInput): Promise<unknown> =>
+  sdk.CreateMergeRule(rule);
+
+/** Stops the merge applying to new pings; merged history stays merged. */
+export const deleteMergeRule = (id: string): Promise<unknown> => sdk.DeleteMergeRule({ id });
+
+/** Re-runs every merge over past activity; resolves to the number changed. */
+export const applyMergeRules = (): Promise<number> =>
+  sdk.ApplyMergeRules().then((d) => d.applyMergeRules);
 
 export const renameDevice = (id: string, name: string): Promise<unknown> =>
   sdk.RenameDevice({ id, name });

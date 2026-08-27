@@ -3,12 +3,20 @@ import { eq, inArray } from 'drizzle-orm';
 import { GraphQLObjectType, GraphQLSchema, GraphQLString } from 'graphql';
 import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
-import { activities, categories, categoryRules, contextRules, devices } from '../db/schema.ts';
+import {
+  activities,
+  categories,
+  categoryRules,
+  contextRules,
+  devices,
+  mergeRules,
+} from '../db/schema.ts';
 import { authFields } from './auth-fields.ts';
 import { categoryFields } from './category-fields.ts';
 import type { Context } from './context.ts';
 import { deviceFields } from './device-fields.ts';
 import { buildEntities, type Entities, type Fields } from './entities.ts';
+import { mergeFields } from './merge-fields.ts';
 import { permissions } from './permissions.ts';
 import { pingFields } from './ping-fields.ts';
 import { ruleFields } from './rule-fields.ts';
@@ -48,6 +56,9 @@ function listQueries(entities: Entities) {
       'contextRules',
       (ctx) => eq(contextRules.userId, ctx.userId),
     ),
+    mergeRules: scopedListField(entities.queries.mergeRules!, mergeRules, 'mergeRules', (ctx) =>
+      eq(mergeRules.userId, ctx.userId),
+    ),
   } satisfies Fields;
 }
 
@@ -76,6 +87,7 @@ export function mutationFields(db: Db, auth: AuthGateway, entities: Entities) {
     ...deviceFields(db, auth, entities),
     ...categoryFields(db, entities),
     ...ruleFields(db, entities),
+    ...mergeFields(db, entities),
     ...pingFields(db, entities),
   } satisfies Fields;
 }

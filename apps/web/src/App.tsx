@@ -3,6 +3,7 @@ import { getToken, signOut, verifyMagicLink } from '@/api';
 import { ClockMark } from '@/components/clock-mark';
 import { DashboardView } from '@/components/dashboard/dashboard-view';
 import { DevicesView } from '@/components/devices-view';
+import { MergesView } from '@/components/merges-view';
 import { RulesView } from '@/components/rules-view';
 import { SignIn } from '@/components/sign-in';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,7 @@ type Screen = { kind: 'booting' } | { kind: 'signin'; message?: string } | { kin
 const VIEWS = [
   { value: 'dashboard', label: 'Dashboard' },
   { value: 'rules', label: 'Categories & rules' },
+  { value: 'merges', label: 'Merge entries' },
   { value: 'devices', label: 'Devices' },
 ] as const;
 
@@ -80,6 +82,9 @@ export function App() {
           </TabsContent>
           <TabsContent value="rules">
             <RulesView />
+          </TabsContent>
+          <TabsContent value="merges">
+            <MergesView />
           </TabsContent>
           <TabsContent value="devices">
             <DevicesView />

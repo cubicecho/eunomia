@@ -190,6 +190,33 @@ export type DeleteDeviceMutationVariables = Exact<{
 
 export type DeleteDeviceMutation = { deleteDevice: boolean };
 
+export type MergeRulesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type MergeRulesQuery = { mergeRules: Array<{ id: string, fromApp: string, fromContext: string | null, toApp: string, toContext: string | null }> };
+
+export type CreateMergeRuleMutationVariables = Exact<{
+  fromApp: string;
+  fromContext?: string | null | undefined;
+  toApp: string;
+  toContext?: string | null | undefined;
+}>;
+
+
+export type CreateMergeRuleMutation = { createMergeRule: { id: string } };
+
+export type DeleteMergeRuleMutationVariables = Exact<{
+  id: string;
+}>;
+
+
+export type DeleteMergeRuleMutation = { deleteMergeRule: boolean };
+
+export type ApplyMergeRulesMutationVariables = Exact<{ [key: string]: never; }>;
+
+
+export type ApplyMergeRulesMutation = { applyMergeRules: number };
+
 
 export const RequestMagicLinkDocument = new TypedDocumentString(`
     mutation RequestMagicLink($email: String!) {
@@ -387,6 +414,39 @@ export const DeleteDeviceDocument = new TypedDocumentString(`
   deleteDevice(id: $id)
 }
     `);
+export const MergeRulesDocument = new TypedDocumentString(`
+    query MergeRules {
+  mergeRules {
+    id
+    fromApp
+    fromContext
+    toApp
+    toContext
+  }
+}
+    `);
+export const CreateMergeRuleDocument = new TypedDocumentString(`
+    mutation CreateMergeRule($fromApp: String!, $fromContext: String, $toApp: String!, $toContext: String) {
+  createMergeRule(
+    fromApp: $fromApp
+    fromContext: $fromContext
+    toApp: $toApp
+    toContext: $toContext
+  ) {
+    id
+  }
+}
+    `);
+export const DeleteMergeRuleDocument = new TypedDocumentString(`
+    mutation DeleteMergeRule($id: String!) {
+  deleteMergeRule(id: $id)
+}
+    `);
+export const ApplyMergeRulesDocument = new TypedDocumentString(`
+    mutation ApplyMergeRules {
+  applyMergeRules
+}
+    `);
 export type Requester<C = {}> = <R, V>(doc: string, vars?: V, options?: C) => Promise<R> | AsyncIterable<R>
 export function getSdk<C>(requester: Requester<C>) {
   return {
@@ -458,6 +518,18 @@ export function getSdk<C>(requester: Requester<C>) {
     },
     DeleteDevice(variables: DeleteDeviceMutationVariables, options?: C): Promise<DeleteDeviceMutation> {
       return requester<DeleteDeviceMutation, DeleteDeviceMutationVariables>(DeleteDeviceDocument, variables, options) as Promise<DeleteDeviceMutation>;
+    },
+    MergeRules(variables?: MergeRulesQueryVariables, options?: C): Promise<MergeRulesQuery> {
+      return requester<MergeRulesQuery, MergeRulesQueryVariables>(MergeRulesDocument, variables, options) as Promise<MergeRulesQuery>;
+    },
+    CreateMergeRule(variables: CreateMergeRuleMutationVariables, options?: C): Promise<CreateMergeRuleMutation> {
+      return requester<CreateMergeRuleMutation, CreateMergeRuleMutationVariables>(CreateMergeRuleDocument, variables, options) as Promise<CreateMergeRuleMutation>;
+    },
+    DeleteMergeRule(variables: DeleteMergeRuleMutationVariables, options?: C): Promise<DeleteMergeRuleMutation> {
+      return requester<DeleteMergeRuleMutation, DeleteMergeRuleMutationVariables>(DeleteMergeRuleDocument, variables, options) as Promise<DeleteMergeRuleMutation>;
+    },
+    ApplyMergeRules(variables?: ApplyMergeRulesMutationVariables, options?: C): Promise<ApplyMergeRulesMutation> {
+      return requester<ApplyMergeRulesMutation, ApplyMergeRulesMutationVariables>(ApplyMergeRulesDocument, variables, options) as Promise<ApplyMergeRulesMutation>;
     }
   };
 }

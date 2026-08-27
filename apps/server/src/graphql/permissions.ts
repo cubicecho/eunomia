@@ -46,6 +46,7 @@ export const permissions = {
     categories: authenticated,
     categoryRules: authenticated,
     contextRules: authenticated,
+    mergeRules: authenticated,
     categorySummary: authenticated,
     appSummary: authenticated,
     deviceSummary: authenticated,
@@ -79,6 +80,9 @@ export const permissions = {
     createContextRule: authenticated,
     updateContextRule: authenticated,
     deleteContextRule: authenticated,
+    createMergeRule: authenticated,
+    deleteMergeRule: authenticated,
+    applyMergeRules: authenticated,
     // No wildcard deny here: graphql-middleware validates every key against the
     // schema, and unexposed fields simply don't exist (createSchema assembles
     // only what's picked). New fields must get an explicit rule when added.

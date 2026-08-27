@@ -20,8 +20,8 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
   Android's `UsageStatsManager` event log and the shared synthesizer turns it
   into pings retroactively — no live sampling service needed.
 - `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in,
-  per-category/per-day/per-app views, rules, devices. Talks to the server
-  through its own generated GraphQL SDK (committed codegen output).
+  per-category/per-day/per-app views, rules, entry merges, devices. Talks to the
+  server through its own generated GraphQL SDK (committed codegen output).
 - `packages/agent` — agent core shared by desktop and mobile: the generated
   GraphQL SDK (committed codegen output), crash-safe outbox, batch uploader,
   the usage-event → ping synthesizer, and the shared provisioning flow.
@@ -223,6 +223,47 @@ Category rules can match on context too (`contextPattern:
 "youtube\\.com"` → Distraction); a context pattern never matches an activity
 that has no context. Context is part of the row's identity, so rules apply
 **forward-only** — time already folded into a contextless row stays there.
+
+### Merging entries (one thing, two names)
+
+The dashboard's unit of time is an **entry** — the `(app, context)` pair that
+activities fold into and summaries roll up under. The same real thing acquires
+two of them whenever the name it arrives under changes: a phone reporting
+`com.instagram.android` until its agent learns to ask Android for `Instagram`,
+a browser context left behind by a rewritten `contextRule`, an app renamed
+between agent versions.
+
+Nothing else puts those back together — category rules label time rather than
+rename it, and context rules only shape rows folded from now on. So a
+**merge rule** says "this entry IS that one", by exact value rather than by
+pattern (the entry is picked off what has actually been recorded, so there is
+nothing for a regex to generalize over):
+
+```graphql
+mutation {
+  createMergeRule(fromApp: "com.instagram.android", toApp: "Instagram") { id }
+  # One entry inside an app, rather than the whole app:
+  createMergeRule(fromApp: "chrome", fromContext: "x.com",
+    toApp: "chrome", toContext: "twitter.com") { id }
+}
+```
+
+It is applied twice: at fold time, so pings still arriving under the old name
+land under the new one, and over stored history — **activities and summaries
+both**, so days whose raw activities have already aged out under
+`ACTIVITY_RETENTION_DAYS` move too. Creating a merge sweeps immediately;
+`applyMergeRules` re-runs the sweep for activity that arrived afterwards.
+
+Omitting `fromContext` merges the whole app and carries each entry's context
+across, so `toContext` must be omitted as well. Chains resolve in one pass
+(merge A into B today, B into C next month), and a rule whose target leads back
+to its source is refused rather than resolved arbitrarily. Deleting a merge is
+a forward switch, not an undo: new pings fold under the old name again, but the
+two names were folded into one row and nothing records which seconds came from
+which.
+
+The **Merge entries** tab drives all of this — every recorded entry with its
+total, and a merge on each.
 
 ## Self-hosting
 

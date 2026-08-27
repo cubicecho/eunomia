@@ -538,16 +538,62 @@ type MagicLinkRequest {
   token: String
 }
 
+type MergeRules {
+  """DateTime"""
+  createdAt: DateTime!
+  fromApp: String!
+  fromContext: String
+  id: String!
+  toApp: String!
+  toContext: String
+  user(where: UserFilters): User
+  userId: String!
+}
+
+input MergeRulesFilters {
+  OR: [MergeRulesFiltersOr!]
+  createdAt: DateTimeFilter
+  fromApp: StringFilter
+  fromContext: StringFilter
+  id: IdFilter
+  toApp: StringFilter
+  toContext: StringFilter
+  userId: IdFilter
+}
+
+input MergeRulesFiltersOr {
+  createdAt: DateTimeFilter
+  fromApp: StringFilter
+  fromContext: StringFilter
+  id: IdFilter
+  toApp: StringFilter
+  toContext: StringFilter
+  userId: IdFilter
+}
+
+input MergeRulesOrderBy {
+  createdAt: InnerOrder
+  fromApp: InnerOrder
+  fromContext: InnerOrder
+  id: InnerOrder
+  toApp: InnerOrder
+  toContext: InnerOrder
+  userId: InnerOrder
+}
+
 type Mutation {
   applyCategoryRules: Int!
+  applyMergeRules: Int!
   assignActivity(activityId: String!, categoryId: String): Activities!
   createCategory(color: String, name: String!): Categories!
   createCategoryRule(appPattern: String, categoryId: String!, contextPattern: String, priority: Int, titlePattern: String): CategoryRules!
   createContextRule(appPattern: String, priority: Int, titlePattern: String!): ContextRules!
+  createMergeRule(fromApp: String!, fromContext: String, toApp: String!, toContext: String): MergeRules!
   deleteCategory(id: String!): Boolean!
   deleteCategoryRule(id: String!): Boolean!
   deleteContextRule(id: String!): Boolean!
   deleteDevice(id: String!): Boolean!
+  deleteMergeRule(id: String!): Boolean!
   mergeDevice(id: String!, intoId: String!): Devices!
   recordPing(app: String, capturedAt: String!, context: String, deviceId: String, idleSeconds: Int!, title: String): Activities
   recordPings(deviceId: String, pings: [PingInput!]!): Int!
@@ -592,6 +638,7 @@ type Query {
   deviceSummary(from: String!, to: String!): [DeviceSummary!]!
   devices(limit: Int, offset: Int, orderBy: DevicesOrderBy, where: DevicesFilters): [Devices!]!
   me: String
+  mergeRules(limit: Int, offset: Int, orderBy: MergeRulesOrderBy, where: MergeRulesFilters): [MergeRules!]!
 }
 
 input StringFilter {
@@ -691,6 +738,7 @@ type User {
   emailVerified: Boolean!
   id: String!
   image: String
+  mergeRules(limit: Int, offset: Int, orderBy: MergeRulesOrderBy, where: MergeRulesFilters): [MergeRules!]!
   name: String!
 
   """DateTime"""
