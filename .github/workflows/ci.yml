@@ -53,3 +53,10 @@ jobs:
 
       - name: Build the dashboard
         run: npm run build -w @eunomia/web
+
+      # The Android app config is only evaluated at build time, on EAS — a
+      # broken plugin or a missing asset would otherwise surface twenty minutes
+      # into a build instead of here. Resolving it needs no SDK and no network.
+      - name: Android app config resolves
+        run: npx expo config --type prebuild
+        working-directory: apps/mobile

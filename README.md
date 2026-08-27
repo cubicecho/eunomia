@@ -153,17 +153,22 @@ remove as well.
 
 ### Packaging the Android agent
 
+Test APKs are built by EAS, not locally — the Android SDK, the JDK, and the
+signing keystore all live on Expo's side:
+
 ```bash
-npm run dist:apk                        # local gradle build → APK
-npm run apk:eas -w @eunomia/mobile      # or build it on EAS
+npm run apk:eas -w @eunomia/mobile      # eas build -p android -e preview
+npm run dist:apk                        # local gradle fallback (needs JDK + SDK)
 ```
 
-The local build needs a JDK (17+) and an Android SDK on the machine; EAS needs
-neither. Either way the result is an installable APK, not a Play-Store bundle —
-sideload it with `adb install` or by opening the file on the phone. Android's
-"Start at login" is the **Sync in the background** toggle: WorkManager keeps the
-registration across reboots. Full setup, both paths, and the signing caveats are
-in [apps/mobile/BUILDING.md](apps/mobile/BUILDING.md).
+`.github/workflows/android.yml` runs the same EAS build on every push to `main`
+that touches the app, and on demand from the Actions tab with a profile picker.
+It needs an `EXPO_TOKEN` repository secret; without one it skips rather than
+fails. The result is an installable APK, not a Play-Store bundle — sideload it
+with `adb install` or by opening the file on the phone. Android's "Start at
+login" is the **Sync in the background** toggle: WorkManager keeps the
+registration across reboots. Account setup, the keystore step, and the local
+fallback are in [apps/mobile/BUILDING.md](apps/mobile/BUILDING.md).
 
 Only one agent runs per machine — launching it again (Start menu, shortcut)
 opens the dashboard from the instance already running rather than starting a

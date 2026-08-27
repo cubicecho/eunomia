@@ -1,0 +1,118 @@
+name: Android APK
+
+# Test APKs come from EAS Build, not from this runner: the Android SDK, the JDK
+# and — the part that actually matters — the signing keystore all live on Expo's
+# side, so every APK this produces upgrades over the last one instead of being a
+# fresh debug-signed app. Setup (`eas init`, the EXPO_TOKEN secret, the one-time
+# keystore) is in apps/mobile/BUILDING.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: EAS build profile
+        type: choice
+        options: [preview, production]
+        default: preview
+  push:
+    branches: [main]
+    # Only what actually ends up in the app. The server and the dashboard share
+    # a repo with it but not a binary.
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/agent/**'
+      - 'packages/shared/**'
+      - 'package-lock.json'
+      - '.github/workflows/android.yml'
+
+# EAS builds queue and cost money; two for the same branch is one wasted.
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # `secrets` isn't readable from a job-level `if`, so the token check gets its
+  # own job. Without it, every push to main would fail this workflow until the
+  # secret exists — a red X that means "not set up yet", which is worse than
+  # useless.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -n "$EXPO_TOKEN" ]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo '::warning::EXPO_TOKEN is not set, so no APK was built. See apps/mobile/BUILDING.md.'
+          fi
+
+  build:
+    needs: guard
+    if: needs.guard.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      PROFILE: ${{ inputs.profile || 'preview' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # From the repo root: npm workspaces hoists, and eas needs to resolve
+      # `expo` here to evaluate the app config before it uploads anything.
+      - name: Install dependencies
+        run: npm ci
+        working-directory: .
+
+      # --no-wait returns as soon as EAS accepts the job, so the runner isn't
+      # sitting in the build queue on the clock. The APK lands on the build page
+      # linked in the summary below.
+      - name: Build on EAS
+        run: |
+          eas build \
+            --platform android \
+            --profile "$PROFILE" \
+            --non-interactive \
+            --no-wait \
+            --json \
+            --message "${{ github.ref_name }} ${{ github.sha }}" \
+            > build.json
+
+      - name: Link the build
+        if: always()
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            let body;
+            try {
+              const builds = [].concat(JSON.parse(fs.readFileSync("build.json", "utf8")));
+              body = builds
+                .map((build) => {
+                  const url = build.buildDetailsPageUrl || "";
+                  const id = build.id || "unknown";
+                  return `- \`${process.env.PROFILE}\` build \`${id}\`${url ? ` — [open in EAS](${url})` : ""}`;
+                })
+                .join("\n");
+            } catch (error) {
+              body = `Could not read the EAS response — the build link is in this job’s log. (${error.message})`;
+            }
+            fs.appendFileSync(
+              process.env.GITHUB_STEP_SUMMARY,
+              `## EAS Android build\n\n${body}\n\nThe APK downloads from the build page once EAS finishes.\n`,
+            );
+          '

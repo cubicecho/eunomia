@@ -11,4 +11,7 @@ web-build/
 /android/
 /ios/
 
+# `eas build --json` writes here (CI, and anyone running the same command).
+/build.json
+
 node_modules/
