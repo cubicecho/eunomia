@@ -24,6 +24,12 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-background-task"]
+    "plugins": ["expo-background-task"],
+    "extra": {
+      "eas": {
+        "projectId": "8766e902-3e68-429e-b7b1-a2fc0d92fa1f"
+      }
+    },
+    "owner": "vantreeseba"
   }
 }
