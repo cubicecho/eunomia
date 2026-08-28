@@ -13,6 +13,11 @@ name: Android
 # fresh debug-signed app. Setup (`eas init`, the EXPO_TOKEN secret, the one-time
 # keystore) and what an update can and cannot change are in
 # apps/mobile/BUILDING.md.
+#
+# Either way the result is recorded as a GitHub Release, so the Releases page —
+# not a run summary buried in the Actions tab — is where you look to see what is
+# out. One release per binary: a build creates it, and every update that ships
+# on top of that same binary appends a line to it.
 
 on:
   workflow_dispatch:
@@ -69,6 +74,10 @@ jobs:
     needs: guard
     if: needs.guard.outputs.configured == 'true'
     runs-on: ubuntu-latest
+    # Creating a release, and the tag under it, is a write to `contents`. The
+    # default token is read-only.
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: apps/mobile
@@ -172,64 +181,18 @@ jobs:
             --message "${{ github.ref_name }} ${{ github.sha }}" \
             > build.json
 
-      # The JSON carries no ready-made link, so build it the way the CLI prints
-      # it — from the account, the slug and the build id. Anything unreadable
-      # falls back to the log above rather than failing a build that started
-      # fine.
-      - name: Link the build
-        if: always() && steps.decide.outputs.action == 'build'
+      # Both lanes end in the same place: a GitHub Release — one per binary
+      # (channel plus fingerprint), with every update published against that
+      # same fingerprint appended to it. That is the repo's standing answer to
+      # "what is on people's phones right now?", which a per-run summary page
+      # can never be, since it describes one push and then scrolls away. The
+      # script writes this run's summary as well, so nothing is lost.
+      - name: Record the release
+        if: always() && steps.decide.outputs.action != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTION: ${{ steps.decide.outputs.action }}
+          FINGERPRINT: ${{ steps.fingerprint.outputs.hash }}
         run: |
-          node -e '
-            const fs = require("node:fs");
-            let body;
-            try {
-              const builds = [].concat(JSON.parse(fs.readFileSync("build.json", "utf8")));
-              body = builds
-                .map((build) => {
-                  const account = build.project?.ownerAccount?.name;
-                  const slug = build.project?.slug;
-                  const link =
-                    account && slug && build.id
-                      ? `[open in EAS](https://expo.dev/accounts/${account}/projects/${slug}/builds/${build.id})`
-                      : `build \`${build.id || "unknown"}\``;
-                  return `- \`${process.env.PROFILE}\` — version ${build.appVersion} (${build.appBuildVersion}) — ${link}`;
-                })
-                .join("\n");
-            } catch (error) {
-              body = `Could not read the EAS response — the build link is in this job’s log. (${error.message})`;
-            }
-            fs.appendFileSync(
-              process.env.GITHUB_STEP_SUMMARY,
-              `## EAS Android build\n\nThe native runtime changed, so this commit needs a binary.\n\n${body}\n\nThe APK downloads from the build page once EAS finishes.\n`,
-            );
-          '
-
-      # Same idea, one difference: the update response carries no project, so
-      # the account and the slug come from app.json — which is where the update
-      # URL gets them anyway.
-      - name: Link the update
-        if: always() && steps.decide.outputs.action == 'update'
-        run: |
-          node -e '
-            const fs = require("node:fs");
-            let body;
-            try {
-              const { expo } = JSON.parse(fs.readFileSync("app.json", "utf8"));
-              const updates = [].concat(JSON.parse(fs.readFileSync("update.json", "utf8")));
-              body = updates
-                .map((update) => {
-                  const link = update.group
-                    ? `[open in EAS](https://expo.dev/accounts/${expo.owner}/projects/${expo.slug}/updates/${update.group})`
-                    : "the job’s log above";
-                  const branch = update.branch ?? update.branchName ?? "?";
-                  return `- \`${process.env.PROFILE}\` — branch \`${branch}\`, runtime \`${update.runtimeVersion}\` — ${link}`;
-                })
-                .join("\n");
-            } catch (error) {
-              body = `Could not read the EAS response — the update is in this job’s log. (${error.message})`;
-            }
-            fs.appendFileSync(
-              process.env.GITHUB_STEP_SUMMARY,
-              `## EAS Update\n\nThe native runtime is unchanged, so this commit ships as JavaScript — it is live now, not queued.\n\n${body}\n\nPhones on \`${process.env.PROFILE}\` pick it up on their next launch, background sync included.\n`,
-            );
-          '
+          COMMIT_SUBJECT="$(git log -1 --pretty=%s)" \
+            node ../../.github/scripts/android-release.mjs
