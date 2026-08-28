@@ -12,15 +12,48 @@
 # schema assembly.
 
 extend type Query {
-  # The caller's user id, or null when the request is anonymous.
+  "The caller's user id, or null when the request is anonymous."
   me: String
 
-  # The dashboard's aggregates. Each stitches the precomputed `summaries` rows
-  # together with a live aggregation over whatever the rollup hasn't claimed
-  # yet, so "today" is never missing from a chart.
-  categorySummary(from: String!, to: String!, deviceId: String): [CategoryDaySummary!]!
-  appSummary(from: String!, to: String!, deviceId: String): [AppContextSummary!]!
-  deviceSummary(from: String!, to: String!): [DeviceSummary!]!
+  """
+  Time per category per day — the answer to "what did I spend last week on?".
+
+  Each aggregate below stitches the precomputed `summaries` rows together with
+  a live aggregation over whatever the 15-minute rollup hasn't claimed yet, so
+  today is never missing.
+  """
+  categorySummary(
+    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone."
+    from: String!
+    "End of the window, EXCLUSIVE — pass the day after the last one you want."
+    to: String!
+    "Limit to one device (see `devices`). Omitted means every device."
+    deviceId: String
+  ): [CategoryDaySummary!]!
+
+  """
+  Time per app and context over the window — the same seconds as
+  `categorySummary`, grouped by what was actually on screen rather than by
+  category. Not per-day: one row per app/context pair for the whole window.
+  """
+  appSummary(
+    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone."
+    from: String!
+    "End of the window, EXCLUSIVE — pass the day after the last one you want."
+    to: String!
+    "Limit to one device (see `devices`). Omitted means every device."
+    deviceId: String
+  ): [AppContextSummary!]!
+
+  """
+  Time per device over the window — which machine or phone the time came from.
+  """
+  deviceSummary(
+    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone."
+    from: String!
+    "End of the window, EXCLUSIVE — pass the day after the last one you want."
+    to: String!
+  ): [DeviceSummary!]!
 }
 
 type Mutation {
