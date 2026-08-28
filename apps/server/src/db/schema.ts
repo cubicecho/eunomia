@@ -370,3 +370,12 @@ export const relations = buildRelations(
     },
   },
 );
+
+// Row types for the three tables whose rows leave a resolver without an alias
+// of their own already (the rest are named beside the code that folds them:
+// Activity, CategoryRule, ContextRule, MergeRule). codegen maps the generated
+// GraphQL types onto these, so `return row` is checked against the table the
+// field claims to return.
+export type Device = typeof devices.$inferSelect;
+export type Category = typeof categories.$inferSelect;
+export type Summary = typeof summaries.$inferSelect;

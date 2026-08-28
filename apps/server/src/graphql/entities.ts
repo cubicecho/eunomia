@@ -1,26 +1,26 @@
 import { buildSchema as buildDrizzleSchema } from '@vantreeseba/drizzle-graphql';
-import { GraphQLError, type GraphQLFieldConfig, type GraphQLObjectType } from 'graphql';
+import { GraphQLError, type GraphQLFieldConfig } from 'graphql';
 import type { Db } from '../db/client.ts';
 import type { Context } from './context.ts';
 import { rowScopes } from './scope.ts';
 
 /**
- * What drizzle-graphql generates from the tables: the list queries, and the
- * object types the domain resolvers return.
+ * What drizzle-graphql generates from the tables, as this server uses it: the
+ * list queries. The object types come along with the queries that return them
+ * — domain.graphql names them rather than reaching for them here.
  *
  * Only what createSchema picks ends up in the public schema, and everything
  * that writes is hand-written — so nothing generated needs to be a mutation.
  */
 export interface Entities {
   queries: Record<string, GraphQLFieldConfig<unknown, Context>>;
-  types: Record<string, GraphQLObjectType>;
 }
 
 /**
  * drizzle v1 RC types the db by its relations config, not its tables, so
- * drizzle-graphql's entity keys can't be inferred statically. Widening to
- * string-keyed records here keeps the single cast in one place, and the
- * non-null assertions at the pick sites (`entities.types.Devices!`) are what
+ * drizzle-graphql's entity keys can't be inferred statically. Widening to a
+ * string-keyed record here keeps the single cast in one place, and the
+ * non-null assertions at the pick sites (`entities.queries.devices!`) are what
  * fail loudly if a table is renamed.
  */
 export function buildEntities(db: Db): Entities {
@@ -67,5 +67,5 @@ export function buildEntities(db: Db): Entities {
 const onError = (error: unknown): Error | undefined =>
   error instanceof GraphQLError ? error : undefined;
 
-/** The field shape every domain module in this directory returns. */
+/** The field-config shape the generated queries are picked into. */
 export type Fields = Record<string, GraphQLFieldConfig<unknown, Context>>;

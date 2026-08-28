@@ -6,11 +6,9 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
-COPY packages/shared/package.json packages/shared/
 RUN npm ci
 
 COPY tsconfig.base.json ./
-COPY packages/shared packages/shared
 COPY apps/server apps/server
 COPY apps/web apps/web
 

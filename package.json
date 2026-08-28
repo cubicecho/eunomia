@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "codegen": "npm run schema:print -w @eunomia/server && npm run codegen -w @eunomia/agent && npm run codegen -w @eunomia/web",
+    "codegen": "npm run schema:print -w @eunomia/server && npm run codegen -w @eunomia/server && npm run codegen -w @eunomia/agent && npm run codegen -w @eunomia/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "biome check .",
     "lint:fix": "biome check . --write",

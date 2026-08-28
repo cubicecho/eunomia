@@ -3,28 +3,28 @@
 // intervals (see apps/server/src/activity/fold.ts) — agents never track
 // sessions themselves.
 
-export interface Ping {
-  capturedAt: string;
-  /** Foreground app identifier (executable / package name). Null if undetectable. */
-  app: string | null;
-  /** Foreground window title or app label. Null if unavailable. */
-  title: string | null;
-  /**
-   * Sub-app division — e.g. the browser site's hostname. Null when the
-   * platform can't tell; the server may still extract one from the title.
-   */
-  context: string | null;
-  /** Seconds since last input. 0 when the platform can't measure it but the user is present. */
-  idleSeconds: number;
-}
-
-// Compile-time drift check: every Ping must remain a valid PingInput, so a
-// server-side change to the ping shape breaks this package's typecheck rather
-// than showing up as rejected uploads in the field.
 import type { PingInput } from './gql/sdk.ts';
 
-type AssertWireCompatible<_T extends PingInput> = never;
-export type _PingWireCheck = AssertWireCompatible<Ping>;
+/**
+ * One ping, as the server declares it.
+ *
+ * `Required` rather than `PingInput` itself: the wire type makes the nullable
+ * fields optional, and an agent that simply omits `title` when it can't read
+ * one is indistinguishable from an agent that forgot to look. Every field is
+ * spelled out here, and null is the answer to "the platform can't tell":
+ *
+ * - `app` — foreground app identifier (executable / package name).
+ * - `title` — foreground window title or app label.
+ * - `context` — sub-app division, e.g. the browser site's hostname. The server
+ *   may still extract one from the title when this is null.
+ * - `idleSeconds` — seconds since last input; 0 when the platform can't
+ *   measure it but the user is present.
+ *
+ * Deriving it from the schema is also the drift check: a ping shape change on
+ * the server breaks this package's typecheck at `npm run codegen`, rather than
+ * showing up as rejected uploads in the field.
+ */
+export type Ping = Required<PingInput>;
 
 /** Keep-alive cadence for live-sampling agents (desktop tray). */
 export const PING_INTERVAL_MS = 10_000;

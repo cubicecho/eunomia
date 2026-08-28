@@ -80,7 +80,7 @@ The switch has to be present for **prebuild**, which is when the plugin runs.
 
 [`.github/workflows/android.yml`](../../.github/workflows/android.yml) ships the
 app on every push to `main` that touches it (`apps/mobile`, `packages/agent`,
-`packages/shared`, or the lockfile), and on demand from the Actions tab —
+or the lockfile), and on demand from the Actions tab —
 **Run workflow** takes a profile, so `production` is a click away without
 editing anything.
 
@@ -125,7 +125,7 @@ What an update can carry, and what it can't:
 | changed                                | ships as  |
 | -------------------------------------- | --------- |
 | anything under `src/`, `App.tsx`       | an update |
-| `@eunomia/agent`, `@eunomia/shared`    | an update |
+| `@eunomia/agent`                       | an update |
 | assets the bundler resolves            | an update |
 | `modules/usage-events` (the Kotlin)    | a build   |
 | `plugins/*.js`, the native half of `app.json` | a build |

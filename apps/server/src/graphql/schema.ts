@@ -1,7 +1,16 @@
+import { readFileSync } from 'node:fs';
 import { applyPermissions } from '@vantreeseba/graphql-casl';
-import { GraphQLObjectType, GraphQLSchema, GraphQLString } from 'graphql';
+import {
+  assertObjectType,
+  extendSchema,
+  type GraphQLFieldResolver,
+  GraphQLObjectType,
+  GraphQLSchema,
+  parse,
+} from 'graphql';
 import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
+import type { MutationResolvers, QueryResolvers } from '../gql/resolvers.ts';
 import { authFields } from './auth-fields.ts';
 import { categoryFields } from './category-fields.ts';
 import type { Context } from './context.ts';
@@ -14,11 +23,24 @@ import { ruleFields } from './rule-fields.ts';
 import { summaryFields } from './summaries.ts';
 
 /**
+ * The hand-written half of the schema, as SDL.
+ *
+ * Read once at module load, from the source tree rather than from a bundle:
+ * the server runs under tsx with no build step, and the Dockerfile copies
+ * apps/server wholesale, so the file is beside this one in every environment.
+ */
+const domain = parse(readFileSync(new URL('./domain.graphql', import.meta.url), 'utf8'));
+
+/**
  * The read side: drizzle-graphql's generated list queries, taken as generated.
  *
  * Each is already fenced to the caller's own rows — the ownership predicate is
  * part of the build (scope.ts), not something re-imposed on the resolver here,
  * so it holds on the nested and aggregate paths this pick doesn't cover.
+ *
+ * This is also what makes the generated object types (Devices, Activities, and
+ * everything reachable from them) part of the schema domain.graphql extends,
+ * which is how the SDL can name them without redeclaring them.
  */
 function listQueries(entities: Entities) {
   return {
@@ -32,38 +54,40 @@ function listQueries(entities: Entities) {
 }
 
 /**
- * The two field maps, kept as functions of their own so their key sets are
- * types: permissions.ts requires a rule for exactly these names, which is what
- * makes an unguarded new field a compile error rather than a live one.
+ * Binds the domain resolvers to the fields domain.graphql declared, and
+ * refuses anything that doesn't line up in either direction.
  *
- * Field order is the printed SDL's order, and the SDL is a committed artifact,
- * so reordering these spreads shows up as codegen churn in every consumer.
+ * A resolver for a field the SDL doesn't declare is a name that will never be
+ * called; a field the SDL declares with no resolver returns null forever. Both
+ * are silent at runtime, so both throw here — at import time, which the tests
+ * and the container's first request both reach before any client does.
+ *
+ * The generated list queries already carry their resolvers through
+ * extendSchema (it copies field configs, resolve included), which is why the
+ * completeness check covers Query as well as Mutation.
  */
-export function queryFields(db: Db, entities: Entities) {
-  return {
-    ...listQueries(entities),
-    ...summaryFields(db),
-    me: {
-      type: GraphQLString,
-      resolve: (_source: unknown, _args: unknown, ctx: Context) => ctx.userId ?? null,
-    },
-  } satisfies Fields;
-}
-
-export function mutationFields(db: Db, auth: AuthGateway, entities: Entities) {
-  return {
-    ...authFields(auth),
-    ...deviceFields(db, auth, entities),
-    ...categoryFields(db, entities),
-    ...ruleFields(db, entities),
-    ...mergeFields(db, entities),
-    ...pingFields(db, entities),
-  } satisfies Fields;
+function attachResolvers(
+  schema: GraphQLSchema,
+  resolvers: { Query: QueryResolvers; Mutation: MutationResolvers },
+): GraphQLSchema {
+  for (const [typeName, fields] of Object.entries(resolvers)) {
+    const declared = assertObjectType(schema.getType(typeName)).getFields();
+    for (const [name, resolve] of Object.entries(fields)) {
+      const field = declared[name];
+      if (!field) throw new Error(`No ${typeName}.${name} in the schema to resolve`);
+      field.resolve = resolve as GraphQLFieldResolver<unknown, Context>;
+    }
+    for (const [name, field] of Object.entries(declared)) {
+      if (!field.resolve) throw new Error(`No resolver for ${typeName}.${name}`);
+    }
+  }
+  return schema;
 }
 
 /**
- * Assembles the executable schema from the domain modules beside this file,
- * with CASL permissions applied over the whole thing.
+ * Assembles the executable schema: the generated reads, extended with the
+ * hand-written SDL, resolved by the domain modules beside this file, with CASL
+ * permissions applied over the whole thing.
  *
  * What's picked here is what exists: the generated CRUD for auth tables and
  * raw device mutations is deliberately left out. Auth is GraphQL too
@@ -72,10 +96,22 @@ export function mutationFields(db: Db, auth: AuthGateway, entities: Entities) {
  */
 export function createSchema(db: Db, auth: AuthGateway) {
   const entities = buildEntities(db);
-  const query = new GraphQLObjectType({ name: 'Query', fields: queryFields(db, entities) });
-  const mutation = new GraphQLObjectType({
-    name: 'Mutation',
-    fields: mutationFields(db, auth, entities),
+  const generated = new GraphQLSchema({
+    query: new GraphQLObjectType({ name: 'Query', fields: listQueries(entities) }),
   });
-  return applyPermissions<Resolvers>(new GraphQLSchema({ query, mutation }), permissions);
+  const schema = attachResolvers(extendSchema(generated, domain), {
+    Query: {
+      ...summaryFields(db),
+      me: (_source, _args, ctx) => ctx.userId ?? null,
+    },
+    Mutation: {
+      ...authFields(auth),
+      ...deviceFields(db, auth),
+      ...categoryFields(db),
+      ...ruleFields(db),
+      ...mergeFields(db),
+      ...pingFields(db),
+    },
+  });
+  return applyPermissions<Resolvers>(schema, permissions);
 }
