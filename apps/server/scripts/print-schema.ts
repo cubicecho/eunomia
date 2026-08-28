@@ -5,11 +5,14 @@ import type { AuthGateway } from '../src/auth.ts';
 import { createDb } from '../src/db/client.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 
-// Prints the public GraphQL schema as SDL to the repo root, where codegen
-// turns it into the typed clients its consumers share — the agents
-// (packages/agent) and the dashboard (apps/web). Committed on purpose: the
-// SDL + generated types are the cross-package contract, so a server schema
-// change surfaces as a typecheck/test failure in every consumer.
+// Prints the public GraphQL schema as SDL to the repo root, where packages/gql
+// turns it into the resolver types this server is checked against and the typed
+// clients its consumers share — the agents (packages/agent) and the dashboard
+// (apps/web). This file is the one committed half of that contract: the types
+// generated from it are not, so the SDL is what a reviewer diffs and what lets
+// codegen run on a build machine with no database. A server schema change that
+// isn't reprinted here fails CI; one that is surfaces as a typecheck failure in
+// every consumer it breaks.
 //
 // Schema assembly never touches the database or auth — the db connects lazily
 // and the gateway is only called by resolvers — so stubs are safe here.

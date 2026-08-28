@@ -5,3 +5,6 @@ dist/
 .DS_Store
 coverage/
 release/
+
+# graphql-codegen output: regenerated on install and before every build.
+packages/gql/src/

@@ -1,6 +1,6 @@
+import type { MutationResolvers, QueryResolvers } from '@eunomia/gql/resolvers';
 import { accept, deny, type PermissionsMap, type Rule } from '@vantreeseba/graphql-casl';
 import { unauthenticated } from '../errors.ts';
-import type { MutationResolvers, QueryResolvers } from '../gql/resolvers.ts';
 import type { Context } from './context.ts';
 
 /**
@@ -27,7 +27,7 @@ const deviceAuthenticated: Rule = (resolve, parent, args, context: Context, info
 
 /**
  * The schema as the permissions map is typed against: field names come from
- * codegen over the schema itself (src/gql/resolvers.ts), so a field renamed in
+ * codegen over the schema itself (@eunomia/gql/resolvers), so a field renamed in
  * domain.graphql is a compile error here and in its resolver at once.
  */
 export type Resolvers = {

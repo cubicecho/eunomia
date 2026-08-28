@@ -1,3 +1,4 @@
+import type { MutationResolvers } from '@eunomia/gql/resolvers';
 import { and, eq } from 'drizzle-orm';
 import {
   type Entry,
@@ -9,7 +10,6 @@ import {
 import type { Db } from '../db/client.ts';
 import { mergeRules } from '../db/schema.ts';
 import { badInput, notFound } from '../errors.ts';
-import type { MutationResolvers } from '../gql/resolvers.ts';
 import { requireUser } from './guards.ts';
 
 // Merging two entries — two names for one app, or two contexts inside one —

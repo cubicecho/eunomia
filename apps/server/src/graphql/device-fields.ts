@@ -1,10 +1,10 @@
+import type { MutationResolvers } from '@eunomia/gql/resolvers';
 import { and, eq, inArray } from 'drizzle-orm';
 import { mergeDeviceHistory } from '../activity/merge.ts';
 import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
 import { apikey, devices } from '../db/schema.ts';
 import { badInput, notFound } from '../errors.ts';
-import type { MutationResolvers } from '../gql/resolvers.ts';
 import { requireOwned, requireUser } from './guards.ts';
 
 // Device lifecycle: register, rename, re-key, merge, delete. The generated

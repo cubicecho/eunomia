@@ -21,10 +21,12 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
   into pings retroactively — no live sampling service needed.
 - `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in,
   per-category/per-day/per-app views, rules, entry merges, devices. Talks to the
-  server through its own generated GraphQL SDK (committed codegen output).
-- `packages/agent` — agent core shared by desktop and mobile: the generated
-  GraphQL SDK (committed codegen output), crash-safe outbox, batch uploader,
-  the usage-event → ping synthesizer, and the shared provisioning flow.
+  server through the generated GraphQL SDK in `packages/gql`.
+- `packages/agent` — agent core shared by desktop and mobile: crash-safe outbox,
+  batch uploader, the usage-event → ping synthesizer, and the shared
+  provisioning flow.
+- `packages/gql` — nothing but graphql-codegen's output, regenerated from
+  `schema.graphql` and not kept in git. See below.
 
 ### GraphQL contract
 
@@ -34,15 +36,28 @@ everything else — every mutation, the dashboard aggregates, `me` — is writte
 as SDL in `apps/server/src/graphql/domain.graphql` and applied on top of them.
 `schema.graphql` at the root is the two halves printed together.
 
-Three generated files are committed alongside it, all derived from that SDL:
-`apps/server/src/gql/resolvers.ts` (the argument and return types every
-resolver in `apps/server/src/graphql` is checked against) and
-`packages/agent/src/gql/sdk.ts` / `apps/web/src/gql/sdk.ts` (the typed
-clients). After changing the schema, run:
+`schema.graphql` is committed, so that an API change shows up in the diff a
+reviewer reads and so that nothing needs a running server to generate against.
+What is generated *from* it is not committed. It lives in one workspace
+package, `packages/gql`, whose three entry points are the whole contract:
+
+| Import | What it is |
+| --- | --- |
+| `@eunomia/gql/resolvers` | the argument and return types every resolver in `apps/server/src/graphql` is checked against |
+| `@eunomia/gql/agent` | the typed client the desktop and mobile agents call |
+| `@eunomia/gql/web` | the typed client the dashboard calls |
+
+`packages/gql/src/` is in `.gitignore`. It is written by an install (the
+package's `prepare` script) and rewritten before anything that consumes it —
+`npm run typecheck`, `npm test`, the dashboard's `build`, the desktop
+`build:main`, the Docker image. So the usual answer to "do I need to run
+codegen?" is no. After changing the schema itself:
 
 ```bash
-npm run codegen   # prints the SDL, then regenerates the server types and both SDKs
+npm run codegen   # reprints schema.graphql, then regenerates from it
 ```
+
+`npm run codegen:types` skips the reprint when only the operations changed.
 
 A schema change that breaks a consumer then fails `npm run typecheck` in that
 package instead of failing at runtime — the server included, since a resolver

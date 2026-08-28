@@ -1,3 +1,4 @@
+import type { MutationResolvers, PingInput } from '@eunomia/gql/resolvers';
 import { eq } from 'drizzle-orm';
 import { type ContextRule, extractContext, loadContextRules } from '../activity/context.ts';
 import { type Activity, foldPing, lockDevice } from '../activity/fold.ts';
@@ -6,7 +7,6 @@ import { applyRules, type CategoryRule, loadRules } from '../activity/rules.ts';
 import type { Db } from '../db/client.ts';
 import { devices } from '../db/schema.ts';
 import { badInput } from '../errors.ts';
-import type { MutationResolvers, PingInput } from '../gql/resolvers.ts';
 import type { Context } from './context.ts';
 import { requireOwned, requireUser } from './guards.ts';
 

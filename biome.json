@@ -1,6 +1,10 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.3.13/schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
   "files": {
     "ignoreUnknown": true,
     "includes": [
@@ -10,14 +14,18 @@
       "!release",
       "!package-lock.json",
       "!schema.graphql",
-      "!packages/agent/src/gql",
-      "!apps/server/src/gql",
-      "!apps/web/src/gql",
+      "!packages/gql/src",
       "!apps/desktop/src/tray-icon.ts",
       "!apps/server/drizzle"
     ]
   },
-  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -52,19 +60,31 @@
     }
   },
   "css": {
-    "parser": { "tailwindDirectives": true }
+    "parser": {
+      "tailwindDirectives": true
+    }
   },
   "overrides": [
     {
       "includes": ["**/*.test.ts", "**/*.test.tsx"],
-      "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
     },
     {
       "includes": ["apps/web/src/components/ui/**"],
       "linter": {
         "rules": {
-          "security": { "noDangerouslySetInnerHtml": "off" },
-          "suspicious": { "noArrayIndexKey": "off" }
+          "security": {
+            "noDangerouslySetInnerHtml": "off"
+          },
+          "suspicious": {
+            "noArrayIndexKey": "off"
+          }
         }
       }
     }

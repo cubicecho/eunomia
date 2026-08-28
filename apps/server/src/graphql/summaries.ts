@@ -1,9 +1,9 @@
+import type { QueryResolvers } from '@eunomia/gql/resolvers';
 import { and, eq, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Db } from '../db/client.ts';
 import { activities, categories, devices, summaries } from '../db/schema.ts';
 import { badInput } from '../errors.ts';
-import type { QueryResolvers } from '../gql/resolvers.ts';
 import { requireUser } from './guards.ts';
 
 // The dashboard's two aggregates. Both answer the same question in different
