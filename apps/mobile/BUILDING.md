@@ -98,6 +98,39 @@ Version numbers are EAS's job (`cli.appVersionSource` is `remote`, with
 own and no build needs a commit to bump it. The `versionCode` still in `app.json`
 is ignored by EAS and used only by a local Gradle build.
 
+### Where it shows up
+
+Every ship lands on the repo's
+[Releases](https://github.com/cubicecho/eunomia/releases) page, one release per
+**binary** — a channel plus a native fingerprint. A build creates it, and every
+update later published against that same fingerprint appends a line to it, which
+is what a phone actually runs: one APK plus the newest update its runtime
+accepts. So the list stays one row per native runtime rather than one per merge.
+
+| you want to know               | look at                                                    |
+| ------------------------------ | ---------------------------------------------------------- |
+| what production runs           | the newest release *without* a pre-release badge            |
+| what the testers hold          | the newest release *with* one — `preview` is always flagged, so "Latest" stays on production |
+| what shipped since that binary | the update list inside that release, newest first           |
+| the APK, or a build's progress | the *open in EAS* link in the release's Binary section      |
+
+The tag — `android-preview-9f3c1a2b4d5e` — is the channel and the first twelve
+characters of the fingerprint. Ugly on purpose: it is the one name both lanes can
+compute, since an update knows the fingerprint it was published against but not
+the version number of the binary it will land on.
+
+Nothing is attached to the release. EAS keeps the artifact, and the build step
+returns before it exists — so the release links to the build page instead, which
+is also where the QR code for installing onto a phone lives. A release whose
+binary was built by hand rather than by CI says so in its Binary section.
+
+The body is generated from a JSON block embedded in it (an HTML comment, so it
+does not render), read back and re-rendered on every ship. Editing a release by
+hand is therefore fine for prose that will be overwritten and pointless for
+anything else; change
+[`.github/scripts/android-release.mjs`](../../.github/scripts/android-release.mjs)
+instead, and the next ship re-renders the whole history in the new shape.
+
 To run a profile on your own machine instead — same recipe, no queue, but it
 needs the toolchain below:
 
@@ -174,7 +207,8 @@ fingerprints the commit, then asks EAS whether a finished build **on that
 channel** already carries the same fingerprint. If one does, the APK people have
 installed can run this commit's JavaScript, so the workflow publishes an update.
 If none does, the native runtime changed and it starts a build. The run summary
-says which happened, and links to it.
+says which happened, and links to it — as does the release it records the ship
+into, per "Where it shows up" above.
 
 It asks per channel rather than by hash alone because the fingerprint does not
 see `EUNOMIA_ALLOW_CLEARTEXT`: that switch is applied by a prebuild mod, after
