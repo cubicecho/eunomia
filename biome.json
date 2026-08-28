@@ -11,6 +11,7 @@
       "!package-lock.json",
       "!schema.graphql",
       "!packages/agent/src/gql",
+      "!apps/server/src/gql",
       "!apps/web/src/gql",
       "!apps/desktop/src/tray-icon.ts",
       "!apps/server/drizzle"

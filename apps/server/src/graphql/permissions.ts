@@ -1,9 +1,7 @@
 import { accept, deny, type PermissionsMap, type Rule } from '@vantreeseba/graphql-casl';
 import { unauthenticated } from '../errors.ts';
+import type { MutationResolvers, QueryResolvers } from '../gql/resolvers.ts';
 import type { Context } from './context.ts';
-// Type-only, so this doesn't make a cycle at runtime: schema.ts imports the
-// permissions below, and their type is the shape of what it exposes.
-import type { mutationFields, queryFields } from './schema.ts';
 
 /**
  * Passes only when the request carries an identity (session bearer token or
@@ -29,12 +27,12 @@ const deviceAuthenticated: Rule = (resolve, parent, args, context: Context, info
 
 /**
  * The schema as the permissions map is typed against: field names come from
- * what createSchema actually assembles, so a renamed field is a compile error
- * on both sides at once.
+ * codegen over the schema itself (src/gql/resolvers.ts), so a field renamed in
+ * domain.graphql is a compile error here and in its resolver at once.
  */
 export type Resolvers = {
-  Query: ReturnType<typeof queryFields>;
-  Mutation: ReturnType<typeof mutationFields>;
+  Query: QueryResolvers;
+  Mutation: MutationResolvers;
 };
 
 /**
@@ -45,8 +43,8 @@ export type Resolvers = {
  * exhaustive shape is spelled out here on top of it.
  */
 type SchemaPermissions = PermissionsMap<Resolvers> & {
-  Query: Record<keyof ReturnType<typeof queryFields> | '*', Rule>;
-  Mutation: Record<keyof ReturnType<typeof mutationFields> | '*', Rule>;
+  Query: Record<keyof QueryResolvers | '*', Rule>;
+  Mutation: Record<keyof MutationResolvers | '*', Rule>;
 };
 
 export const permissions = {

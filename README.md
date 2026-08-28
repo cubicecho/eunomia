@@ -25,21 +25,30 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 - `packages/agent` — agent core shared by desktop and mobile: the generated
   GraphQL SDK (committed codegen output), crash-safe outbox, batch uploader,
   the usage-event → ping synthesizer, and the shared provisioning flow.
-- `packages/shared` — shared Zod schemas/types.
 
 ### GraphQL contract
 
-`schema.graphql` at the root is the server's printed SDL, and
-`packages/agent/src/gql/sdk.ts` and `apps/web/src/gql/sdk.ts` are the typed
-clients generated from it. All three are committed — they are the contract the
-agents and the dashboard build against. After changing the server schema, run:
+The schema has two halves. The reads are generated from the Drizzle tables by
+`@vantreeseba/drizzle-graphql` (`apps/server/src/graphql/entities.ts`);
+everything else — every mutation, the dashboard aggregates, `me` — is written
+as SDL in `apps/server/src/graphql/domain.graphql` and applied on top of them.
+`schema.graphql` at the root is the two halves printed together.
+
+Three generated files are committed alongside it, all derived from that SDL:
+`apps/server/src/gql/resolvers.ts` (the argument and return types every
+resolver in `apps/server/src/graphql` is checked against) and
+`packages/agent/src/gql/sdk.ts` / `apps/web/src/gql/sdk.ts` (the typed
+clients). After changing the schema, run:
 
 ```bash
-npm run codegen   # prints server SDL, regenerates both SDKs
+npm run codegen   # prints the SDL, then regenerates the server types and both SDKs
 ```
 
 A schema change that breaks a consumer then fails `npm run typecheck` in that
-package instead of failing at runtime. Each consumer's operations live in one
+package instead of failing at runtime — the server included, since a resolver
+whose arguments no longer match its field no longer compiles. A field declared
+with no resolver, or a resolver for a field that no longer exists, throws when
+the schema is assembled. Each consumer's operations live in one
 `src/operations.graphql`; codegen validates them against the SDL, so a query
 for a field the server dropped fails the build rather than the request.
 

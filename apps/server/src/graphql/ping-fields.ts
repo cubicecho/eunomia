@@ -1,11 +1,4 @@
 import { eq } from 'drizzle-orm';
-import {
-  GraphQLInputObjectType,
-  GraphQLInt,
-  GraphQLList,
-  GraphQLNonNull,
-  GraphQLString,
-} from 'graphql';
 import { type ContextRule, extractContext, loadContextRules } from '../activity/context.ts';
 import { type Activity, foldPing, lockDevice } from '../activity/fold.ts';
 import { loadMergeRules, type MergeRule, mergeEntry } from '../activity/merge-rules.ts';
@@ -13,8 +6,8 @@ import { applyRules, type CategoryRule, loadRules } from '../activity/rules.ts';
 import type { Db } from '../db/client.ts';
 import { devices } from '../db/schema.ts';
 import { badInput } from '../errors.ts';
+import type { MutationResolvers, PingInput } from '../gql/resolvers.ts';
 import type { Context } from './context.ts';
-import type { Entities, Fields } from './entities.ts';
 import { requireOwned, requireUser } from './guards.ts';
 
 // The fields the agents call continuously. Everything they do — liveness,
@@ -33,31 +26,6 @@ const MAX_BATCH = 500;
 
 type Device = typeof devices.$inferSelect;
 
-/** One ping as the wire carries it, before capturedAt is parsed. */
-interface PingArgs {
-  capturedAt: string;
-  app?: string | null;
-  title?: string | null;
-  context?: string | null;
-  idleSeconds: number;
-}
-
-const pingInputFields = {
-  capturedAt: { type: new GraphQLNonNull(GraphQLString) },
-  app: { type: GraphQLString },
-  title: { type: GraphQLString },
-  // Agent-supplied sub-app division (browser hostname). When absent, the
-  // user's context rules extract one from the title instead.
-  context: { type: GraphQLString },
-  idleSeconds: { type: new GraphQLNonNull(GraphQLInt) },
-};
-
-const pingInputType = new GraphQLInputObjectType({
-  name: 'PingInput',
-  description: 'A stateless report of what a device looked like at one instant.',
-  fields: pingInputFields,
-});
-
 /**
  * Resolves the device a ping batch belongs to, or throws.
  *
@@ -72,7 +40,7 @@ async function resolveDevice(db: Db, ctx: Context, deviceId?: string | null): Pr
 }
 
 /** Parses every capturedAt up front, so a malformed ping rejects nothing halfway. */
-function parseCapturedAt(pings: PingArgs[]): Date[] {
+function parseCapturedAt(pings: PingInput[]): Date[] {
   return pings.map((ping) => {
     const capturedAt = new Date(ping.capturedAt);
     if (Number.isNaN(capturedAt.getTime())) throw badInput('Invalid capturedAt');
@@ -108,7 +76,7 @@ async function touchLastSeen(db: Db, device: Device): Promise<void> {
 async function foldBatch(
   db: Db,
   device: Device,
-  pings: PingArgs[],
+  pings: PingInput[],
   capturedAts: Date[],
 ): Promise<(Activity | null)[]> {
   const [contextRules, categoryRules, mergeRules] = await Promise.all([
@@ -139,7 +107,7 @@ async function foldBatch(
 async function foldOne(
   tx: Db,
   deviceId: string,
-  ping: PingArgs,
+  ping: PingInput,
   capturedAt: Date,
   contextRules: ContextRule[],
   categoryRules: CategoryRule[],
@@ -166,45 +134,30 @@ async function foldOne(
   return applyRules(tx, categoryRules, activity);
 }
 
-export function pingFields(db: Db, entities: Entities) {
+export function pingFields(db: Db) {
   return {
-    recordPing: {
-      // Nullable: idle pings and pings with no detectable app touch nothing.
-      type: entities.types.Activities!,
-      args: { deviceId: { type: GraphQLString }, ...pingInputFields },
-      resolve: async (_source, args: PingArgs & { deviceId?: string | null }, ctx: Context) => {
-        const device = await resolveDevice(db, ctx, args.deviceId);
-        const [capturedAt] = parseCapturedAt([args]);
-        await touchLastSeen(db, device);
-        const [activity] = await foldBatch(db, device, [args], [capturedAt!]);
-        return activity ?? null;
-      },
+    // Nullable: idle pings and pings with no detectable app touch nothing.
+    recordPing: async (_source, args, ctx) => {
+      const device = await resolveDevice(db, ctx, args.deviceId);
+      const [capturedAt] = parseCapturedAt([args]);
+      await touchLastSeen(db, device);
+      const [activity] = await foldBatch(db, device, [args], [capturedAt!]);
+      return activity ?? null;
     },
-    recordPings: {
-      // The agents' upload path: one round trip, one transaction, one fold
-      // lock. Returns how many pings accrued to an activity — the rest were
-      // idle or had no detectable app, which is a legitimate whole batch and
-      // not a failure. All-or-nothing, so a retried batch can't double-count.
-      type: new GraphQLNonNull(GraphQLInt),
-      args: {
-        deviceId: { type: GraphQLString },
-        pings: { type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(pingInputType))) },
-      },
-      resolve: async (
-        _source,
-        args: { deviceId?: string | null; pings: PingArgs[] },
-        ctx: Context,
-      ) => {
-        const device = await resolveDevice(db, ctx, args.deviceId);
-        if (args.pings.length > MAX_BATCH) {
-          throw badInput(`Too many pings in one batch (max ${MAX_BATCH})`);
-        }
-        const capturedAts = parseCapturedAt(args.pings);
-        if (args.pings.length === 0) return 0;
-        await touchLastSeen(db, device);
-        const touched = await foldBatch(db, device, args.pings, capturedAts);
-        return touched.filter((activity) => activity !== null).length;
-      },
+    // The agents' upload path: one round trip, one transaction, one fold lock.
+    // Returns how many pings accrued to an activity — the rest were idle or
+    // had no detectable app, which is a legitimate whole batch and not a
+    // failure. All-or-nothing, so a retried batch can't double-count.
+    recordPings: async (_source, args, ctx) => {
+      const device = await resolveDevice(db, ctx, args.deviceId);
+      if (args.pings.length > MAX_BATCH) {
+        throw badInput(`Too many pings in one batch (max ${MAX_BATCH})`);
+      }
+      const capturedAts = parseCapturedAt(args.pings);
+      if (args.pings.length === 0) return 0;
+      await touchLastSeen(db, device);
+      const touched = await foldBatch(db, device, args.pings, capturedAts);
+      return touched.filter((activity) => activity !== null).length;
     },
-  } satisfies Fields;
+  } satisfies MutationResolvers;
 }

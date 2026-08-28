@@ -4,6 +4,9 @@ Review date: 2026-08-25 · `main` @ 35a1aaf · 25 commits
 Updated 2026-08-25: **A1–A5 are done** (see each entry). Suite now 100 server
 + 25 agent tests, all green; typecheck clean. `apps/web` has since been rebuilt
 on React + shadcn/ui + Recharts — same three views, same GraphQL client.
+Updated 2026-08-27: **B1 is done** — see the entry. The server schema is now
+SDL-first (`apps/server/src/graphql/domain.graphql` + graphql-codegen), which
+is what made the shared package's duplicate ping contract removable.
 
 ## Where the tree actually is
 
@@ -168,7 +171,7 @@ document a reverse-proxy + TLS deployment as *the* recommended path.
 
 | # | Item | Where |
 |---|---|---|
-| B1 | `packages/shared` is dead code — nothing imports it, yet it's a server dependency and gets copied into the image. Its `activityPingSchema` is stale (no `context` field), so it actively misinforms. Delete it, or make it the real source of the ping contract. | `packages/shared/src/index.ts:11` |
+| B1 | **Done.** Deleted, along with the server dependency, the two Dockerfile `COPY`s and the CI path filter. Taken the other way for the ping contract itself: the schema is the source, and `@eunomia/agent`'s `Ping` is now `Required<PingInput>` off the generated SDK, so it can't drift again. Original: dead code — nothing imported it, yet it was a server dependency and got copied into the image, and its `activityPingSchema` was stale (no `context` field), so it actively misinformed. | deleted |
 | B2 | No `/health` endpoint; compose healthchecks postgres but not the app, so nothing detects a wedged server. | `apps/server/src/index.ts` |
 | B3 | No CI. Typecheck + tests run in ~1 min and are already green — wire them to push/PR before the tag, not after. | `.github/` absent |
 | B4 | No linter. `biome-ignore` comments exist in the source but biome isn't installed, so they're inert. Either install biome or drop the pragmas. | `graphql/permissions.ts:20` |

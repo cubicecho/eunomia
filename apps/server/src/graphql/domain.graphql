@@ -1,0 +1,157 @@
+# The half of the schema this server writes by hand: everything that isn't a
+# read of a table. Types named here that aren't defined here (Activities,
+# Devices, …) come from the generated half — drizzle-graphql derives them from
+# the Drizzle schema, and this file is applied on top of it (schema.ts).
+#
+# This is the source of truth for the shape. codegen turns it into the argument
+# and return types every resolver beside this file is checked against
+# (src/gql/resolvers.ts), so a field that changes here without its resolver
+# changing is a typecheck failure. Every field added here needs a rule in
+# permissions.ts and a resolver in one of the *-fields.ts modules; both are
+# checked, the first by the type of the permissions map and the second at
+# schema assembly.
+
+extend type Query {
+  # The caller's user id, or null when the request is anonymous.
+  me: String
+
+  # The dashboard's aggregates. Each stitches the precomputed `summaries` rows
+  # together with a live aggregation over whatever the rollup hasn't claimed
+  # yet, so "today" is never missing from a chart.
+  categorySummary(from: String!, to: String!, deviceId: String): [CategoryDaySummary!]!
+  appSummary(from: String!, to: String!, deviceId: String): [AppContextSummary!]!
+  deviceSummary(from: String!, to: String!): [DeviceSummary!]!
+}
+
+type Mutation {
+  # Auth. The server mounts no better-auth REST routes: this is the login flow.
+  signUp(email: String!, password: String!, name: String!): AuthSession!
+  signIn(email: String!, password: String!): AuthSession!
+  requestMagicLink(email: String!): MagicLinkRequest!
+  verifyMagicLink(token: String!): AuthSession!
+  signOut: Boolean!
+  sessionFromDeviceKey: AuthSession!
+
+  # Devices. registerDevice and rotateDeviceKey are the only fields that ever
+  # return an API key, and only at the moment it is minted.
+  registerDevice(name: String!, platform: String!): DeviceRegistration!
+  renameDevice(id: String!, name: String!): Devices!
+  rotateDeviceKey(id: String!): DeviceRegistration!
+  mergeDevice(id: String!, intoId: String!): Devices!
+  deleteDevice(id: String!): Boolean!
+
+  # Ingestion — the fields the agents call continuously.
+  recordPing(
+    deviceId: String
+    capturedAt: String!
+    app: String
+    title: String
+    context: String
+    idleSeconds: Int!
+  ): Activities
+  recordPings(deviceId: String, pings: [PingInput!]!): Int!
+
+  # Categories, and the one mutation that moves an activity between them by hand.
+  createCategory(name: String!, color: String): Categories!
+  deleteCategory(id: String!): Boolean!
+  assignActivity(activityId: String!, categoryId: String): Activities!
+
+  # Rules: what time is called, and how it is divided.
+  createCategoryRule(
+    categoryId: String!
+    appPattern: String
+    titlePattern: String
+    contextPattern: String
+    priority: Int
+  ): CategoryRules!
+  updateCategoryRule(
+    id: String!
+    categoryId: String!
+    appPattern: String
+    titlePattern: String
+    contextPattern: String
+    priority: Int
+  ): CategoryRules!
+  deleteCategoryRule(id: String!): Boolean!
+  applyCategoryRules: Int!
+  createContextRule(titlePattern: String!, appPattern: String, priority: Int): ContextRules!
+  updateContextRule(
+    id: String!
+    titlePattern: String!
+    appPattern: String
+    priority: Int
+  ): ContextRules!
+  deleteContextRule(id: String!): Boolean!
+  createMergeRule(
+    fromApp: String!
+    fromContext: String
+    toApp: String!
+    toContext: String
+  ): MergeRules!
+  deleteMergeRule(id: String!): Boolean!
+  applyMergeRules: Int!
+}
+
+extend schema {
+  mutation: Mutation
+}
+
+# Session payload for signUp/signIn: the raw token goes back as
+# `Authorization: Bearer <token>` on every later request (bearer plugin).
+type AuthSession {
+  token: String!
+  userId: String!
+}
+
+# `token` is populated only under UNSAFE_LOCAL_NETWORK, letting clients on a
+# trusted LAN sign in without an inbox.
+type MagicLinkRequest {
+  ok: Boolean!
+  token: String
+}
+
+# The API key is returned exactly once, here.
+type DeviceRegistration {
+  device: Devices!
+  apiKey: String!
+}
+
+"""
+A stateless report of what a device looked like at one instant.
+"""
+input PingInput {
+  capturedAt: String!
+  app: String
+  title: String
+  # Agent-supplied sub-app division (browser hostname). When absent, the user's
+  # context rules extract one from the title instead.
+  context: String
+  idleSeconds: Int!
+}
+
+# Active seconds per category per day (server zone). A null category is
+# uncategorized time.
+type CategoryDaySummary {
+  day: String!
+  categoryId: String
+  name: String
+  color: String
+  seconds: Float!
+}
+
+# Active seconds per app, and per context within it, over a range. A null
+# context is the app's time with no finer division.
+type AppContextSummary {
+  app: String!
+  context: String
+  seconds: Float!
+}
+
+# Active seconds per device over a range: the "split by device" view, and the
+# picker's source for which devices actually contributed time.
+type DeviceSummary {
+  deviceId: String!
+  name: String!
+  platform: String!
+  seconds: Float!
+}
