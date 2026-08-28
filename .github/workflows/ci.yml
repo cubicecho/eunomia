@@ -35,14 +35,16 @@ jobs:
       - name: Test
         run: npm test
 
-      # The printed SDL and the SDKs generated from it are committed — they're
-      # the contract the agents and the dashboard build against. If they drift,
-      # those consumers typecheck against a schema the server no longer has.
-      # Schema printing touches neither database nor auth, so this needs no env.
-      - name: Generated GraphQL contract is up to date
+      # schema.graphql is the one part of the contract that is committed, so
+      # that a reviewer sees API changes in the diff and so that codegen never
+      # needs a running server. What is generated from it is not checked here:
+      # it is regenerated on install and before every build, and the typecheck
+      # above already ran against a fresh copy. Printing the schema touches
+      # neither database nor auth, so this needs no env.
+      - name: schema.graphql matches the server
         run: |
-          npm run codegen
-          git diff --exit-code -- schema.graphql packages/agent/src/gql apps/web/src/gql
+          npm run schema
+          git diff --exit-code -- schema.graphql
 
       # The desktop agent ships as a bundle, not as the sources tsc checked:
       # esbuild resolves imports tsc is happy to leave dangling.

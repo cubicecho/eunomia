@@ -3,7 +3,7 @@
 // intervals (see apps/server/src/activity/fold.ts) — agents never track
 // sessions themselves.
 
-import type { PingInput } from './gql/sdk.ts';
+import type { PingInput } from '@eunomia/gql/agent';
 
 /**
  * One ping, as the server declares it.

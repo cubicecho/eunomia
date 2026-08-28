@@ -1,9 +1,9 @@
 // Server access shared by every agent. Response/variable types all come from
-// the generated SDK (src/gql/sdk.ts — regenerate with `npm run codegen` at the
-// root); this file only supplies the fetch transport and small conveniences.
+// the generated SDK (@eunomia/gql/agent, build output — see packages/gql); this
+// file only supplies the fetch transport and small conveniences.
 // Pure fetch — nothing here may touch node, electron, or react-native APIs.
 
-import { getSdk, type Requester, type Sdk } from './gql/sdk.ts';
+import { getSdk, type Requester, type Sdk } from '@eunomia/gql/agent';
 import type { PrivacyConfig } from './privacy.ts';
 
 export interface AgentConfig extends PrivacyConfig {

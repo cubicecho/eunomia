@@ -1,6 +1,6 @@
+import type { MutationResolvers } from '@eunomia/gql/resolvers';
 import type { AuthGateway } from '../auth.ts';
 import { rateLimited, unauthenticated } from '../errors.ts';
-import type { MutationResolvers } from '../gql/resolvers.ts';
 import { createRateLimiter } from '../rate-limit.ts';
 
 // Auth is GraphQL too — the server mounts no better-auth REST routes. Every

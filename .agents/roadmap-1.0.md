@@ -7,6 +7,10 @@ on React + shadcn/ui + Recharts — same three views, same GraphQL client.
 Updated 2026-08-27: **B1 is done** — see the entry. The server schema is now
 SDL-first (`apps/server/src/graphql/domain.graphql` + graphql-codegen), which
 is what made the shared package's duplicate ping contract removable.
+Updated 2026-08-28: codegen output moved out of git into one workspace package,
+`packages/gql` (`@eunomia/gql/{resolvers,agent,web}`), regenerated on install
+and before every build; `schema.graphql` stays committed as the contract a
+reviewer diffs. Seven workspaces now, counting the root.
 
 ## Where the tree actually is
 

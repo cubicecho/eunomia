@@ -1,14 +1,14 @@
+import type {
+  MutationCreateCategoryRuleArgs,
+  MutationCreateContextRuleArgs,
+  MutationResolvers,
+} from '@eunomia/gql/resolvers';
 import { eq } from 'drizzle-orm';
 import { assertValidContextPattern } from '../activity/context.ts';
 import { assertValidPattern, sweepRules } from '../activity/rules.ts';
 import type { Db } from '../db/client.ts';
 import { categories, categoryRules, contextRules } from '../db/schema.ts';
 import { badInput } from '../errors.ts';
-import type {
-  MutationCreateCategoryRuleArgs,
-  MutationCreateContextRuleArgs,
-  MutationResolvers,
-} from '../gql/resolvers.ts';
 import { requireOwned, requireUser } from './guards.ts';
 
 // The two rule kinds. Category rules assign activities to a bucket and can be

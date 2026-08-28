@@ -1,3 +1,5 @@
+// The generated contract: schema types, operation types, documents, getSdk.
+export * from '@eunomia/gql/agent';
 export {
   type AgentConfig,
   createRequester,
@@ -11,8 +13,6 @@ export {
   signOut,
   verifyMagicLink,
 } from './api.ts';
-// The generated contract: schema types, operation types, documents, getSdk.
-export * from './gql/sdk.ts';
 export { OUTBOX_MAX_PINGS, Outbox, type OutboxStore } from './outbox.ts';
 export {
   DEFAULT_SYNC_INTERVAL_SECONDS,

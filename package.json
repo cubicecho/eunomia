@@ -7,10 +7,14 @@
     "packages/*"
   ],
   "scripts": {
-    "codegen": "npm run schema:print -w @eunomia/server && npm run codegen -w @eunomia/server && npm run codegen -w @eunomia/agent && npm run codegen -w @eunomia/web",
+    "schema": "npm run schema:print -w @eunomia/server",
+    "codegen": "npm run schema && npm run codegen:types",
+    "codegen:types": "npm run codegen -w @eunomia/gql",
+    "pretypecheck": "npm run codegen:types",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "biome check .",
     "lint:fix": "biome check . --write",
+    "pretest": "npm run codegen:types",
     "test": "npm run test --workspaces --if-present",
     "dev:server": "npm run dev -w @eunomia/server",
     "dev:desktop": "npm run dev -w @eunomia/desktop",

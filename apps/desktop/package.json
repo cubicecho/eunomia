@@ -8,6 +8,7 @@
     "dev": "electron .",
     "provision": "electron . --provision",
     "typecheck": "tsc --noEmit",
+    "prebuild:main": "npm --prefix ../.. run codegen:types",
     "build:main": "esbuild src/main.ts --bundle --platform=node --format=cjs --external:electron --external:@miniben90/x-win --outfile=dist/main.cjs",
     "build:preload": "esbuild src/dashboard-preload.cjs src/setup-preload.cjs --outdir=dist --out-extension:.js=.cjs",
     "fetch:win-native": "node scripts/fetch-win-native.mjs",

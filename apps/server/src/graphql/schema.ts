@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import type { MutationResolvers, QueryResolvers } from '@eunomia/gql/resolvers';
 import { applyPermissions } from '@vantreeseba/graphql-casl';
 import {
   assertObjectType,
@@ -10,7 +11,6 @@ import {
 } from 'graphql';
 import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
-import type { MutationResolvers, QueryResolvers } from '../gql/resolvers.ts';
 import { authFields } from './auth-fields.ts';
 import { categoryFields } from './category-fields.ts';
 import type { Context } from './context.ts';

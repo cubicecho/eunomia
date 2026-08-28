@@ -1,9 +1,9 @@
+import type { MutationResolvers } from '@eunomia/gql/resolvers';
 import { eq } from 'drizzle-orm';
 import { mergeCategorySummaries, moveRolledSeconds } from '../activity/rollup.ts';
 import type { Db } from '../db/client.ts';
 import { activities, categories, devices } from '../db/schema.ts';
 import { notFound } from '../errors.ts';
-import type { MutationResolvers } from '../gql/resolvers.ts';
 import { requireOwned, requireUser } from './guards.ts';
 
 // Categories and the one mutation that moves an activity between them by hand.

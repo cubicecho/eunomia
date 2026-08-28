@@ -1,8 +1,8 @@
 // Server access for the dashboard. Every operation lives in
 // src/operations.graphql and every request/response type comes from the
-// generated SDK (src/gql/sdk.ts — regenerate with `npm run codegen` at the
-// root); this file supplies the fetch transport, the session token, and the
-// error shape the views branch on.
+// generated SDK (@eunomia/gql/web, build output — see packages/gql); this file
+// supplies the fetch transport, the session token, and the error shape the
+// views branch on.
 
 import {
   type AppSummaryQuery,
@@ -19,7 +19,7 @@ import {
   type MergeRulesQuery,
   type RecentActivitiesQuery,
   type Requester,
-} from '@/gql/sdk';
+} from '@eunomia/gql/web';
 
 const TOKEN_KEY = 'eunomia.token';
 

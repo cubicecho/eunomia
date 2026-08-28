@@ -10,6 +10,12 @@ Gradle build is available as a fallback if you have the Android toolchain.
 under `modules/usage-events/android/` **is** committed — it is the app, not
 generated output.
 
+The GraphQL client the agent calls (`packages/gql`) is generated and uncommitted
+too, which matters here because **EAS uploads only what git tracks**. It works
+because the input it is generated from — `schema.graphql` — *is* tracked, and
+`packages/gql` regenerates on install, which EAS runs before it bundles. Nothing
+to do; just don't move the schema out of git.
+
 ## EAS builds
 
 Nothing to install but the CLI, and no Android SDK anywhere.

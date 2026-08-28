@@ -1,0 +1,35 @@
+{
+  "name": "@eunomia/gql",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./resolvers": {
+      "types": "./src/resolvers.ts",
+      "default": "./src/resolvers.ts"
+    },
+    "./agent": {
+      "types": "./src/agent-sdk.ts",
+      "default": "./src/agent-sdk.ts"
+    },
+    "./web": {
+      "types": "./src/web-sdk.ts",
+      "default": "./src/web-sdk.ts"
+    }
+  },
+  "scripts": {
+    "codegen": "graphql-codegen --config codegen.ts",
+    "prepare": "node scripts/prepare.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@graphql-codegen/add": "^7.1.0",
+    "@graphql-codegen/cli": "^7.3.1",
+    "@graphql-codegen/typescript": "^6.1.0",
+    "@graphql-codegen/typescript-generic-sdk": "^5.0.1",
+    "@graphql-codegen/typescript-operations": "^6.1.6",
+    "@graphql-codegen/typescript-resolvers": "^6.1.0",
+    "graphql": "^16.14.2",
+    "typescript": "^5.9.2"
+  }
+}
