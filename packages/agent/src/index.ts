@@ -31,6 +31,15 @@ export {
   provisionDevice,
 } from './provision.ts';
 export {
+  CHECK_INTERVAL_MS,
+  createSampler,
+  HEARTBEAT_INTERVAL_MS,
+  type Sample,
+  type Sampler,
+  type SamplerDeps,
+  type SamplerStatus,
+} from './sampler.ts';
+export {
   initialSynthState,
   SYNTH_INTERVAL_MS,
   type SynthState,
