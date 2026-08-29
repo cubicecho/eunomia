@@ -197,5 +197,35 @@ describe('graphql over http', () => {
       const { body } = await query('{ activities { app activeSeconds } }', bearer);
       expect(body.data?.activities).toEqual([{ app: 'code', activeSeconds: 20 }]);
     });
+
+    it('keeps recording from a device whose clock runs hours fast', async () => {
+      const bearer = { authorization: `Bearer ${await signIn()}` };
+      const reg = await query(
+        'mutation { registerDevice(name: "skewed", platform: "windows") { apiKey } }',
+        bearer,
+      );
+      const { apiKey } = reg.body.data?.registerDevice as { apiKey: string };
+      const agent = asAgent(apiKey);
+      const active = (capturedAt: string): Ping => ({ ...idle(capturedAt), idleSeconds: 0 });
+
+      // A Windows box that booted against a mis-set RTC reports the future.
+      // Untouched, this one ping wedges the device permanently: its timestamp
+      // becomes lastActiveAt, every later ping reads as out-of-order and
+      // accrues nothing, and the row never auto-closes because its staleness
+      // is negative — silence until the wall clock catches up three hours on.
+      const skewed = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+      expect(await uploadBatch(agent, [active(skewed)])).toEqual({ accepted: true, error: null });
+
+      const now = Date.now();
+      const at = (seconds: number) => new Date(now + seconds * 1000).toISOString();
+      await uploadBatch(agent, [active(at(10)), active(at(20))]);
+
+      const { body } = await query('{ activities { app activeSeconds } }', bearer);
+      const rows = body.data?.activities as { app: string; activeSeconds: number }[];
+      expect(rows).toHaveLength(1);
+      // The seconds between the pings, not the three hours the clock claimed.
+      expect(rows[0]?.activeSeconds).toBeGreaterThan(15);
+      expect(rows[0]?.activeSeconds).toBeLessThan(25);
+    });
   });
 });
