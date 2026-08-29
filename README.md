@@ -67,6 +67,41 @@ the schema is assembled. Each consumer's operations live in one
 `src/operations.graphql`; codegen validates them against the SDL, so a query
 for a field the server dropped fails the build rather than the request.
 
+### MCP (for AI agents)
+
+The server also answers the [Model Context Protocol](https://modelcontextprotocol.io/)
+on **`/mcp`**, beside `/graphql` on the same port. Every read in the schema
+becomes a tool — `activities`, `categories`, `devices`, the three summaries —
+described from the SDL, so an agent can discover the API and ask what you spent
+last week on. It is [`@cubicecho/graphql-mcp`](https://www.npmjs.com/package/@cubicecho/graphql-mcp)
+pointed at the same schema object `/graphql` serves, which is what makes the two
+surfaces provably the same API rather than two that are meant to agree.
+
+**Reads only.** Mutations would become tools just as happily, but this schema's
+mutations are the login flow, device registration and ingestion — an agent that
+could call them would be minting credentials, not reading data. Drop
+`includeMutations: false` in `apps/server/src/mcp.ts` if you want them.
+
+**It authenticates exactly like `/graphql`**, through the same function: a
+device key in `x-api-key`, or a session in `Authorization: Bearer`. An
+anonymous tool call is refused by the same permission layer that refuses an
+anonymous query, and the rows a tool returns are fenced to the caller the same
+way. Point a client at it with a device API key:
+
+```jsonc
+// e.g. ~/.claude.json — an MCP client's server list
+{
+  "eunomia": {
+    "type": "http",
+    "url": "http://localhost:4000/mcp",
+    "headers": { "x-api-key": "<a device API key>" }
+  }
+}
+```
+
+Anything that can reach `/graphql` can reach `/mcp`, and the same warnings
+apply — see [Before you expose it](#before-you-expose-it).
+
 ## Development
 
 ```bash
@@ -306,9 +341,10 @@ total, and a merge on each.
 docker compose up --build   # app on :4000 + postgres 17
 ```
 
-The app container serves the built web dashboard at `/` and GraphQL at
-`/graphql` — one origin, so magic links default to the server's own URL
-(override with `APP_URL` only if the dashboard is hosted elsewhere).
+The app container serves the built web dashboard at `/`, GraphQL at
+`/graphql` and [MCP tools](#mcp-for-ai-agents) at `/mcp` — one origin, so magic
+links default to the server's own URL (override with `APP_URL` only if the
+dashboard is hosted elsewhere).
 
 ### Before you expose it
 

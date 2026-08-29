@@ -854,7 +854,26 @@ type Query {
     orderBy: ActivitiesOrderBy
     where: ActivitiesFilters
   ): [Activities!]!
-  appSummary(deviceId: String, from: String!, to: String!): [AppContextSummary!]!
+
+  """
+  Time per app and context over the window — the same seconds as
+  `categorySummary`, grouped by what was actually on screen rather than by
+  category. Not per-day: one row per app/context pair for the whole window.
+  """
+  appSummary(
+    """Limit to one device (see `devices`). Omitted means every device."""
+    deviceId: String
+
+    """
+    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone.
+    """
+    from: String!
+
+    """
+    End of the window, EXCLUSIVE — pass the day after the last one you want.
+    """
+    to: String!
+  ): [AppContextSummary!]!
   categories(
     """
     Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
@@ -875,7 +894,28 @@ type Query {
     orderBy: CategoryRulesOrderBy
     where: CategoryRulesFilters
   ): [CategoryRules!]!
-  categorySummary(deviceId: String, from: String!, to: String!): [CategoryDaySummary!]!
+
+  """
+  Time per category per day — the answer to "what did I spend last week on?".
+  
+  Each aggregate below stitches the precomputed `summaries` rows together with
+  a live aggregation over whatever the 15-minute rollup hasn't claimed yet, so
+  today is never missing.
+  """
+  categorySummary(
+    """Limit to one device (see `devices`). Omitted means every device."""
+    deviceId: String
+
+    """
+    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone.
+    """
+    from: String!
+
+    """
+    End of the window, EXCLUSIVE — pass the day after the last one you want.
+    """
+    to: String!
+  ): [CategoryDaySummary!]!
   contextRules(
     """
     Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
@@ -886,7 +926,21 @@ type Query {
     orderBy: ContextRulesOrderBy
     where: ContextRulesFilters
   ): [ContextRules!]!
-  deviceSummary(from: String!, to: String!): [DeviceSummary!]!
+
+  """
+  Time per device over the window — which machine or phone the time came from.
+  """
+  deviceSummary(
+    """
+    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone.
+    """
+    from: String!
+
+    """
+    End of the window, EXCLUSIVE — pass the day after the last one you want.
+    """
+    to: String!
+  ): [DeviceSummary!]!
   devices(
     """
     Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
@@ -897,6 +951,8 @@ type Query {
     orderBy: DevicesOrderBy
     where: DevicesFilters
   ): [Devices!]!
+
+  """The caller's user id, or null when the request is anonymous."""
   me: String
   mergeRules(
     """

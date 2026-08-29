@@ -1,10 +1,12 @@
 import { createServer } from 'node:http';
 import { startRollupTimer } from './activity/rollup.ts';
-import { createApp } from './app.ts';
+import { createApp, createContextFactory } from './app.ts';
 import { createAuth, createAuthGateway } from './auth.ts';
 import { createDb } from './db/client.ts';
 import { SECRET_HELP, secretProblem, secretWarning } from './env.ts';
+import { createSchema } from './graphql/schema.ts';
 import { checkHealth, VERSION } from './health.ts';
+import { createMcpHandler } from './mcp.ts';
 import { registrationPolicyFromEnv } from './registration.ts';
 import { createStaticHandler } from './static.ts';
 
@@ -49,11 +51,17 @@ if (registration.allowedEmails.length === 0 && !registration.disableSignUp) {
 // Fold closed activities into the summaries table (once now, then periodic).
 startRollupTimer(db);
 
-const yoga = createApp(
-  db,
-  auth,
-  createAuthGateway(auth, db, { exposeMagicLinkToken: unsafeLocalNetwork, registration }),
-);
+const gateway = createAuthGateway(auth, db, {
+  exposeMagicLinkToken: unsafeLocalNetwork,
+  registration,
+});
+
+// Built once and shared: /graphql and /mcp are the same API over two
+// transports, and the permissions live in the schema, so one instance is what
+// keeps that true rather than merely intended.
+const schema = createSchema(db, gateway);
+const yoga = createApp(db, auth, gateway, schema);
+const mcp = createMcpHandler(schema, createContextFactory(db, auth));
 
 // WEB_DIST points at the built dashboard (set in the container image); the
 // server then serves it on every non-/graphql path, so one origin hosts both
@@ -74,6 +82,12 @@ const server = createServer((req, res) => {
     });
     return;
   }
+  // Before the static handler, for the same reason /healthz is: the SPA
+  // fallback would otherwise answer an MCP client with index.html.
+  if (path === '/mcp') {
+    void mcp(req, res);
+    return;
+  }
   if (serveStatic && path !== yoga.graphqlEndpoint) {
     serveStatic(req, res);
     return;
@@ -89,4 +103,5 @@ server.listen(port, host, () => {
   console.log(
     `eunomia server ${VERSION} listening on http://${host}:${port}${yoga.graphqlEndpoint}`,
   );
+  console.log(`mcp tools (read-only) on http://${host}:${port}/mcp`);
 });
