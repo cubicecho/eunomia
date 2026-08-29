@@ -33,8 +33,8 @@ extend type Query {
 
   """
   Time per app and context over the window — the same seconds as
-  `categorySummary`, grouped by what was actually on screen rather than by
-  category. Not per-day: one row per app/context pair for the whole window.
+  `categorySummary`, grouped by what was actually on screen. Not per-day: one
+  row per app/context/category triple for the whole window.
   """
   appSummary(
     "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone."
@@ -172,11 +172,18 @@ type CategoryDaySummary {
   seconds: Float!
 }
 
-# Active seconds per app, and per context within it, over a range. A null
-# context is the app's time with no finer division.
+# Active seconds per app, per context within it, and per category, over a
+# range. A null context is the app's time with no finer division; a null
+# category is uncategorized time.
+#
+# An app's time can fall in several categories, so an app appears once per
+# category it spent time in rather than being forced to one.
 type AppContextSummary {
   app: String!
   context: String
+  categoryId: String
+  categoryName: String
+  categoryColor: String
   seconds: Float!
 }
 

@@ -160,6 +160,9 @@ input ActivitiesOrderBy {
 
 type AppContextSummary {
   app: String!
+  categoryColor: String
+  categoryId: String
+  categoryName: String
   context: String
   seconds: Float!
 }
@@ -857,8 +860,8 @@ type Query {
 
   """
   Time per app and context over the window — the same seconds as
-  `categorySummary`, grouped by what was actually on screen rather than by
-  category. Not per-day: one row per app/context pair for the whole window.
+  `categorySummary`, grouped by what was actually on screen. Not per-day: one
+  row per app/context/category triple for the whole window.
   """
   appSummary(
     """Limit to one device (see `devices`). Omitted means every device."""

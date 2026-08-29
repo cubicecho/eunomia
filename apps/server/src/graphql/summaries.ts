@@ -143,8 +143,14 @@ export function summaryFields(db: Db) {
           (a.categoryId ?? '￿').localeCompare(b.categoryId ?? '￿'),
       );
     },
-    // Seconds of active time per (app, context) for [from, to), largest first
-    // — the dashboard's top-apps list without shipping raw activities.
+    // Seconds of active time per (app, context, category) for [from, to),
+    // largest first — the dashboard's top-apps list without shipping raw
+    // activities.
+    //
+    // Category is part of the key, not a label hung off the app: an app's time
+    // can land in several categories (a browser is Work on one site and not on
+    // the next), so one row per pair would have to pick a winner here. Split
+    // rows let the caller color a bar by what its seconds actually were.
     appSummary: async (_source, args, ctx) => {
       const userId = requireUser(ctx);
       const { from, to } = parseRange(args);
@@ -153,10 +159,14 @@ export function summaryFields(db: Db) {
           .select({
             app: summaries.app,
             context: summaries.context,
+            categoryId: summaries.categoryId,
+            categoryName: categories.name,
+            categoryColor: categories.color,
             seconds: sql<number>`sum(${summaries.seconds})::float`,
           })
           .from(summaries)
           .innerJoin(devices, eq(summaries.deviceId, devices.id))
+          .leftJoin(categories, eq(summaries.categoryId, categories.id))
           .where(
             and(
               eq(devices.userId, userId),
@@ -164,15 +174,25 @@ export function summaryFields(db: Db) {
               ...summaryDayBounds(from, to),
             ),
           )
-          .groupBy(summaries.app, summaries.context),
+          .groupBy(
+            summaries.app,
+            summaries.context,
+            summaries.categoryId,
+            categories.name,
+            categories.color,
+          ),
         db
           .select({
             app: activities.app,
             context: activities.context,
+            categoryId: activities.categoryId,
+            categoryName: categories.name,
+            categoryColor: categories.color,
             seconds: sql<number>`sum(${activities.activeSeconds})::float`,
           })
           .from(activities)
           .innerJoin(devices, eq(activities.deviceId, devices.id))
+          .leftJoin(categories, eq(activities.categoryId, categories.id))
           .where(
             and(
               eq(devices.userId, userId),
@@ -181,8 +201,14 @@ export function summaryFields(db: Db) {
               ...liveDayBounds(from, to),
             ),
           )
-          .groupBy(activities.app, activities.context),
-        (row) => `${row.app}\n${row.context ?? ''}`,
+          .groupBy(
+            activities.app,
+            activities.context,
+            activities.categoryId,
+            categories.name,
+            categories.color,
+          ),
+        (row) => `${row.app}\n${row.context ?? ''}\n${row.categoryId ?? ''}`,
       );
       return rows.sort((a, b) => b.seconds - a.seconds);
     },

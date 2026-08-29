@@ -28,25 +28,6 @@ export const CHART_COLORS = [
 /** Uncategorized time is absence, not a ninth category — it stays neutral. */
 export const UNCATEGORIZED_COLOR = '#8b949e';
 
-/**
- * Blue, light→dark by rank, for the context sub-bars inside one app: those are
- * ordered by magnitude and every one carries its own label, so the ramp encodes
- * "bigger" rather than identity. Six steps with visible lightness gaps, ending
- * at step 600 — the darkest that still clears 2:1 on the dark surface. The
- * "(other)" remainder is not a rank, so it stays neutral.
- */
-export const CONTEXT_RAMP = [
-  '#cde2fb',
-  '#9ec5f4',
-  '#6da7ec',
-  '#3987e5',
-  '#256abf',
-  '#184f95',
-] as const;
-
-export const contextColor = (rank: number): string =>
-  CONTEXT_RAMP[Math.min(rank, CONTEXT_RAMP.length - 1)] as string;
-
 /** Stable, order-independent slot for a category that has no color of its own. */
 function slotFor(id: string): string {
   let hash = 0;

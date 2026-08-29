@@ -30,10 +30,15 @@ query CategorySummary($from: String!, $to: String!, $deviceId: String) {
   }
 }
 
+# One row per app/context/category triple: an app's time can land in several
+# categories, and the top-apps bars are colored by that split.
 query AppSummary($from: String!, $to: String!, $deviceId: String) {
   appSummary(from: $from, to: $to, deviceId: $deviceId) {
     app
     context
+    categoryId
+    categoryName
+    categoryColor
     seconds
   }
 }

@@ -3,7 +3,8 @@ import { categoryColor } from '@/lib/palette';
 
 // Reshaping the server's two aggregate queries into what each chart plots.
 // The server returns categorySummary pre-aggregated per (day, category) and
-// appSummary per (app, context); everything here is grouping and sorting.
+// appSummary per (app, context, category); everything here is grouping and
+// sorting.
 
 export const UNCATEGORIZED = 'Uncategorized';
 /** Series key for the no-category bucket — real keys are category UUIDs. */
@@ -65,49 +66,149 @@ export function dayRows(summary: CategoryDaySummary[], series: Series[]): DayRow
     .sort((a, b) => a.day.localeCompare(b.day));
 }
 
+/**
+ * One category's share of a bar. A bar is a list of these rather than a single
+ * color because an app's time genuinely splits: a browser is Work on one site
+ * and not on the next, and picking a winner would paint over that.
+ */
+export interface Segment {
+  /** Category id, or null for the uncategorized bucket. */
+  id: string | null;
+  name: string;
+  color: string;
+  seconds: number;
+}
+
 export interface ContextTotal {
   name: string;
   seconds: number;
-  /** True for the remainder row, which is not a rank in the context ramp. */
-  remainder: boolean;
+  /** Category split of this context's time, largest first. */
+  segments: Segment[];
 }
 
 export interface AppTotal {
   name: string;
   seconds: number;
+  /** Category split of the app's whole time, largest first. */
+  segments: Segment[];
   /** Sub-app breakdown (browser site, open project/book), largest first. */
   contexts: ContextTotal[];
 }
 
+/** Adds a row's seconds to its category's running segment. */
+function addSegment(segments: Map<string, Segment>, row: AppSummaryRow): void {
+  const key = row.categoryId ?? UNCATEGORIZED_KEY;
+  const segment = segments.get(key) ?? {
+    id: row.categoryId,
+    name: row.categoryName ?? UNCATEGORIZED,
+    color: categoryColor(row.categoryId, row.categoryColor),
+    seconds: 0,
+  };
+  segment.seconds += row.seconds;
+  segments.set(key, segment);
+}
+
+/** Whole seconds only: a sub-second sliver is a rounding artifact, not a bar. */
+const orderSegments = (segments: Iterable<Segment>): Segment[] =>
+  [...segments].filter((segment) => segment.seconds >= 1).sort((a, b) => b.seconds - a.seconds);
+
+/**
+ * The app's own time minus what its listed contexts account for, per category
+ * — so the remainder row is colored like the time inside it rather than
+ * collapsed into one neutral block.
+ */
+function remainingSegments(app: Map<string, Segment>, listed: Map<string, Segment>[]): Segment[] {
+  const left = new Map([...app].map(([key, segment]) => [key, { ...segment }]));
+  for (const segments of listed) {
+    for (const [key, segment] of segments) {
+      const entry = left.get(key);
+      if (entry) entry.seconds -= segment.seconds;
+    }
+  }
+  return orderSegments(left.values());
+}
+
 export const MAX_CONTEXTS_PER_APP = 6;
 
+interface ContextAccumulator {
+  seconds: number;
+  segments: Map<string, Segment>;
+}
+
 export function topApps(rows: AppSummaryRow[], count = 10): AppTotal[] {
-  const byApp = new Map<string, { seconds: number; contexts: Map<string, number> }>();
+  const byApp = new Map<
+    string,
+    { seconds: number; segments: Map<string, Segment>; contexts: Map<string, ContextAccumulator> }
+  >();
   for (const row of rows) {
-    const entry = byApp.get(row.app) ?? { seconds: 0, contexts: new Map<string, number>() };
+    const entry = byApp.get(row.app) ?? {
+      seconds: 0,
+      segments: new Map<string, Segment>(),
+      contexts: new Map<string, ContextAccumulator>(),
+    };
     entry.seconds += row.seconds;
+    addSegment(entry.segments, row);
     if (row.context) {
-      entry.contexts.set(row.context, (entry.contexts.get(row.context) ?? 0) + row.seconds);
+      const context = entry.contexts.get(row.context) ?? {
+        seconds: 0,
+        segments: new Map<string, Segment>(),
+      };
+      context.seconds += row.seconds;
+      addSegment(context.segments, row);
+      entry.contexts.set(row.context, context);
     }
     byApp.set(row.app, entry);
   }
   return [...byApp.entries()]
     .map(([name, entry]) => {
-      const contexts: ContextTotal[] = [...entry.contexts.entries()]
-        .map(([context, seconds]) => ({ name: context, seconds, remainder: false }))
-        .sort((a, b) => b.seconds - a.seconds)
+      const kept = [...entry.contexts.entries()]
+        .sort(([, a], [, b]) => b.seconds - a.seconds)
         .slice(0, MAX_CONTEXTS_PER_APP);
+      const contexts: ContextTotal[] = kept.map(([context, accumulated]) => ({
+        name: context,
+        seconds: accumulated.seconds,
+        segments: orderSegments(accumulated.segments.values()),
+      }));
       // Contextless time (plus any contexts beyond the cap) in an app that has
       // contexts shows up as a remainder row so the sub-bars sum to the app bar.
-      const accounted = contexts.reduce((sum, c) => sum + c.seconds, 0);
-      const leftover = entry.seconds - accounted;
-      if (contexts.length > 0 && leftover >= 1) {
-        contexts.push({ name: '(other)', seconds: leftover, remainder: true });
+      const leftover = remainingSegments(
+        entry.segments,
+        kept.map(([, accumulated]) => accumulated.segments),
+      );
+      const leftoverSeconds = leftover.reduce((sum, segment) => sum + segment.seconds, 0);
+      if (contexts.length > 0 && leftoverSeconds >= 1) {
+        contexts.push({
+          name: '(other)',
+          seconds: leftoverSeconds,
+          segments: leftover,
+        });
       }
-      return { name, seconds: entry.seconds, contexts };
+      return {
+        name,
+        seconds: entry.seconds,
+        segments: orderSegments(entry.segments.values()),
+        contexts,
+      };
     })
     .sort((a, b) => b.seconds - a.seconds)
     .slice(0, count);
+}
+
+/**
+ * Every category present across the given apps, largest first — the legend a
+ * bar list needs before its colors stand for anything on their own.
+ */
+export function appCategories(apps: AppTotal[]): Segment[] {
+  const totals = new Map<string, Segment>();
+  for (const app of apps) {
+    for (const segment of app.segments) {
+      const key = segment.id ?? UNCATEGORIZED_KEY;
+      const entry = totals.get(key) ?? { ...segment, seconds: 0 };
+      entry.seconds += segment.seconds;
+      totals.set(key, entry);
+    }
+  }
+  return [...totals.values()].sort((a, b) => b.seconds - a.seconds);
 }
 
 export const sumSeconds = (rows: { seconds: number }[]): number =>
