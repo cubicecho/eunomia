@@ -5,6 +5,7 @@
 // views branch on.
 
 import {
+  type ApiKeysQuery,
   type AppSummaryQuery,
   type CategoriesQuery,
   type CategoryRulesQuery,
@@ -84,6 +85,8 @@ export type ContextRule = ContextRulesQuery['contextRules'][number];
 export type MergeRule = MergeRulesQuery['mergeRules'][number];
 export type Device = DevicesQuery['devices'][number];
 export type DeviceSummaryRow = DeviceSummaryQuery['deviceSummary'][number];
+/** An integration key as it can be listed — everything about it except the key. */
+export type ApiKey = ApiKeysQuery['apiKeys'][number];
 
 /** Everything a category rule is, minus its id — what the rule editor submits. */
 export type CategoryRuleInput = CreateCategoryRuleMutationVariables;
@@ -202,3 +205,22 @@ export const mergeDevice = (id: string, intoId: string): Promise<unknown> =>
   sdk.MergeDevice({ id, intoId });
 
 export const deleteDevice = (id: string): Promise<unknown> => sdk.DeleteDevice({ id });
+
+export const fetchApiKeys = (): Promise<ApiKey[]> => sdk.ApiKeys().then((d) => d.apiKeys);
+
+/**
+ * Issues an integration key. The resolved `token` is the secret and the server
+ * keeps only a hash of it, so this is the one moment it can be shown — the
+ * view has to put it in front of the user now or never.
+ */
+export const createApiKey = (
+  name: string,
+  expiresInDays: number | null,
+): Promise<{ token: string; key: ApiKey }> =>
+  sdk.CreateApiKey({ name, expiresInDays }).then((d) => d.createApiKey);
+
+export const renameApiKey = (id: string, name: string): Promise<unknown> =>
+  sdk.RenameApiKey({ id, name });
+
+/** A full revocation: whatever holds the key is refused on its next request. */
+export const revokeApiKey = (id: string): Promise<unknown> => sdk.RevokeApiKey({ id });

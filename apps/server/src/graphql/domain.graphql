@@ -16,6 +16,15 @@ extend type Query {
   me: String
 
   """
+  The caller's integration keys — the ones issued from the dashboard for other
+  apps. Device agent keys are not listed here; they belong to their device.
+
+  Never carries the key itself: only a hash is stored, and `start` is the few
+  leading characters kept so two keys can be told apart.
+  """
+  apiKeys: [ApiKey!]!
+
+  """
   Time per category per day — the answer to "what did I spend last week on?".
 
   Each aggregate below stitches the precomputed `summaries` rows together with
@@ -72,6 +81,12 @@ type Mutation {
   rotateDeviceKey(id: String!): DeviceRegistration!
   mergeDevice(id: String!, intoId: String!): Devices!
   deleteDevice(id: String!): Boolean!
+
+  # Integration keys: what another app authenticates to this server with.
+  # Session-only (see permissions.ts) — a key may not manage keys.
+  createApiKey(name: String!, expiresInDays: Int): ApiKeyIssued!
+  renameApiKey(id: String!, name: String!): ApiKey!
+  revokeApiKey(id: String!): Boolean!
 
   # Ingestion — the fields the agents call continuously.
   recordPing(
@@ -147,6 +162,29 @@ type MagicLinkRequest {
 type DeviceRegistration {
   device: Devices!
   apiKey: String!
+}
+
+"""
+An integration key, as it can be listed after the fact — everything about the
+key except the key. Send it as `x-api-key` to `/graphql` or `/mcp`.
+"""
+type ApiKey {
+  id: String!
+  name: String!
+  "The key's first few characters, so two of them can be told apart in a list."
+  start: String
+  createdAt: String!
+  "When the key last authenticated a request; null until it is first used."
+  lastUsedAt: String
+  "Null means the key does not expire."
+  expiresAt: String
+  enabled: Boolean!
+}
+
+# The secret is returned exactly once, here — the server keeps only a hash.
+type ApiKeyIssued {
+  key: ApiKey!
+  token: String!
 }
 
 """

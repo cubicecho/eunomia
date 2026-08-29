@@ -1,50 +1,20 @@
 import type { MutationResolvers } from '@eunomia/gql/resolvers';
 import { and, eq, inArray } from 'drizzle-orm';
 import { mergeDeviceHistory } from '../activity/merge.ts';
+import { revokeDeviceKeys } from '../api-keys.ts';
 import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
-import { apikey, devices } from '../db/schema.ts';
+import { devices } from '../db/schema.ts';
 import { badInput, notFound } from '../errors.ts';
 import { requireOwned, requireUser } from './guards.ts';
 
 // Device lifecycle: register, rename, re-key, merge, delete. The generated
 // device CRUD is deliberately not exposed — every one of these does something
 // to the API keys or the history that a raw insert/update wouldn't.
-
-/**
- * The deviceId a stored apikey row was minted for, or null. The better-auth
- * plugin JSON-serializes the metadata column (double-encoded in some
- * versions), so tolerate both encodings and anything unparseable.
- */
-function keyMetadataDeviceId(metadata: string | null): string | null {
-  if (!metadata) return null;
-  try {
-    let parsed: unknown = JSON.parse(metadata);
-    if (typeof parsed === 'string') parsed = JSON.parse(parsed);
-    const deviceId = (parsed as Record<string, unknown> | null)?.deviceId;
-    return typeof deviceId === 'string' ? deviceId : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Deletes every stored key minted for a device. Only hashes are kept, so
- * dropping the rows is a full revocation.
- */
-async function revokeDeviceKeys(db: Db, userId: string, deviceId: string): Promise<void> {
-  // Keys are matched by the deviceId minted into their metadata. The plugin
-  // JSON-serializes that column, so match in JS rather than guessing its exact
-  // encoding in SQL.
-  const keys = await db
-    .select({ id: apikey.id, metadata: apikey.metadata })
-    .from(apikey)
-    .where(eq(apikey.referenceId, userId));
-  const stale = keys
-    .filter((key) => keyMetadataDeviceId(key.metadata) === deviceId)
-    .map((key) => key.id);
-  if (stale.length > 0) await db.delete(apikey).where(inArray(apikey.id, stale));
-}
+//
+// The keys these mint carry a deviceId in their metadata, which is what makes
+// them device keys rather than the integration keys the dashboard issues; both
+// kinds and the difference are in src/api-keys.ts.
 
 export function deviceFields(db: Db, auth: AuthGateway) {
   return {

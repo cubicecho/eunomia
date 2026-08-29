@@ -81,10 +81,15 @@ export function createAuth(db: Db, options: AuthOptions = {}) {
 
 export type Auth = ReturnType<typeof createAuth>;
 
-/** What a device API key resolves to: the owning user and the provisioned device. */
-export interface DeviceCredentials {
+/**
+ * What an `x-api-key` resolves to. `deviceId` is set only for a device key — an
+ * integration key issued from the dashboard authenticates as its owner and
+ * nothing more. The two kinds and what separates them: src/api-keys.ts.
+ */
+export interface KeyCredentials {
   userId: string;
-  deviceId: string;
+  keyId: string;
+  deviceId: string | undefined;
 }
 
 /**
@@ -111,16 +116,49 @@ export async function mintDeviceKey(
 }
 
 /**
- * Resolves an `x-api-key` header value to the user + device it was minted for.
- * Invalid, disabled, expired, or non-device keys all resolve to null.
+ * Mints an integration key: the same long-lived credential a device gets, minus
+ * the device. Issued from the dashboard for anything else that talks to this
+ * server — an MCP client, a script — so it carries no `deviceId` metadata and
+ * can never stand in for an agent.
+ *
+ * `expiresInDays` is better-auth's own window, and the plugin bounds it at
+ * 1..365; omitted, the key does not expire. Returns the plaintext key — only
+ * its hash is stored, so this is the one time it exists.
  */
-export async function verifyDeviceKey(auth: Auth, key: string): Promise<DeviceCredentials | null> {
+export async function mintUserKey(
+  auth: Auth,
+  input: { userId: string; name: string; expiresInDays?: number | undefined },
+): Promise<{ id: string; key: string }> {
+  const created = await auth.api.createApiKey({
+    body: {
+      userId: input.userId,
+      name: input.name,
+      // Same reason as a device key: the plugin's per-key default of 10
+      // requests/day would starve anything that actually polls.
+      rateLimitEnabled: false,
+      ...(input.expiresInDays === undefined
+        ? {}
+        : { expiresIn: input.expiresInDays * 24 * 60 * 60 }),
+    },
+  });
+  return { id: created.id, key: created.key };
+}
+
+/**
+ * Resolves an `x-api-key` header value to its owner, and to the device it was
+ * minted for when it is a device key. Invalid, disabled and expired keys all
+ * resolve to null.
+ */
+export async function verifyApiKey(auth: Auth, key: string): Promise<KeyCredentials | null> {
   const result = await auth.api.verifyApiKey({ body: { key } });
   if (!result.valid || !result.key) return null;
   const metadata = result.key.metadata as Record<string, unknown> | null;
   const deviceId = metadata?.deviceId;
-  if (typeof deviceId !== 'string') return null;
-  return { userId: result.key.referenceId, deviceId };
+  return {
+    userId: result.key.referenceId,
+    keyId: result.key.id,
+    deviceId: typeof deviceId === 'string' ? deviceId : undefined,
+  };
 }
 
 export interface AuthSession {
@@ -140,6 +178,16 @@ const DEVICE_SESSION_SECONDS = 60 * 60;
  */
 export interface AuthGateway {
   mintDeviceKey(input: { userId: string; deviceId: string; name: string }): Promise<string>;
+  /**
+   * Mints a device-less API key for the user. Only the minting goes through
+   * better-auth, which owns the hashing; listing, renaming and revoking are
+   * plain reads and deletes on the table (src/api-keys.ts).
+   */
+  mintUserKey(input: {
+    userId: string;
+    name: string;
+    expiresInDays?: number | undefined;
+  }): Promise<{ id: string; key: string }>;
   /**
    * Opens a short-lived session for a device key's owner, so the desktop app
    * can show the dashboard without a second sign-in. Not an escalation: the
@@ -202,6 +250,8 @@ export function createAuthGateway(
 
   return {
     mintDeviceKey: (input) => mintDeviceKey(auth, input),
+
+    mintUserKey: (input) => mintUserKey(auth, input),
 
     async sessionForDevice(userId) {
       const ctx = await auth.$context;

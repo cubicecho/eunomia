@@ -26,6 +26,20 @@ const deviceAuthenticated: Rule = (resolve, parent, args, context: Context, info
 };
 
 /**
+ * Passes only for a signed-in session — an API key of either kind is refused
+ * even though it authenticates as the same user.
+ *
+ * This is what fences off key management. A key that could mint keys would
+ * survive its own revocation: whoever held the leaked one issues a successor
+ * before anyone notices, and revoking what leaked accomplishes nothing.
+ * Issuing and withdrawing credentials stays with the human who can sign in.
+ */
+const sessionAuthenticated: Rule = (resolve, parent, args, context: Context, info) => {
+  if (!context.userId || context.keyId) return Promise.reject(unauthenticated());
+  return resolve(parent, args, context, info);
+};
+
+/**
  * The schema as the permissions map is typed against: field names come from
  * codegen over the schema itself (@eunomia/gql/resolvers), so a field renamed in
  * domain.graphql is a compile error here and in its resolver at once.
@@ -63,6 +77,9 @@ export const permissions = {
     categorySummary: authenticated,
     appSummary: authenticated,
     deviceSummary: authenticated,
+    // Listing is session-only for the same reason issuing is: a leaked key
+    // should not be able to enumerate its siblings.
+    apiKeys: sessionAuthenticated,
     // Public by design: returns the caller's id or null.
     me: accept,
   },
@@ -82,6 +99,11 @@ export const permissions = {
     rotateDeviceKey: authenticated,
     mergeDevice: authenticated,
     deleteDevice: authenticated,
+    // Credentials are issued and withdrawn by a human at the dashboard, never
+    // by something already holding a credential.
+    createApiKey: sessionAuthenticated,
+    renameApiKey: sessionAuthenticated,
+    revokeApiKey: sessionAuthenticated,
     recordPing: authenticated,
     recordPings: authenticated,
     createCategory: authenticated,

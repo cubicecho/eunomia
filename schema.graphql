@@ -158,6 +158,35 @@ input ActivitiesOrderBy {
   title: InnerOrder
 }
 
+"""
+An integration key, as it can be listed after the fact — everything about the
+key except the key. Send it as `x-api-key` to `/graphql` or `/mcp`.
+"""
+type ApiKey {
+  createdAt: String!
+  enabled: Boolean!
+
+  """Null means the key does not expire."""
+  expiresAt: String
+  id: String!
+
+  """
+  When the key last authenticated a request; null until it is first used.
+  """
+  lastUsedAt: String
+  name: String!
+
+  """
+  The key's first few characters, so two of them can be told apart in a list.
+  """
+  start: String
+}
+
+type ApiKeyIssued {
+  key: ApiKey!
+  token: String!
+}
+
 type AppContextSummary {
   app: String!
   categoryColor: String
@@ -794,6 +823,7 @@ type Mutation {
   applyCategoryRules: Int!
   applyMergeRules: Int!
   assignActivity(activityId: String!, categoryId: String): Activities!
+  createApiKey(expiresInDays: Int, name: String!): ApiKeyIssued!
   createCategory(color: String, name: String!): Categories!
   createCategoryRule(appPattern: String, categoryId: String!, contextPattern: String, priority: Int, titlePattern: String): CategoryRules!
   createContextRule(appPattern: String, priority: Int, titlePattern: String!): ContextRules!
@@ -807,8 +837,10 @@ type Mutation {
   recordPing(app: String, capturedAt: String!, context: String, deviceId: String, idleSeconds: Int!, title: String): Activities
   recordPings(deviceId: String, pings: [PingInput!]!): Int!
   registerDevice(name: String!, platform: String!): DeviceRegistration!
+  renameApiKey(id: String!, name: String!): ApiKey!
   renameDevice(id: String!, name: String!): Devices!
   requestMagicLink(email: String!): MagicLinkRequest!
+  revokeApiKey(id: String!): Boolean!
   rotateDeviceKey(id: String!): DeviceRegistration!
   sessionFromDeviceKey: AuthSession!
   signIn(email: String!, password: String!): AuthSession!
@@ -857,6 +889,15 @@ type Query {
     orderBy: ActivitiesOrderBy
     where: ActivitiesFilters
   ): [Activities!]!
+
+  """
+  The caller's integration keys — the ones issued from the dashboard for other
+  apps. Device agent keys are not listed here; they belong to their device.
+  
+  Never carries the key itself: only a hash is stored, and `start` is the few
+  leading characters kept so two keys can be told apart.
+  """
+  apiKeys: [ApiKey!]!
 
   """
   Time per app and context over the window — the same seconds as

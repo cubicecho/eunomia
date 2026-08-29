@@ -25,7 +25,13 @@ describe('registration policy', () => {
   });
 
   const anonymous = (): Context =>
-    ({ db, userId: undefined, deviceId: undefined, headers: new Headers() }) as Context;
+    ({
+      db,
+      userId: undefined,
+      deviceId: undefined,
+      keyId: undefined,
+      headers: new Headers(),
+    }) as Context;
 
   const makeSchema = (registration: RegistrationPolicy) =>
     createSchema(db as never, createAuthGateway(auth, db as never, { registration }));
