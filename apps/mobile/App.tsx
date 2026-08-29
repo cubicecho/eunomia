@@ -2,7 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { BackHandler, StyleSheet } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { applyBackgroundSync } from './src/background.ts';
+import { applyBackgroundSync, applyKeepAlive } from './src/background.ts';
 import { DashboardScreen } from './src/DashboardScreen.tsx';
 import { LogScreen } from './src/LogScreen.tsx';
 import { startFileLog } from './src/log.ts';
@@ -27,13 +27,14 @@ export default function App() {
 
   useEffect(() => startFileLog(), []);
 
-  // Re-applying on config change also picks up a new sync interval and the
-  // background-sync toggle.
+  // Re-applying on config change also picks up a new sync interval and both
+  // background toggles.
   useEffect(() => {
     if (config) {
       applyBackgroundSync(config).catch((error: unknown) =>
         console.error('background sync registration failed', error),
       );
+      applyKeepAlive(config);
     }
   }, [config]);
 

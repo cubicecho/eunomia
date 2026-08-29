@@ -59,6 +59,7 @@ export function loadConfig(): MobileConfig | null {
     if (typeof parsed.deviceId === 'string') config.deviceId = parsed.deviceId;
     if (typeof parsed.deviceName === 'string') config.deviceName = parsed.deviceName;
     if (typeof parsed.backgroundSync === 'boolean') config.backgroundSync = parsed.backgroundSync;
+    if (typeof parsed.keepAlive === 'boolean') config.keepAlive = parsed.keepAlive;
     if (typeof parsed.syncIntervalSeconds === 'number') {
       config.syncIntervalSeconds = parsed.syncIntervalSeconds;
     }

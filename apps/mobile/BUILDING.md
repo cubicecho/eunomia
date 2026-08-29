@@ -331,3 +331,39 @@ However it was built, the agent does nothing until Android's **Usage access**
 special permission is granted: Settings → Apps → Special app access → Usage
 access → eunomia. The status screen links straight to it. It is not a runtime
 permission — the app cannot prompt for it.
+
+## Staying alive
+
+The agent tracks with the app closed in two layers, both on the status screen.
+
+**Sync in the background** (on by default) registers a WorkManager task.
+Android runs it roughly every 15 minutes at best, which is enough: the usage
+log is read *retroactively*, so a gap between runs costs nothing — the next
+sync synthesizes the pings for the whole window. The registration survives a
+swipe-away and a reboot. This is the phone's "Start at login".
+
+What it does not survive is a **force stop**. Several OEM battery managers
+(Samsung, Xiaomi, OnePlus and friends) force-stop apps they decide are idle,
+and a force-stopped app gets no background work, no alarms and no
+`BOOT_COMPLETED` until a human opens it again. Two things help:
+
+- **Allow unrestricted battery use** — the button that appears on the status
+  screen while eunomia is still battery-optimized. One tap, no notification,
+  and on stock Android it is usually all that is needed.
+- **Keep running when closed** (off by default) — a foreground service, which
+  is the only thing those layers reliably leave alone. It shows a permanent
+  silent notification (Android requires one and will not let it be dismissed),
+  comes back after a reboot, and syncs on the interval you configured rather
+  than WorkManager's 15-minute floor.
+
+The service is declared `specialUse`, not `dataSync`: since Android 15 a
+`dataSync` service is capped at six hours per day and may not be started from a
+boot receiver, which is most of what this is for. `specialUse` needs a written
+justification in the manifest, which the Play Store reviews — irrelevant for a
+sideloaded APK, but worth knowing before anyone tries to list this.
+
+The sync itself stays in JavaScript. Each tick starts a headless JS task
+(`AppRegistry.registerHeadlessTask` in `src/background.ts`), so the service
+runs the same synthesizer, privacy sanitizer and uploader as every other path,
+and starts the JS runtime itself when the process came back without an
+activity.

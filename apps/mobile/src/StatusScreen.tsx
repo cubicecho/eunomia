@@ -7,7 +7,12 @@ import * as Application from 'expo-application';
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, Button, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import UsageEvents from '../modules/usage-events';
-import { type BackgroundState, backgroundState } from './background.ts';
+import {
+  type BackgroundState,
+  backgroundState,
+  type KeepAliveState,
+  keepAliveState,
+} from './background.ts';
 import { getOutbox, type MobileConfig, outboxPath, writeConfig } from './store.ts';
 import { performSync, type SyncResult } from './sync.ts';
 import { MenuItem, Row, Screen, ui } from './ui.tsx';
@@ -42,6 +47,7 @@ export function StatusScreen({
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [background, setBackground] = useState<BackgroundState | null>(null);
+  const [keepAlive, setKeepAlive] = useState<KeepAliveState | null>(null);
   const [intervalText, setIntervalText] = useState(() =>
     String(config.syncIntervalSeconds ?? DEFAULT_SYNC_INTERVAL_SECONDS),
   );
@@ -74,6 +80,8 @@ export function StatusScreen({
     let live = true;
     const refresh = (): void => {
       void sync();
+      // Synchronous, unlike the WorkManager status: it is three native getters.
+      setKeepAlive(keepAliveState());
       backgroundState().then(
         (state) => {
           if (live) setBackground(state);
@@ -123,6 +131,22 @@ export function StatusScreen({
   // reboots, so this is the difference between an agent that tracks all day
   // and one that tracks while you're looking at it. App.tsx applies the change.
   const backgroundEnabled = config.backgroundSync !== false;
+
+  // The heavier promise: a foreground service, so a force stop by an OEM
+  // battery manager can't quietly end the day's tracking. Off by default —
+  // it buys a permanent notification.
+  const keepAliveEnabled = config.keepAlive === true;
+  const intervalSeconds = config.syncIntervalSeconds ?? DEFAULT_SYNC_INTERVAL_SECONDS;
+
+  const toggleKeepAlive = (value: boolean): void => {
+    // Asking here rather than at startup: this is the one feature that has a
+    // notification to show, and the dialog explains itself in context.
+    if (value) UsageEvents.requestNotificationPermission();
+    update({ keepAlive: value });
+    // App.tsx starts or stops the service from its own effect; re-read once it
+    // has, or the hint below would still describe the state we just changed.
+    setTimeout(() => setKeepAlive(keepAliveState()), 400);
+  };
 
   return (
     <Screen title="eunomia" subtitle={`agent ${Application.nativeApplicationVersion ?? '—'}`}>
@@ -188,6 +212,33 @@ export function StatusScreen({
               ? 'Enrolled with Android — runs at least every 15 minutes, reboots included.'
               : 'Not enrolled yet; it registers the next time the app opens.'}
         </Text>
+      ) : null}
+
+      <Row label="Keep running when closed">
+        <Switch value={keepAliveEnabled} onValueChange={toggleKeepAlive} />
+      </Row>
+      {keepAliveEnabled && keepAlive ? (
+        <Text style={keepAlive.running ? ui.hint : ui.warn}>
+          {!keepAlive.running
+            ? 'Not running yet; it starts the next time the app opens.'
+            : keepAlive.notifications
+              ? `Running as a service — syncs every ${intervalSeconds}s whether or not eunomia is open, and comes back after a reboot.`
+              : 'Running as a service, but its notification is hidden because notifications are off for eunomia.'}
+        </Text>
+      ) : null}
+      {keepAlive && !keepAlive.batteryExempt ? (
+        <>
+          <Text style={ui.hint}>
+            Android may stop eunomia to save battery — on some phones that ends background tracking
+            until you open the app again.
+          </Text>
+          <View style={ui.button}>
+            <Button
+              title="Allow unrestricted battery use"
+              onPress={UsageEvents.requestIgnoreBatteryOptimizations}
+            />
+          </View>
+        </>
       ) : null}
 
       <View style={ui.button}>
