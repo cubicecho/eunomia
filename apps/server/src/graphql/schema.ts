@@ -11,6 +11,7 @@ import {
 } from 'graphql';
 import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
+import { apiKeyFields, apiKeyQueryFields } from './api-key-fields.ts';
 import { authFields } from './auth-fields.ts';
 import { categoryFields } from './category-fields.ts';
 import type { Context } from './context.ts';
@@ -102,11 +103,13 @@ export function createSchema(db: Db, auth: AuthGateway) {
   const schema = attachResolvers(extendSchema(generated, domain), {
     Query: {
       ...summaryFields(db),
+      ...apiKeyQueryFields(db),
       me: (_source, _args, ctx) => ctx.userId ?? null,
     },
     Mutation: {
       ...authFields(auth),
       ...deviceFields(db, auth),
+      ...apiKeyFields(db, auth),
       ...categoryFields(db),
       ...ruleFields(db),
       ...mergeFields(db),

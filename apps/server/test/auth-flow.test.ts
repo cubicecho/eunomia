@@ -23,7 +23,13 @@ describe('graphql auth flow', () => {
   });
 
   const anonymous = (): Context =>
-    ({ db, userId: undefined, deviceId: undefined, headers: new Headers() }) as Context;
+    ({
+      db,
+      userId: undefined,
+      deviceId: undefined,
+      keyId: undefined,
+      headers: new Headers(),
+    }) as Context;
 
   const bearerHeaders = (token: string) => new Headers({ authorization: `Bearer ${token}` });
 

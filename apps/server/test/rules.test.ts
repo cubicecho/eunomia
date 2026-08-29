@@ -11,7 +11,7 @@ describe('auto-categorization rules', () => {
   let schema: ReturnType<typeof createSchema>;
 
   const asUser = (userId: string): Context =>
-    ({ db, userId, deviceId: 'device-1', headers: new Headers() }) as Context;
+    ({ db, userId, deviceId: 'device-1', keyId: undefined, headers: new Headers() }) as Context;
 
   const run = (source: string, userId = 'user-1') =>
     graphql({ schema, source, contextValue: asUser(userId) });

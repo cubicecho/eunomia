@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createAuth, createAuthGateway, verifyDeviceKey } from '../src/auth.ts';
+import { createAuth, createAuthGateway, verifyApiKey } from '../src/auth.ts';
 import { activities, devices, summaries, user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
@@ -13,7 +13,7 @@ describe('device management', () => {
   let schema: ReturnType<typeof createSchema>;
 
   const asUser = (userId: string | undefined): Context =>
-    ({ db, userId, deviceId: undefined, headers: new Headers() }) as Context;
+    ({ db, userId, deviceId: undefined, keyId: undefined, headers: new Headers() }) as Context;
 
   beforeEach(async () => {
     db = await createMigratedTestDb();
@@ -121,9 +121,9 @@ describe('device management', () => {
     expect(payload.apiKey).not.toBe(apiKey);
 
     // The device (and its history) stays put; only the credential changes.
-    expect(await verifyDeviceKey(auth, payload.apiKey)).toEqual({ userId: 'user-1', deviceId });
-    expect(await verifyDeviceKey(auth, apiKey)).toBeNull();
-    expect(await verifyDeviceKey(auth, survivor.apiKey)).toEqual({
+    expect(await verifyApiKey(auth, payload.apiKey)).toMatchObject({ userId: 'user-1', deviceId });
+    expect(await verifyApiKey(auth, apiKey)).toBeNull();
+    expect(await verifyApiKey(auth, survivor.apiKey)).toMatchObject({
       userId: 'user-1',
       deviceId: survivor.deviceId,
     });
@@ -133,7 +133,7 @@ describe('device management', () => {
     const { deviceId, apiKey } = await register('user-1');
     const result = await rotate('user-2', deviceId);
     expect(result.errors?.[0]?.message).toBe('Unknown device');
-    expect(await verifyDeviceKey(auth, apiKey)).not.toBeNull();
+    expect(await verifyApiKey(auth, apiKey)).not.toBeNull();
   });
 
   it('deletes a device, cascading activities and revoking its API key', async () => {
@@ -147,7 +147,7 @@ describe('device management', () => {
       lastActiveAt: new Date(),
       activeSeconds: 10,
     });
-    expect(await verifyDeviceKey(auth, apiKey)).toEqual({ userId: 'user-1', deviceId });
+    expect(await verifyApiKey(auth, apiKey)).toMatchObject({ userId: 'user-1', deviceId });
 
     const result = await remove('user-1', deviceId);
     expect(result.errors).toBeUndefined();
@@ -158,10 +158,10 @@ describe('device management', () => {
       expect.objectContaining({ id: survivor.deviceId }),
     ]);
     expect(await db.query.activities.findMany()).toEqual([]);
-    expect(await verifyDeviceKey(auth, apiKey)).toBeNull();
+    expect(await verifyApiKey(auth, apiKey)).toBeNull();
 
     // The surviving device's key is untouched.
-    expect(await verifyDeviceKey(auth, survivor.apiKey)).toEqual({
+    expect(await verifyApiKey(auth, survivor.apiKey)).toMatchObject({
       userId: 'user-1',
       deviceId: survivor.deviceId,
     });
@@ -219,8 +219,8 @@ describe('device management', () => {
     expect(kept?.lastSeenAt).toEqual(new Date('2026-08-10T10:05:00Z'));
 
     // Only the retired device's key is revoked — the running agent keeps going.
-    expect(await verifyDeviceKey(auth, duplicate.apiKey)).toBeNull();
-    expect(await verifyDeviceKey(auth, keeper.apiKey)).toEqual({
+    expect(await verifyApiKey(auth, duplicate.apiKey)).toBeNull();
+    expect(await verifyApiKey(auth, keeper.apiKey)).toMatchObject({
       userId: 'user-1',
       deviceId: keeper.deviceId,
     });
@@ -265,15 +265,15 @@ describe('device management', () => {
       'Unknown device',
     );
     // Both devices survive untouched.
-    expect(await verifyDeviceKey(auth, theirs.apiKey)).not.toBeNull();
-    expect(await verifyDeviceKey(auth, mine.apiKey)).not.toBeNull();
+    expect(await verifyApiKey(auth, theirs.apiKey)).not.toBeNull();
+    expect(await verifyApiKey(auth, mine.apiKey)).not.toBeNull();
   });
 
   it("rejects deleting another user's device", async () => {
     const { deviceId, apiKey } = await register('user-1');
     const result = await remove('user-2', deviceId);
     expect(result.errors?.[0]?.message).toBe('Unknown device');
-    expect(await verifyDeviceKey(auth, apiKey)).not.toBeNull();
+    expect(await verifyApiKey(auth, apiKey)).not.toBeNull();
   });
 
   it('rejects unauthenticated calls', async () => {

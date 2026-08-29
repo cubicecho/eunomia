@@ -1,6 +1,6 @@
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createAuth, createAuthGateway, verifyDeviceKey } from '../src/auth.ts';
+import { createAuth, createAuthGateway, verifyApiKey } from '../src/auth.ts';
 import { user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
@@ -12,7 +12,7 @@ describe('device provisioning', () => {
   let schema: ReturnType<typeof createSchema>;
 
   const asUser = (userId: string | undefined, deviceId?: string): Context =>
-    ({ db, userId, deviceId, headers: new Headers() }) as Context;
+    ({ db, userId, deviceId, keyId: undefined, headers: new Headers() }) as Context;
 
   beforeEach(async () => {
     db = await createMigratedTestDb();
@@ -46,8 +46,8 @@ describe('device provisioning', () => {
     expect(payload.apiKey.length).toBeGreaterThan(20);
 
     // The key round-trips to the user + device it was minted for.
-    const creds = await verifyDeviceKey(auth, payload.apiKey);
-    expect(creds).toEqual({ userId: 'user-1', deviceId: payload.device.id });
+    const creds = await verifyApiKey(auth, payload.apiKey);
+    expect(creds).toMatchObject({ userId: 'user-1', deviceId: payload.device.id });
   });
 
   it('rejects unauthenticated registration', async () => {
@@ -56,13 +56,13 @@ describe('device provisioning', () => {
   });
 
   it('resolves garbage keys to null', async () => {
-    expect(await verifyDeviceKey(auth, 'not-a-real-key')).toBeNull();
+    expect(await verifyApiKey(auth, 'not-a-real-key')).toBeNull();
   });
 
   it('records pings without an explicit deviceId when a device key authenticates', async () => {
     const registered = await register(asUser('user-1'));
     const { apiKey, device } = (registered.data as any).registerDevice;
-    const creds = await verifyDeviceKey(auth, apiKey);
+    const creds = await verifyApiKey(auth, apiKey);
 
     const result = await graphql({
       schema,

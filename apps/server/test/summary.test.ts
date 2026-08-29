@@ -14,7 +14,13 @@ describe('categorySummary', () => {
     graphql({
       schema,
       source,
-      contextValue: { db, userId, deviceId: undefined, headers: new Headers() } as Context,
+      contextValue: {
+        db,
+        userId,
+        deviceId: undefined,
+        keyId: undefined,
+        headers: new Headers(),
+      } as Context,
     });
 
   const activity = (
@@ -102,7 +108,13 @@ describe('per-device summaries', () => {
     graphql({
       schema,
       source,
-      contextValue: { db, userId, deviceId: undefined, headers: new Headers() } as Context,
+      contextValue: {
+        db,
+        userId,
+        deviceId: undefined,
+        keyId: undefined,
+        headers: new Headers(),
+      } as Context,
     });
 
   const RANGE = 'from: "2026-08-10T00:00:00Z", to: "2026-08-12T00:00:00Z"';

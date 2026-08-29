@@ -16,7 +16,13 @@ describe('merging entries', () => {
     graphql({
       schema,
       source,
-      contextValue: { db, userId, deviceId: 'device-1', headers: new Headers() } as Context,
+      contextValue: {
+        db,
+        userId,
+        deviceId: 'device-1',
+        keyId: undefined,
+        headers: new Headers(),
+      } as Context,
     });
 
   const data = async (source: string, userId = 'user-1') => {

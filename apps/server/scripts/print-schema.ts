@@ -21,6 +21,7 @@ const unreachable = (): Promise<never> =>
   Promise.reject(new Error('schema printing never calls auth'));
 const stubAuth: AuthGateway = {
   mintDeviceKey: unreachable,
+  mintUserKey: unreachable,
   sessionForDevice: unreachable,
   signUp: unreachable,
   signIn: unreachable,

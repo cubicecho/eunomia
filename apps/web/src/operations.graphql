@@ -98,6 +98,48 @@ query Devices {
   }
 }
 
+# Integration keys — what another app authenticates to this server with. The
+# key itself is never listed; `start` is only enough to tell two of them apart.
+query ApiKeys {
+  apiKeys {
+    id
+    name
+    start
+    createdAt
+    lastUsedAt
+    expiresAt
+    enabled
+  }
+}
+
+# `token` is the secret, and this response is the only place it exists.
+mutation CreateApiKey($name: String!, $expiresInDays: Int) {
+  createApiKey(name: $name, expiresInDays: $expiresInDays) {
+    token
+    key {
+      id
+      name
+      start
+      createdAt
+      lastUsedAt
+      expiresAt
+      enabled
+    }
+  }
+}
+
+mutation RenameApiKey($id: String!, $name: String!) {
+  renameApiKey(id: $id, name: $name) {
+    id
+  }
+}
+
+# Only a hash is stored, so this is a full revocation — whatever holds the key
+# is refused on its next request.
+mutation RevokeApiKey($id: String!) {
+  revokeApiKey(id: $id)
+}
+
 mutation CreateCategory($name: String!, $color: String) {
   createCategory(name: $name, color: $color) {
     id
