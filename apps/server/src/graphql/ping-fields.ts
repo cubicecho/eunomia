@@ -39,13 +39,41 @@ async function resolveDevice(db: Db, ctx: Context, deviceId?: string | null): Pr
   return requireOwned(db, devices, id, userId, 'Unknown device');
 }
 
-/** Parses every capturedAt up front, so a malformed ping rejects nothing halfway. */
+/**
+ * How far ahead of the server a device's clock may run before its pings are
+ * pulled back to receipt time. Generous enough to cover ordinary NTP drift.
+ */
+const MAX_CLOCK_SKEW_MS = 2 * 60_000;
+
+/**
+ * Parses every capturedAt up front, so a malformed ping rejects nothing halfway,
+ * and clamps any that claim to be from the future.
+ *
+ * A future timestamp doesn't just misplace one ping — it wedges the device.
+ * The fold writes it to lastActiveAt, and from then on every correctly-dated
+ * ping reads as out-of-order and accrues nothing, while the poisoned row never
+ * auto-closes because its staleness is negative. The device silently records no
+ * time at all until the wall clock catches up, which for a Windows machine that
+ * booted against a mis-set RTC (dual boot, dead CMOS battery, a VM resumed from
+ * a snapshot) can be hours. Clamping costs at most a couple of minutes of
+ * placement; not clamping costs everything until the skew expires.
+ */
 function parseCapturedAt(pings: PingInput[]): Date[] {
-  return pings.map((ping) => {
+  const receivedAt = Date.now();
+  let clamped = 0;
+  const parsed = pings.map((ping) => {
     const capturedAt = new Date(ping.capturedAt);
     if (Number.isNaN(capturedAt.getTime())) throw badInput('Invalid capturedAt');
+    if (capturedAt.getTime() > receivedAt + MAX_CLOCK_SKEW_MS) {
+      clamped++;
+      return new Date(receivedAt);
+    }
     return capturedAt;
   });
+  if (clamped > 0) {
+    console.warn(`clamped ${clamped} ping(s) dated after receipt — the device's clock is ahead`);
+  }
+  return parsed;
 }
 
 /**
