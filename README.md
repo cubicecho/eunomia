@@ -156,7 +156,9 @@ default**. Per device:
 - **Android** — "Sync every" field on the status screen. Applies to
   foreground syncs; background syncs can't run more often than Android's
   15-minute WorkManager floor (a *longer* configured interval slows the
-  background task down too).
+  background task down too). **Keep running when closed** removes the floor —
+  a foreground service holds its own timer, so the configured interval is the
+  one you get whether the app is open or not.
 
 The floor everywhere is 10 seconds; nothing is lost at any interval — pings
 queue in the outbox until the next sync. The queue holds 50,000 pings (about a
@@ -239,8 +241,12 @@ a new APK — the phone picks one up on its next launch, background sync include
 — and only a change to the native runtime triggers a build. The result is an installable APK, not a Play-Store bundle — sideload it
 with `adb install` or by opening the file on the phone. Android's "Start at
 login" is the **Sync in the background** toggle: WorkManager keeps the
-registration across reboots. Account setup, the keystore step, and the local
-fallback are in [apps/mobile/BUILDING.md](apps/mobile/BUILDING.md).
+registration across reboots. **Keep running when closed** is the stronger
+version of the same promise — a foreground service with a permanent
+notification, for phones whose battery manager force-stops idle apps; see
+[Staying alive](apps/mobile/BUILDING.md#staying-alive). Account setup, the
+keystore step, and the local fallback are in
+[apps/mobile/BUILDING.md](apps/mobile/BUILDING.md).
 
 Only one agent runs per machine — launching it again (Start menu, shortcut)
 opens the dashboard from the instance already running rather than starting a

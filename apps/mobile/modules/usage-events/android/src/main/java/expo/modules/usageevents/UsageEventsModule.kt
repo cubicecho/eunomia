@@ -6,9 +6,12 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
+import androidx.core.app.ActivityCompat
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -41,6 +44,23 @@ class UsageEventsModule : Module() {
     Function("getAppLabel") { packageName: String -> appLabel(packageName) }
 
     Function("isLaunchable") { packageName: String -> isLaunchable(packageName) }
+
+    // Keep-alive: the foreground service that survives what WorkManager
+    // doesn't. See SyncForegroundService and src/background.ts.
+
+    Function("isKeepAliveRunning") { SyncForegroundService.isRunning }
+
+    Function("setKeepAlive") { enabled: Boolean, intervalSeconds: Int ->
+      SyncForegroundService.setEnabled(context, enabled, intervalSeconds.toLong())
+    }
+
+    Function("hasNotificationPermission") { hasNotificationPermission() }
+
+    Function("requestNotificationPermission") { requestNotificationPermission() }
+
+    Function("isIgnoringBatteryOptimizations") { isIgnoringBatteryOptimizations() }
+
+    Function("requestIgnoreBatteryOptimizations") { requestIgnoreBatteryOptimizations() }
   }
 
   /**
@@ -154,7 +174,63 @@ class UsageEventsModule : Module() {
   private fun isLaunchable(packageName: String): Boolean =
     context.packageManager.getLaunchIntentForPackage(packageName) != null
 
+  /**
+   * Whether the keep-alive service's notification can actually be shown.
+   * Nothing depends on it — the service runs either way — but a tracker whose
+   * "I am running" notice is invisible is worth saying out loud.
+   */
+  private fun hasNotificationPermission(): Boolean =
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+      true
+    } else {
+      context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+        PackageManager.PERMISSION_GRANTED
+    }
+
+  /**
+   * Fire-and-forget: the result arrives as the usual system dialog, which
+   * pauses the activity, and the status screen re-reads state when it comes
+   * back to the foreground.
+   */
+  private fun requestNotificationPermission() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    if (hasNotificationPermission()) return
+    val activity = appContext.activityProvider?.currentActivity ?: return
+    ActivityCompat.requestPermissions(
+      activity,
+      arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+      NOTIFICATION_PERMISSION_REQUEST,
+    )
+  }
+
+  /**
+   * Battery optimization is the lighter half of "keep running": exempt, an app
+   * gets its WorkManager runs and its alarms on time, with no service and no
+   * permanent notification. It is not a substitute for the service — an OEM
+   * that force-stops idle apps ignores this — but it is one tap and costs the
+   * user nothing.
+   */
+  private fun isIgnoringBatteryOptimizations(): Boolean {
+    val power = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return false
+    return power.isIgnoringBatteryOptimizations(context.packageName)
+  }
+
+  private fun requestIgnoreBatteryOptimizations() {
+    if (isIgnoringBatteryOptimizations()) return
+    val intent =
+      Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+        .setData(Uri.parse("package:${context.packageName}"))
+    val activity = appContext.activityProvider?.currentActivity
+    if (activity != null) {
+      activity.startActivity(intent)
+    } else {
+      context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+  }
+
   private companion object {
+    const val NOTIFICATION_PERMISSION_REQUEST = 4711
+
     const val FOREGROUND = "foreground"
     const val SCREEN_ON = "screenOn"
     const val SCREEN_OFF = "screenOff"

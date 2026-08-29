@@ -16,3 +16,9 @@ android {
     versionName '0.1.0'
   }
 }
+
+dependencies {
+  // The keep-alive service runs the sync as a headless JS task, so it needs
+  // React Native's own classes. compileOnly — the app already ships them.
+  compileOnly 'com.facebook.react:react-android'
+}
