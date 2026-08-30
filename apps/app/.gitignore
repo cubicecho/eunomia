@@ -1,0 +1,26 @@
+# Expo
+.expo/
+dist/
+web-build/
+
+# Native prebuild output (continuous native generation — `npx expo prebuild`).
+# Anchored to this directory: a bare `android/` also matches
+# modules/usage-events/android/, and silently swallowed the local module's
+# Kotlin source — the app then can't build, because the module it autolinks
+# has no implementation.
+/android/
+/ios/
+
+# `eas build --json` writes here (CI, and anyone running the same command).
+/build.json
+# The same, for the fingerprint lookup that decides build-versus-update.
+/fingerprint.json
+/builds.json
+/update.json
+
+node_modules/
+
+# Expo web export — the Electron renderer (npm run export:web).
+/dist-web/
+# electron-builder output.
+/release/

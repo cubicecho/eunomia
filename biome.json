@@ -15,7 +15,8 @@
       "!package-lock.json",
       "!schema.graphql",
       "!packages/gql/src",
-      "!apps/desktop/src/tray-icon.ts",
+      "!apps/app/electron/tray-icon.ts",
+      "!apps/app/dist-web",
       "!apps/server/drizzle"
     ]
   },

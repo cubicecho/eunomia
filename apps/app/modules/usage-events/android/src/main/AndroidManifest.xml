@@ -1,0 +1,60 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Held by the module that reads it. Granting it is not something an app
+         can ask for at runtime: the user has to switch it on in
+         Settings → Special app access → Usage access (openUsageAccessSettings). -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- The keep-alive service (SyncForegroundService). SPECIAL_USE rather than
+         DATA_SYNC because Android 15 caps a dataSync service at six hours a day
+         and won't let a boot receiver start one — see the service's comments. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Android 13+ hides the service's notification without this. The service
+         still runs; the user just can't see that it is. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Held for the length of one sync: a foreground service keeps the process
+         alive but lets the CPU sleep. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Opens the system dialog that exempts eunomia from battery optimization,
+         which is what keeps the *background task* running on OEM builds that
+         would otherwise stop it. The Play Store restricts apps that ask for
+         this; eunomia is sideloaded (see apps/app/BUILDING.md). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Android 11+ hides other packages by default. queryEvents still reports
+         their package names, but getApplicationLabel needs visibility to turn
+         one into a human-readable name — launchable apps are exactly the ones
+         worth labelling, and this block is not a restricted permission. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application>
+        <!-- stopWithTask=false is the whole feature: swiping eunomia out of
+             recents must not stop it. -->
+        <service
+            android:name="expo.modules.usageevents.SyncForegroundService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Reads this device's own app-usage log on a timer and uploads it to the user's self-hosted server while the app is closed." />
+        </service>
+
+        <receiver
+            android:name="expo.modules.usageevents.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

@@ -7,7 +7,7 @@ node_modules
 # Build output, all of it regenerated inside the image or irrelevant to it.
 **/dist
 packages/gql/src
-apps/mobile/android
-apps/mobile/ios
+apps/app/android
+apps/app/ios
 
 .git

@@ -15,16 +15,19 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 
 - `apps/server` — GraphQL Yoga + `@vantreeseba/drizzle-graphql` + Drizzle (1.0 RC) + Postgres,
   better-auth (sessions + device API keys), `@vantreeseba/graphql-casl` permissions.
-- `apps/desktop` — Electron tray-only agent (`@miniben90/x-win` + `powerMonitor`).
-- `apps/mobile` — Expo (Android-only for now) agent: a local Kotlin module reads
-  Android's `UsageStatsManager` event log and the shared synthesizer turns it
-  into pings retroactively — no live sampling service needed.
+- `apps/app` — the agent, in one workspace with three targets. Its UI (setup,
+  status, privacy, log) is a single Expo app; what runs *behind* that UI is the
+  shell. **Android**: a local Kotlin module reads `UsageStatsManager`'s event
+  log and the shared synthesizer turns it into pings retroactively — no live
+  sampling service needed. **Desktop** (`electron/`): an Electron tray agent
+  (`@miniben90/x-win` + `powerMonitor`) that samples the focused window, with
+  the same UI rendered by react-native-web off `expo export --platform web`.
 - `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in,
   per-category/per-day/per-app views, rules, entry merges, devices. Talks to the
   server through the generated GraphQL SDK in `packages/gql`.
-- `packages/agent` — agent core shared by desktop and mobile: crash-safe outbox,
-  batch uploader, the usage-event → ping synthesizer, and the shared
-  provisioning flow.
+- `packages/agent` — agent core shared by every target: crash-safe outbox,
+  batch uploader, the usage-event → ping synthesizer, the config parser, and
+  the shared provisioning flow.
 - `packages/gql` — nothing but graphql-codegen's output, regenerated from
   `schema.graphql` and not kept in git. See below.
 
@@ -114,8 +117,11 @@ npm run db:migrate -w @eunomia/server   # apply committed migrations
 npm run dev:server                      # http://localhost:4000/graphql
 
 # desktop agent — on first run it opens a setup window (server URL + email,
-# magic-link sign-in, registers this machine), then lives in the tray.
-# `npm run provision -w @eunomia/desktop` is the terminal equivalent.
+# magic-link sign-in, registers this machine), then lives in the tray. That
+# window is the Expo app rendered by react-native-web, so `dev:desktop` runs
+# `expo export --platform web` first; re-run it after editing the UI, or point
+# EUNOMIA_DEV_SERVER at `npm run web -w @eunomia/app` to skip the export.
+# `npm run provision -w @eunomia/app` is the terminal equivalent.
 # Tray → "Open Dashboard" (or a double-click on the tray icon, on
 # Windows/macOS) shows the server-hosted dashboard, signed in via the device
 # key (needs a server that serves the web build, i.e. WEB_DIST — the docker
@@ -130,7 +136,7 @@ npm run dev:desktop
 npm run dev:web                         # http://localhost:5173
 
 # mobile agent (Android) — needs a dev build (native module), not Expo Go:
-#   cd apps/mobile && npx expo run:android
+#   cd apps/app && npx expo run:android
 # then grant "Usage access" from the in-app prompt. Set up mirrors desktop:
 # server URL + email magic link. Syncs on foreground + ~15 min in background.
 npm run dev:mobile
@@ -205,12 +211,13 @@ seconds.
 ### Packaging the desktop agent
 
 ```bash
-npm run dist:linux -w @eunomia/desktop   # release/eunomia-agent-*.AppImage
-npm run dist:win -w @eunomia/desktop     # release/eunomia-agent Setup *.exe
+npm run dist:linux -w @eunomia/app   # release/eunomia-agent-*.AppImage
+npm run dist:win -w @eunomia/app     # release/eunomia-agent Setup *.exe
 ```
 
-Both cross-build from Linux (`dist:win` downloads the win32 `x-win`
-prebuild). The Windows build is a one-click per-user NSIS installer — no
+Both export the agent UI (`expo export --platform web`), bundle the main
+process with esbuild, and cross-build from Linux (`dist:win` downloads the
+win32 `x-win` prebuild). The Windows build is a one-click per-user NSIS installer — no
 admin prompt, and uninstalling keeps the outbox/config in AppData. It is
 unsigned, so SmartScreen will warn on first run ("More info" → "Run
 anyway"). Packaged agents **launch at login** once provisioned — an XDG
@@ -229,7 +236,7 @@ Test APKs are built by EAS, not locally — the Android SDK, the JDK, and the
 signing keystore all live on Expo's side:
 
 ```bash
-npm run apk:eas -w @eunomia/mobile      # eas build -p android -e preview
+npm run apk:eas -w @eunomia/app         # eas build -p android -e preview
 npm run dist:apk                        # local gradle fallback (needs JDK + SDK)
 ```
 
@@ -244,9 +251,9 @@ login" is the **Sync in the background** toggle: WorkManager keeps the
 registration across reboots. **Keep running when closed** is the stronger
 version of the same promise — a foreground service with a permanent
 notification, for phones whose battery manager force-stops idle apps; see
-[Staying alive](apps/mobile/BUILDING.md#staying-alive). Account setup, the
+[Staying alive](apps/app/BUILDING.md#staying-alive). Account setup, the
 keystore step, and the local fallback are in
-[apps/mobile/BUILDING.md](apps/mobile/BUILDING.md).
+[apps/app/BUILDING.md](apps/app/BUILDING.md).
 
 Only one agent runs per machine — launching it again (Start menu, shortcut)
 opens the dashboard from the instance already running rather than starting a

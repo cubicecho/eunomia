@@ -15,7 +15,7 @@
 // retroactively, and an entry keyed on the commit and the update group makes a
 // re-run idempotent rather than double-posting.
 //
-// Run from apps/mobile, where the EAS JSON and app.json live. Everything else
+// Run from apps/app, where the EAS JSON and app.json live. Everything else
 // arrives in the environment; see .github/workflows/android.yml.
 
 import { execFileSync } from 'node:child_process';
@@ -24,7 +24,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const STATE_PATTERN = /<!-- eunomia-release\n([\s\S]*?)\n-->/;
-// Out of the working tree: this runs from apps/mobile, and the body is `gh`'s
+// Out of the working tree: this runs from apps/app, and the body is `gh`'s
 // input, not an artifact of the repo.
 const NOTES_FILE = join(tmpdir(), 'eunomia-release-notes.md');
 
