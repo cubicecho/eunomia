@@ -32,7 +32,8 @@
     "electron": "^43.0.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "^3.2.7"
   },
   "scripts": {
     "start": "expo start",
@@ -46,16 +47,17 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "export:web": "expo export --platform web --output-dir dist-web",
-    "predesktop": "npm run export:web",
+    "predesktop": "npm run export:web && npm run build:preload",
     "desktop": "electron ./electron",
     "provision": "electron ./electron --provision",
     "build:main": "esbuild electron/main.ts --bundle --platform=node --format=cjs --external:electron --external:@miniben90/x-win --outfile=dist/main.cjs",
-    "build:preload": "esbuild electron/dashboard-preload.cjs electron/agent-preload.cjs --outdir=dist --out-extension:.js=.cjs",
+    "build:preload": "esbuild electron/dashboard-preload.cjs electron/agent-preload.cjs --bundle --platform=node --format=cjs --external:electron --outdir=dist --out-extension:.js=.cjs",
     "fetch:win-native": "node electron/scripts/fetch-win-native.mjs",
     "predist:win": "npm --prefix ../.. run codegen:types",
     "dist:win": "npm run export:web && npm run build:main && npm run build:preload && npm run fetch:win-native && electron-builder --win --x64",
     "predist:linux": "npm --prefix ../.. run codegen:types",
     "dist:linux": "npm run export:web && npm run build:main && npm run build:preload && electron-builder --linux --x64",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p electron"
   },
   "build": {

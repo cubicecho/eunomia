@@ -1,5 +1,5 @@
-import { join } from 'node:path';
-import { app, BrowserWindow } from 'electron';
+import { BrowserWindow } from 'electron';
+import { preloadPath } from './preload-path.ts';
 import { AGENT_URL } from './protocol.ts';
 
 // The agent window: the same React app the Android agent runs, rendered by
@@ -12,13 +12,6 @@ import { AGENT_URL } from './protocol.ts';
 // remote content, fully sandboxed, one session token and nothing else.
 
 let openWindow: BrowserWindow | undefined;
-
-/**
- * Packaged builds ship preloads next to main.cjs in dist/; in development the
- * app path is this directory, so the source file is right here.
- */
-const preloadPath = (): string =>
-  join(app.getAppPath(), app.isPackaged ? 'dist' : '.', 'agent-preload.cjs');
 
 /**
  * Metro's dev server, when one is running (`npm run web -w @eunomia/app`).
@@ -48,7 +41,7 @@ export async function openAgentWindow(): Promise<void> {
       contextIsolation: true,
       // Not sandboxed, unlike the dashboard: this preload needs `require`.
       // The content is ours and local, served from app:// by our own handler.
-      preload: preloadPath(),
+      preload: preloadPath('agent-preload.cjs'),
     },
   });
   openWindow = win;

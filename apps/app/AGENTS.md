@@ -35,6 +35,16 @@ this shell have a usage-access prompt / a background task / a login item".
 - **`react-native-webview` has no web build at all**, so `DashboardScreen` is a
   `React.lazy` import: bundled as its own chunk, never evaluated off Android.
 - CI catches all of this by running `npm run export:web` — `tsc` cannot.
+- **`npm test` here runs only what a plain Node can run**: `src/host/electron.ts`
+  and `unsupported.ts` (both React Native-free) and `electron/ipc.ts` under a
+  mocked `electron`. `src/host/index.ts` imports `react-native`, so it is not
+  covered; `vitest.config.ts` limits the glob to `src/` and `electron/` so the
+  runner never walks `android/` or `dist-web/`.
+- **`electron/tsconfig.json` sets `module: preserve`.** Under NodeNext it would
+  decide module format per file, and since only `electron/` has
+  `"type": "module"` it would call `src/` CommonJS and reject the value export
+  in `src/host/bridge.ts` that both `ipc.ts` and the preload import. esbuild
+  does the emit; tsc here only checks.
 - **Never give electron-builder a `linux.files` / `win.files` of its own.** A
   platform `files` array is folded into its *default* matcher, and a matcher
   holding only exclusions gets `**/*` prepended — so one `!` line quietly
@@ -47,9 +57,12 @@ this shell have a usage-access prompt / a background task / a login item".
 ## The two Electron renderers are not alike
 
 `electron/window.ts` shows **local** content (our own export, over `app://`),
-so its preload is a real bridge — `agent-preload.cjs` mirrors `BRIDGE_METHODS`
-in `src/host/bridge.ts`, and `electron/ipc.ts` answers every channel only for
-that window's own frame.
+so its preload is a real bridge. `src/host/bridge.ts` is the only place the
+method list is written: `agent-preload.cjs` imports `BRIDGE_METHODS` and
+forwards each one (which is why `build:preload` bundles — a preload runs before
+any module loader the app has), and `registerAgentIpc` throws at startup if a
+name has no handler. `electron/ipc.ts` answers every channel only for that
+window's own frame.
 
 `electron/dashboard.ts` shows **remote** content, so it stays fully sandboxed
 (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`) and gets

@@ -1,6 +1,6 @@
-import { join } from 'node:path';
 import { type AgentConfig, sessionFromDeviceKey } from '@eunomia/agent';
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { preloadPath } from './preload-path.ts';
 
 // The dashboard window: the server-hosted web app, signed in with a session
 // minted from the device key (sessionFromDeviceKey), so viewing the dashboard
@@ -12,12 +12,6 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 
 let openWindow: BrowserWindow | undefined;
 let opening = false;
-
-// Packaged builds ship the preload next to main.cjs in dist/ (build:preload);
-// in development the app path is this directory, so it runs from source.
-// Loaded by path at runtime, so esbuild's bundle never sees it.
-const preloadPath = (): string =>
-  join(app.getAppPath(), app.isPackaged ? 'dist' : '.', 'dashboard-preload.cjs');
 
 export async function openDashboard(config: AgentConfig): Promise<void> {
   if (openWindow) {
@@ -53,7 +47,7 @@ export async function openDashboard(config: AgentConfig): Promise<void> {
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true,
-        preload: preloadPath(),
+        preload: preloadPath('dashboard-preload.cjs'),
       },
     });
     openWindow = win;

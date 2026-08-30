@@ -1,8 +1,11 @@
 import type { StoredConfig } from '@eunomia/agent';
 import { type BrowserWindow, ipcMain, shell } from 'electron';
+import { type AgentBridge, BRIDGE_METHODS } from '../src/host/bridge.ts';
 
 // The main-process half of src/host/bridge.ts. Every method there is one
-// channel here; the preload forwards by name, so the two lists must agree.
+// channel here, and registerAgentIpc refuses to finish if one is missing:
+// the preload forwards by name, so a method with no handler is a call that
+// only fails once a user reaches the screen that makes it.
 //
 // Each handler checks the sender: these calls read the device API key's
 // neighbourhood and write the file the agent authenticates with, and the only
@@ -25,7 +28,9 @@ export interface AgentRuntime {
 }
 
 export function registerAgentIpc(runtime: AgentRuntime, owner: () => BrowserWindow | undefined) {
-  const handle = (channel: string, fn: (...args: never[]) => unknown): void => {
+  const registered = new Set<keyof AgentBridge>();
+  const handle = (channel: keyof AgentBridge, fn: (...args: never[]) => unknown): void => {
+    registered.add(channel);
     ipcMain.handle(`agent:${channel}`, (event, ...args) => {
       if (event.sender !== owner()?.webContents) {
         throw new Error(`refused ${channel} from a frame that is not the agent window`);
@@ -54,4 +59,9 @@ export function registerAgentIpc(runtime: AgentRuntime, owner: () => BrowserWind
   });
   handle('setAutostart', (enabled: boolean) => runtime.setAutostart(enabled));
   handle('openDashboard', () => runtime.openDashboard());
+
+  const missing = BRIDGE_METHODS.filter((name) => !registered.has(name));
+  if (missing.length > 0) {
+    throw new Error(`the agent bridge declares ${missing.join(', ')} with no handler here`);
+  }
 }

@@ -1,7 +1,13 @@
 {
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["node"],
+    // esbuild does the emit; tsc only checks. `preserve` keeps it from deciding
+    // module format per file, which under NodeNext would call src/ CommonJS —
+    // apps/app has no "type": "module", only electron/ does — and reject the
+    // value export in src/host/bridge.ts that ipc.ts and the preload import.
+    "module": "preserve",
+    "moduleResolution": "bundler"
   },
-  "include": ["."]
+  "include": [".", "../src/host/bridge.ts"]
 }
