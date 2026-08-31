@@ -8,6 +8,16 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
+// On Windows npm has already installed @miniben90/x-win-win32-x64-msvc as the
+// host platform's optional dependency, and x-win's loader finds it there. The
+// loose .node this script drops next to index.js is purely a cross-packaging
+// trick, so running it on a Windows runner is one avoidable network call
+// standing between a tagged commit and its installer.
+if (process.platform === 'win32') {
+  console.log('building on Windows: npm installed the win32 prebuild already');
+  process.exit(0);
+}
+
 const require = createRequire(import.meta.url);
 const xwinDir = dirname(require.resolve('@miniben90/x-win/package.json'));
 const version = require('@miniben90/x-win/package.json').version;

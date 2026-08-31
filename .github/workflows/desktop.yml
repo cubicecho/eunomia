@@ -1,0 +1,207 @@
+name: Desktop
+
+# The desktop agent's installers. CI bundles the Electron shell on every pull
+# request, which proves the sources compile; it never runs electron-builder, so
+# nothing until now proved they *package*. Two things happen here:
+#
+#   verify — a pull request that touches the shell or its build config builds an
+#            AppImage and reads the asar back, because the packaging footguns in
+#            apps/app/AGENTS.md are all invisible to tsc and to esbuild.
+#   build  — a published release gets a Linux AppImage and a Windows installer
+#            attached to it.
+#
+# Windows installers are built on a Windows runner rather than cross-packaged
+# under wine, and are unsigned: SmartScreen will warn on first run until there
+# is a certificate to sign with.
+
+on:
+  # Not `release: [published]`. semantic-release publishes with GITHUB_TOKEN,
+  # and events raised by that token deliberately do not start workflow runs — a
+  # release trigger here would simply never fire. Chain off the workflow that
+  # creates the release instead — Release, the one that publishes the server
+  # image, which is where semantic-release runs.
+  workflow_run:
+    workflows: [Release]
+    branches: [main]
+    types: [completed]
+
+  # For rebuilding the installers of a release that already exists — a runner
+  # failed, or a signing certificate arrived.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag of an existing release to build and attach installers to
+        required: true
+
+  pull_request:
+    paths:
+      - 'apps/app/electron/**'
+      - 'apps/app/package.json'
+      - 'packages/agent/**'
+      - '.github/workflows/desktop.yml'
+
+concurrency:
+  group: desktop-${{ github.event.workflow_run.head_sha || inputs.tag || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Packaging is the only step that can tell you the app you shipped is missing
+  # a file, or carrying half the monorepo. It runs where it is cheap — one
+  # AppImage on Linux — and only when something that feeds the package changed.
+  verify:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Package for Linux
+        run: npm run dist:linux -w @eunomia/app
+
+      # The `files` globs decide what lands in the archive, and they fail open:
+      # a matcher holding only exclusions gets `**/*` prepended, so one stray
+      # `!` line packages `android/` and `release/` too and nothing complains.
+      # Read the archive back instead of trusting the config.
+      - name: The asar holds the app and nothing else
+        run: |
+          npx asar list apps/app/release/linux-unpacked/resources/app.asar > "$RUNNER_TEMP/asar.txt"
+          {
+            echo '<details><summary>asar contents</summary>'
+            echo
+            sed "s/^/    /" "$RUNNER_TEMP/asar.txt"
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          fail=0
+          top=$(grep -E '^/[^/]+$' "$RUNNER_TEMP/asar.txt" | sort | tr '\n' ' ')
+          expected='/dist /dist-web /node_modules /package.json '
+          if [ "$top" != "$expected" ]; then
+            echo "::error::the packaged app's top level is [$top], expected [$expected]"
+            fail=1
+          fi
+
+          # x-win ships one prebuild per platform and the `${os}` glob is what
+          # picks it. Two would mean the glob stopped discriminating; zero means
+          # the window sampler has nothing to call.
+          natives=$(grep -c '\.node$' "$RUNNER_TEMP/asar.txt" || true)
+          if [ "$natives" -ne 1 ]; then
+            echo "::error::expected exactly one native module, found $natives"
+            fail=1
+          fi
+          exit $fail
+
+  # workflow_run hands over a commit, not a release. Resolve one into the other
+  # here, once, rather than in each half of the matrix below.
+  target:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      # workflow_run checks out the default branch's tip by default, which is
+      # not necessarily the commit the run was about. Ask for that commit, with
+      # the tags — the tag semantic-release just pushed is the whole question.
+      # The `v*` filter below matters: android.yml tags its own releases too,
+      # one per binary, and those are not desktop releases.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || inputs.tag }}
+          fetch-depth: 0
+
+      # A Release run that found no feat:/fix: commit publishes nothing and
+      # tags nothing. That is the common case, not an error: leave `tag` empty
+      # and every job below is skipped with it.
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="${INPUT_TAG:-$(git tag --points-at HEAD --list 'v*' | head -n1)}"
+          if [ -z "$TAG" ]; then
+            echo 'No release tag on this commit, so there is nothing to attach installers to.' \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::$TAG is not a published release"
+            exit 1
+          fi
+          {
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+          echo "Packaging the desktop agent for \`$TAG\`." >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: target
+    if: needs.target.outputs.tag != ''
+    strategy:
+      # One runner's toolchain breaking should still leave the other platform's
+      # users with an installer.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            script: dist:linux
+            ext: AppImage
+          - os: windows-latest
+            script: dist:win
+            ext: exe
+    runs-on: ${{ matrix.os }}
+    # Uploading an asset to a release is a write to `contents`.
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      # The version in apps/app/package.json is the workspace's, and nothing
+      # bumps it: .releaserc.json has no @semantic-release/npm, because the
+      # release this repo publishes is a container image and a tag, not an npm
+      # package. electron-builder would otherwise name every installer ever
+      # released 0.1.0. Stamp the tag in, uncommitted, for the length of this
+      # job — `app.getVersion()` reads the same field, so the tray reports it
+      # too.
+      - name: Stamp the release version
+        run: npm pkg set version="${{ needs.target.outputs.version }}" -w @eunomia/app
+
+      - name: Package
+        run: npm run ${{ matrix.script }} -w @eunomia/app
+
+      - name: Attach the installer to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.target.outputs.tag }}
+          EXT: ${{ matrix.ext }}
+        working-directory: apps/app/release
+        run: |
+          shopt -s nullglob
+          installers=(*."$EXT")
+          if [ ${#installers[@]} -eq 0 ]; then
+            echo "::error::the build produced no .$EXT"
+            exit 1
+          fi
+          # --clobber so a rerun replaces the asset instead of failing on it.
+          gh release upload "$TAG" "${installers[@]}" --clobber

@@ -218,7 +218,7 @@ npm run dist:win -w @eunomia/app     # release/eunomia-agent Setup *.exe
 
 Both export the agent UI (`expo export --platform web`), bundle the main
 process with esbuild, and cross-build from Linux (`dist:win` downloads the
-win32 `x-win` prebuild). The Windows build is a one-click per-user NSIS installer — no
+win32 `x-win` prebuild, which it skips when Windows is already the host). The Windows build is a one-click per-user NSIS installer — no
 admin prompt, and uninstalling keeps the outbox/config in AppData. It is
 unsigned, so SmartScreen will warn on first run ("More info" → "Run
 anyway"). Packaged agents **launch at login** once provisioned — an XDG
@@ -230,6 +230,18 @@ never touches login items. Uninstalling on Windows
 removes the login item too; on Linux there is no uninstaller, so deleting the
 AppImage leaves `~/.config/autostart/eunomia-agent.desktop` behind for you to
 remove as well.
+
+`.github/workflows/desktop.yml` builds both installers and attaches them to the
+GitHub release. It chains off the `Release` workflow that publishes the server
+image rather than triggering on the release itself: semantic-release publishes
+with `GITHUB_TOKEN`, and events raised by that token do not start workflow
+runs. The version in `apps/app/package.json` is not what ships — nothing bumps
+it, so the job stamps the release tag in before packaging, and the installer
+names and the tray both report it. Windows is built on a Windows runner rather
+than cross-packaged under wine. A pull request that touches the shell, its
+`package.json`, or `packages/agent` packages an AppImage and reads the asar
+back, which is the only check that sees a packaging mistake — `tsc` and esbuild
+cannot.
 
 ### Packaging the Android agent
 
