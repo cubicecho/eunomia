@@ -29,7 +29,18 @@ if (missing.length > 0) {
   process.exit(0);
 }
 
-execFileSync('npm', ['run', 'codegen'], {
+// On Windows npm is `npm.cmd`, and execFileSync does not consult PATHEXT, so
+// naming it is an ENOENT there — which only ever surfaced on the Windows
+// runner that packages the desktop agent, because nothing else installs this
+// workspace on Windows. npm sets npm_execpath to its own entry script for
+// every lifecycle script it runs, so hand that to the node already running
+// this one: no shell to quote for, and no platform branch. The fallback is for
+// running this file directly, outside npm.
+const [command, args] = process.env.npm_execpath
+  ? [process.execPath, [process.env.npm_execpath, 'run', 'codegen']]
+  : [process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'codegen']];
+
+execFileSync(command, args, {
   cwd: fileURLToPath(new URL('..', import.meta.url)),
   stdio: 'inherit',
 });
