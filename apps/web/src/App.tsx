@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getToken, signOut, verifyMagicLink } from '@/api';
+import { ApiKeysView } from '@/components/api-keys-view';
 import { ClockMark } from '@/components/clock-mark';
 import { DashboardView } from '@/components/dashboard/dashboard-view';
 import { DevicesView } from '@/components/devices-view';
@@ -17,6 +18,7 @@ const VIEWS = [
   { value: 'rules', label: 'Categories & rules' },
   { value: 'merges', label: 'Merge entries' },
   { value: 'devices', label: 'Devices' },
+  { value: 'keys', label: 'API keys' },
 ] as const;
 
 export function App() {
@@ -88,6 +90,9 @@ export function App() {
           </TabsContent>
           <TabsContent value="devices">
             <DevicesView />
+          </TabsContent>
+          <TabsContent value="keys">
+            <ApiKeysView />
           </TabsContent>
         </Tabs>
       </div>

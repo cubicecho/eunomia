@@ -76,6 +76,7 @@ describe('mcp over http', () => {
 
     expect(names).toEqual([
       'activities',
+      'apiKeys',
       'appSummary',
       'categories',
       'categoryRules',

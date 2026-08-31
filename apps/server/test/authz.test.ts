@@ -13,7 +13,13 @@ describe('authorization scoping', () => {
   // null = anonymous caller (an explicit undefined would trigger the 'user-1'
   // default parameter and silently run the query authenticated).
   const asUser = (userId: string | null): Context =>
-    ({ db, userId: userId ?? undefined, deviceId: undefined, headers: new Headers() }) as Context;
+    ({
+      db,
+      userId: userId ?? undefined,
+      deviceId: undefined,
+      keyId: undefined,
+      headers: new Headers(),
+    }) as Context;
 
   const run = (source: string, userId: string | null = 'user-1') =>
     graphql({ schema, source, contextValue: asUser(userId) });

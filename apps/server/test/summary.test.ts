@@ -14,7 +14,13 @@ describe('categorySummary', () => {
     graphql({
       schema,
       source,
-      contextValue: { db, userId, deviceId: undefined, headers: new Headers() } as Context,
+      contextValue: {
+        db,
+        userId,
+        deviceId: undefined,
+        keyId: undefined,
+        headers: new Headers(),
+      } as Context,
     });
 
   const activity = (
@@ -102,7 +108,13 @@ describe('per-device summaries', () => {
     graphql({
       schema,
       source,
-      contextValue: { db, userId, deviceId: undefined, headers: new Headers() } as Context,
+      contextValue: {
+        db,
+        userId,
+        deviceId: undefined,
+        keyId: undefined,
+        headers: new Headers(),
+      } as Context,
     });
 
   const RANGE = 'from: "2026-08-10T00:00:00Z", to: "2026-08-12T00:00:00Z"';
@@ -179,6 +191,72 @@ describe('per-device summaries', () => {
     const phone = await run(`{ appSummary(${RANGE}, deviceId: "phone") { app seconds } }`);
     expect(phone.errors).toBeUndefined();
     expect((phone.data as any).appSummary).toEqual([{ app: 'Instagram', seconds: 300 }]);
+  });
+
+  it('splits an app across the categories its time actually fell in', async () => {
+    await db
+      .insert(categories)
+      .values([{ id: 'work', userId: 'user-1', name: 'Work', color: '#3fb950' }]);
+    await db.insert(activities).values([
+      {
+        id: 'a4',
+        deviceId: 'laptop',
+        app: 'firefox',
+        context: 'github.com',
+        startedAt: new Date('2026-08-10T10:00:00Z'),
+        lastActiveAt: new Date('2026-08-10T10:00:00Z'),
+        activeSeconds: 400,
+        categoryId: 'work',
+        categorySource: 'manual' as const,
+      },
+      // Same app, no category — the half a single color per app would hide.
+      {
+        id: 'a5',
+        deviceId: 'laptop',
+        app: 'firefox',
+        context: 'news.example',
+        startedAt: new Date('2026-08-10T11:00:00Z'),
+        lastActiveAt: new Date('2026-08-10T11:00:00Z'),
+        activeSeconds: 200,
+      },
+    ]);
+    // A rolled row under the same category: it has to merge onto the live one
+    // rather than land beside it.
+    await db.insert(summaries).values([
+      {
+        id: 's2',
+        deviceId: 'laptop',
+        day: '2026-08-10',
+        app: 'firefox',
+        context: 'github.com',
+        categoryId: 'work',
+        seconds: 100,
+      },
+    ]);
+
+    const result = await run(
+      `{ appSummary(${RANGE}) { app context categoryId categoryName categoryColor seconds } }`,
+    );
+    expect(result.errors).toBeUndefined();
+    const firefox = (result.data as any).appSummary.filter((r: any) => r.app === 'firefox');
+    expect(firefox).toEqual([
+      {
+        app: 'firefox',
+        context: 'github.com',
+        categoryId: 'work',
+        categoryName: 'Work',
+        categoryColor: '#3fb950',
+        seconds: 500,
+      },
+      {
+        app: 'firefox',
+        context: 'news.example',
+        categoryId: null,
+        categoryName: null,
+        categoryColor: null,
+        seconds: 200,
+      },
+    ]);
   });
 
   it('narrows categorySummary to one device', async () => {

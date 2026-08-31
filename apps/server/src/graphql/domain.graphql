@@ -16,6 +16,15 @@ extend type Query {
   me: String
 
   """
+  The caller's integration keys — the ones issued from the dashboard for other
+  apps. Device agent keys are not listed here; they belong to their device.
+
+  Never carries the key itself: only a hash is stored, and `start` is the few
+  leading characters kept so two keys can be told apart.
+  """
+  apiKeys: [ApiKey!]!
+
+  """
   Time per category per day — the answer to "what did I spend last week on?".
 
   Each aggregate below stitches the precomputed `summaries` rows together with
@@ -33,8 +42,8 @@ extend type Query {
 
   """
   Time per app and context over the window — the same seconds as
-  `categorySummary`, grouped by what was actually on screen rather than by
-  category. Not per-day: one row per app/context pair for the whole window.
+  `categorySummary`, grouped by what was actually on screen. Not per-day: one
+  row per app/context/category triple for the whole window.
   """
   appSummary(
     "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone."
@@ -72,6 +81,12 @@ type Mutation {
   rotateDeviceKey(id: String!): DeviceRegistration!
   mergeDevice(id: String!, intoId: String!): Devices!
   deleteDevice(id: String!): Boolean!
+
+  # Integration keys: what another app authenticates to this server with.
+  # Session-only (see permissions.ts) — a key may not manage keys.
+  createApiKey(name: String!, expiresInDays: Int): ApiKeyIssued!
+  renameApiKey(id: String!, name: String!): ApiKey!
+  revokeApiKey(id: String!): Boolean!
 
   # Ingestion — the fields the agents call continuously.
   recordPing(
@@ -150,6 +165,29 @@ type DeviceRegistration {
 }
 
 """
+An integration key, as it can be listed after the fact — everything about the
+key except the key. Send it as `x-api-key` to `/graphql` or `/mcp`.
+"""
+type ApiKey {
+  id: String!
+  name: String!
+  "The key's first few characters, so two of them can be told apart in a list."
+  start: String
+  createdAt: String!
+  "When the key last authenticated a request; null until it is first used."
+  lastUsedAt: String
+  "Null means the key does not expire."
+  expiresAt: String
+  enabled: Boolean!
+}
+
+# The secret is returned exactly once, here — the server keeps only a hash.
+type ApiKeyIssued {
+  key: ApiKey!
+  token: String!
+}
+
+"""
 A stateless report of what a device looked like at one instant.
 """
 input PingInput {
@@ -172,11 +210,18 @@ type CategoryDaySummary {
   seconds: Float!
 }
 
-# Active seconds per app, and per context within it, over a range. A null
-# context is the app's time with no finer division.
+# Active seconds per app, per context within it, and per category, over a
+# range. A null context is the app's time with no finer division; a null
+# category is uncategorized time.
+#
+# An app's time can fall in several categories, so an app appears once per
+# category it spent time in rather than being forced to one.
 type AppContextSummary {
   app: String!
   context: String
+  categoryId: String
+  categoryName: String
+  categoryColor: String
   seconds: Float!
 }
 

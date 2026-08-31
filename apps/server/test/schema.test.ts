@@ -15,6 +15,7 @@ describe('graphql schema', () => {
 
     expect(Object.keys(schema.getQueryType()?.getFields() ?? {}).sort()).toEqual([
       'activities',
+      'apiKeys',
       'appSummary',
       'categories',
       'categoryRules',
@@ -29,6 +30,7 @@ describe('graphql schema', () => {
       'applyCategoryRules',
       'applyMergeRules',
       'assignActivity',
+      'createApiKey',
       'createCategory',
       'createCategoryRule',
       'createContextRule',
@@ -42,8 +44,10 @@ describe('graphql schema', () => {
       'recordPing',
       'recordPings',
       'registerDevice',
+      'renameApiKey',
       'renameDevice',
       'requestMagicLink',
+      'revokeApiKey',
       'rotateDeviceKey',
       'sessionFromDeviceKey',
       'signIn',

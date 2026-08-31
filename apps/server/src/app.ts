@@ -1,6 +1,6 @@
 import type { GraphQLSchema } from 'graphql';
 import { createYoga } from 'graphql-yoga';
-import { type Auth, type AuthGateway, verifyDeviceKey } from './auth.ts';
+import { type Auth, type AuthGateway, verifyApiKey } from './auth.ts';
 import type { Db } from './db/client.ts';
 import type { Context } from './graphql/context.ts';
 import { createSchema } from './graphql/schema.ts';
@@ -16,11 +16,17 @@ export function createContextFactory(db: Db, auth: Auth) {
   return async (headers: Headers): Promise<Context> => {
     const apiKey = headers.get('x-api-key');
     if (apiKey) {
-      const creds = await verifyDeviceKey(auth, apiKey);
-      return { db, userId: creds?.userId, deviceId: creds?.deviceId, headers };
+      const creds = await verifyApiKey(auth, apiKey);
+      return {
+        db,
+        userId: creds?.userId,
+        keyId: creds?.keyId,
+        deviceId: creds?.deviceId,
+        headers,
+      };
     }
     const session = await auth.api.getSession({ headers });
-    return { db, userId: session?.user.id, deviceId: undefined, headers };
+    return { db, userId: session?.user.id, keyId: undefined, deviceId: undefined, headers };
   };
 }
 

@@ -28,7 +28,13 @@ describe('rollup', () => {
     graphql({
       schema,
       source,
-      contextValue: { db, userId, deviceId: undefined, headers: new Headers() } as Context,
+      contextValue: {
+        db,
+        userId,
+        deviceId: undefined,
+        keyId: undefined,
+        headers: new Headers(),
+      } as Context,
     });
 
   const activity = (

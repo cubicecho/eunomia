@@ -14,7 +14,7 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 ## Layout
 
 - `apps/server` — GraphQL Yoga + `@vantreeseba/drizzle-graphql` + Drizzle (1.0 RC) + Postgres,
-  better-auth (sessions + device API keys), `@vantreeseba/graphql-casl` permissions.
+  better-auth (sessions + device and integration API keys), `@vantreeseba/graphql-casl` permissions.
 - `apps/app` — the agent, in one workspace with three targets. Its UI (setup,
   status, privacy, log) is a single Expo app; what runs *behind* that UI is the
   shell. **Android**: a local Kotlin module reads `UsageStatsManager`'s event
@@ -23,7 +23,7 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
   (`@miniben90/x-win` + `powerMonitor`) that samples the focused window, with
   the same UI rendered by react-native-web off `expo export --platform web`.
 - `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in,
-  per-category/per-day/per-app views, rules, entry merges, devices. Talks to the
+  per-category/per-day/per-app views, rules, entry merges, devices, API keys. Talks to the
   server through the generated GraphQL SDK in `packages/gql`.
 - `packages/agent` — agent core shared by every target: crash-safe outbox,
   batch uploader, the usage-event → ping synthesizer, the config parser, and
@@ -85,11 +85,12 @@ mutations are the login flow, device registration and ingestion — an agent tha
 could call them would be minting credentials, not reading data. Drop
 `includeMutations: false` in `apps/server/src/mcp.ts` if you want them.
 
-**It authenticates exactly like `/graphql`**, through the same function: a
-device key in `x-api-key`, or a session in `Authorization: Bearer`. An
-anonymous tool call is refused by the same permission layer that refuses an
-anonymous query, and the rows a tool returns are fenced to the caller the same
-way. Point a client at it with a device API key:
+**It authenticates exactly like `/graphql`**, through the same function: an
+API key in `x-api-key`, or a session in `Authorization: Bearer`. An anonymous
+tool call is refused by the same permission layer that refuses an anonymous
+query, and the rows a tool returns are fenced to the caller the same way.
+Create a key for the client under the dashboard's **API keys** tab (see
+[API keys](#api-keys-for-other-apps)) and point it at the server:
 
 ```jsonc
 // e.g. ~/.claude.json — an MCP client's server list
@@ -97,7 +98,7 @@ way. Point a client at it with a device API key:
   "eunomia": {
     "type": "http",
     "url": "http://localhost:4000/mcp",
-    "headers": { "x-api-key": "<a device API key>" }
+    "headers": { "x-api-key": "<a key from the API keys tab>" }
   }
 }
 ```
@@ -273,6 +274,29 @@ Set `UNSAFE_LOCAL_NETWORK=true` on the server to skip the inbox round-trip:
 dashboard and the desktop setup window log straight in from just an email
 address. **Anyone who can reach the server can sign in as any email** — only
 use it on a trusted local network.
+
+### API keys (for other apps)
+
+The dashboard's **API keys** tab issues keys for anything that isn't an agent:
+an MCP client, a script, another app on your network. Name one, optionally give
+it a lifetime (30/90/365 days, or none), and the key is shown **once** — the
+server stores only a hash of it, so a key that isn't copied has to be reissued.
+Send it as `x-api-key` to `/graphql` or `/mcp`.
+
+A key acts as you, over your own data, and inherits the same per-user scoping a
+session gets — so give each integration its own key and revoke the one you stop
+trusting. Revoking deletes the row, which is the whole credential: the holder is
+refused on its next request. Renaming doesn't rotate anything.
+
+The one thing a key cannot do is manage keys. `apiKeys`, `createApiKey`,
+`renameApiKey` and `revokeApiKey` require a signed-in session and refuse any
+API-key request with `UNAUTHENTICATED`, so a leaked key can neither enumerate
+its siblings nor mint a successor that would outlive its revocation.
+
+Device keys live in the same table but are handed out by the pairing flow and
+managed under **Devices** — they carry a `deviceId` and are deliberately not
+listed or revocable here. Both kinds are described in
+`apps/server/src/api-keys.ts`.
 
 ### Contexts (sites, projects, books, workspaces)
 

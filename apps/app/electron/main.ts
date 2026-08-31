@@ -3,13 +3,14 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
   type AgentConfig,
+  CHECK_INTERVAL_MS,
+  createSampler,
   createSanitizer,
   createUploader,
   Outbox,
   type OutboxStore,
-  PING_INTERVAL_MS,
-  type Ping,
-  type PingSanitizer,
+  type Sample,
+  type Sampler,
   type StoredConfig,
   syncIntervalMs,
   type Uploader,
@@ -49,16 +50,13 @@ function agentVersion(): string {
 // Tray-only background agent. Stateless by design: it observes the foreground
 // window + idle time and emits pings ("this is what the device looks like right
 // now"); the server folds pings into activity intervals, so the agent never
-// tracks sessions itself. It checks every second but only emits on focus/title
-// change or every PING_INTERVAL_MS as a keep-alive — matching the server's
-// fold tolerance (see apps/server/src/activity/fold.ts).
+// tracks sessions itself.
 //
-// Outbox durability, batching, and the server calls live in @eunomia/agent
-// (shared with the Android agent); this file owns the electron shell: sampling,
-// the tray, and the window the shared agent UI renders into. What that UI is
-// allowed to ask for is ipc.ts; what it is told about this shell is `info()`.
-
-const CHECK_INTERVAL_MS = 1_000;
+// Outbox durability, batching, the sampling loop and the server calls live in
+// @eunomia/agent (shared with the Android agent); this file owns the electron
+// shell: the platform reads the sampler drives, the tray, and the window the
+// shared agent UI renders into. What that UI is allowed to ask for is ipc.ts;
+// what it is told about this shell is `info()`.
 
 // Apps whose window URL x-win can read (Windows/macOS; always empty on
 // Linux). Only these pay the accessibility round-trip for the url getter.
@@ -90,41 +88,43 @@ function fileStore(path: string): OutboxStore {
 }
 
 let tray: Tray | undefined;
-let lastEmit = {
-  app: null as string | null,
-  title: null as string | null,
-  context: null as string | null,
-  at: 0,
-};
 
-function checkOnce(outbox: Outbox, sanitize: PingSanitizer): void {
-  try {
-    const win = activeWindow();
-    const app = win?.info?.execName || null;
-    // Sanitized before it exists anywhere: ignored/redacted data never
-    // reaches the outbox file, let alone the server.
-    const ping: Ping | null = sanitize({
-      capturedAt: new Date().toISOString(),
-      app,
-      title: win?.title || null,
-      context: browserContext(win, app),
-      idleSeconds: powerMonitor.getSystemIdleTime(),
-    });
-    if (!ping) return;
+/**
+ * The window object the last read produced. The sampler calls readContext for
+ * the sample it has just read, in the same tick, so holding it here is safe —
+ * and it keeps the native handle out of the Sample crossing the package
+ * boundary, where only the fields every platform can answer belong.
+ */
+let lastWindow: ReturnType<typeof activeWindow> | null = null;
 
-    const changed =
-      ping.app !== lastEmit.app ||
-      ping.title !== lastEmit.title ||
-      ping.context !== lastEmit.context;
-    const due = Date.now() - lastEmit.at >= PING_INTERVAL_MS;
-    if (!changed && !due) return;
-
-    outbox.push(ping);
-    lastEmit = { app: ping.app, title: ping.title, context: ping.context, at: Date.now() };
-  } catch (error) {
-    console.error('ping failed', error);
-  }
+/** Everything a tick can read cheaply. Throwing is how the OS says "not now". */
+function readSample(): Sample {
+  const win = activeWindow();
+  lastWindow = win;
+  return {
+    app: win?.info?.execName || null,
+    title: win?.title || null,
+    idleSeconds: powerMonitor.getSystemIdleTime(),
+  };
 }
+
+const readContext = (sample: Sample): string | null =>
+  lastWindow ? browserContext(lastWindow, sample.app) : null;
+
+/** "3s" / "4m" / "2h" — how long ago, for a tray line nobody wants to parse. */
+function ago(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
+  return `${Math.round(seconds / 3600)}h ago`;
+}
+
+/**
+ * How often the tray menu is rebuilt. The OS reads whatever template was set
+ * last, so an agent that stopped tracking an hour ago would otherwise still be
+ * showing the line it had when the last upload finished.
+ */
+const TRAY_REFRESH_MS = 30_000;
 
 // One agent per machine. A second instance would sample in parallel and share
 // outbox.jsonl, where the outbox's compacting rewrite silently erases
@@ -184,6 +184,16 @@ app.whenReady().then(async () => {
   let config = loadConfig(dataDir);
   let sanitize = createSanitizer(config ?? {});
 
+  // Sampling starts before anything else: an unprovisioned agent still tracks
+  // to its outbox, and its health is the one thing the tray must never guess
+  // at. `sanitize` is read per tick so a privacy change applies immediately.
+  const sampler: Sampler = createSampler({
+    outbox,
+    read: readSample,
+    readContext,
+    sanitize: () => sanitize,
+  });
+
   // Only provisioned installs register launch-at-login; {"autostart": false}
   // in config.json opts out (and removes an earlier registration).
   if (config) syncAutostart(config.autostart !== false);
@@ -224,6 +234,18 @@ app.whenReady().then(async () => {
     await openDashboard(config);
   };
 
+  // The question the tray could never answer: is it actually tracking? It used
+  // to say "tracking active window" unconditionally, so a sampler throwing on
+  // every tick — a native module that didn't unpack, an accessibility API that
+  // stopped answering — looked exactly like a healthy agent with a quiet day.
+  const trackingLabel = (): string => {
+    const status = sampler.status();
+    if (!status.error && status.lastPingAt === null) return 'Tracking — nothing recorded yet';
+    if (!status.healthy) return `NOT TRACKING: ${status.error}`;
+    const last = status.lastPingAt === null ? 'never' : ago(Date.now() - status.lastPingAt);
+    return `Tracking active window — last ping ${last}`;
+  };
+
   // A stalled upload is otherwise invisible: pings keep queueing to disk while
   // the tray claims all is well. Revoked key, wrong URL, server down — say so.
   const uploadLabel = (): string => {
@@ -247,15 +269,20 @@ app.whenReady().then(async () => {
     refreshTrayMenu();
   };
 
+  // Not tracking outranks not uploading: a queued ping is recoverable, a
+  // second nobody sampled is gone.
+  const tooltip = (): string => {
+    if (!sampler.status().healthy) return 'eunomia — NOT TRACKING (see the log)';
+    if (uploader?.status().error) return 'eunomia — tracking, but uploads are failing';
+    return 'eunomia — tracking active window';
+  };
+
   const refreshTrayMenu = (): void => {
-    tray?.setToolTip(
-      uploader?.status().error
-        ? 'eunomia — tracking, but uploads are failing'
-        : 'eunomia — tracking active window',
-    );
+    tray?.setToolTip(tooltip());
     tray?.setContextMenu(
       Menu.buildFromTemplate([
         { label: `eunomia agent ${agentVersion()}`, enabled: false },
+        { label: trackingLabel(), enabled: false },
         { label: uploadLabel(), enabled: false },
         { label: `Outbox: ${join(dataDir, 'outbox.jsonl')}`, enabled: false },
         ...(config
@@ -352,7 +379,11 @@ app.whenReady().then(async () => {
   // the app" — the running instance answers instead of a second one starting.
   surfaceUi = () => void (config ? showDashboard() : openAgentWindow());
 
-  setInterval(() => checkOnce(outbox, sanitize), CHECK_INTERVAL_MS);
+  setInterval(() => sampler.tick(), CHECK_INTERVAL_MS);
+  // The OS shows whatever template was last set, so the tray's answer to "is
+  // it tracking?" has to be kept fresh on its own schedule rather than riding
+  // along with the upload interval.
+  setInterval(refreshTrayMenu, TRAY_REFRESH_MS);
   if (config) {
     startUploads(config);
   } else {
