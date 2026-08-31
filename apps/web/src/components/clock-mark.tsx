@@ -1,6 +1,6 @@
 /**
  * The product mark: the same 10:10 clockface the tray, the installer, and the
- * favicon use (geometry mirrored from apps/desktop/scripts/gen-tray-icon.mjs —
+ * favicon use (geometry mirrored from apps/app/electron/scripts/gen-tray-icon.mjs —
  * change one, change both). Strokes in `currentColor`, so it takes the color of
  * whatever text it sits beside.
  */

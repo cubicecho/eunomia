@@ -12,7 +12,7 @@ name: Android
 # side, so every APK this produces upgrades over the last one instead of being a
 # fresh debug-signed app. Setup (`eas init`, the EXPO_TOKEN secret, the one-time
 # keystore) and what an update can and cannot change are in
-# apps/mobile/BUILDING.md.
+# apps/app/BUILDING.md.
 #
 # Either way the result is recorded as a GitHub Release, so the Releases page —
 # not a run summary buried in the Actions tab — is where you look to see what is
@@ -36,7 +36,13 @@ on:
     # Only what actually ends up in the app. The server and the dashboard share
     # a repo with it but not a binary.
     paths:
-      - 'apps/mobile/**'
+      - 'apps/app/**'
+      # The Electron shell shares the workspace with the Android app but not
+      # the binary — editing the tray must not queue an EAS build. Metro never
+      # sees it, so it cannot change the fingerprint either. Negated inside
+      # `paths` rather than as `paths-ignore`, which cannot filter the same
+      # event; order matters, so this has to follow the line it subtracts from.
+      - '!apps/app/electron/**'
       - 'packages/agent/**'
       - 'package-lock.json'
       - '.github/workflows/android.yml'
@@ -66,7 +72,7 @@ jobs:
             echo 'configured=true' >> "$GITHUB_OUTPUT"
           else
             echo 'configured=false' >> "$GITHUB_OUTPUT"
-            echo '::warning::EXPO_TOKEN is not set, so nothing shipped. See apps/mobile/BUILDING.md.'
+            echo '::warning::EXPO_TOKEN is not set, so nothing shipped. See apps/app/BUILDING.md.'
           fi
 
   ship:
@@ -79,7 +85,7 @@ jobs:
       contents: write
     defaults:
       run:
-        working-directory: apps/mobile
+        working-directory: apps/app
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       # One word per lane: `preview` and `production` name the build profile,
@@ -149,7 +155,7 @@ jobs:
             echo 'action=build' >> "$GITHUB_OUTPUT"
           fi
 
-      # --environment is required from SDK 55 on. Nothing under apps/mobile/src
+      # --environment is required from SDK 55 on. Nothing under apps/app/src
       # reads process.env — the server URL and the API key are typed into the
       # app and live on the phone — so it only picks which EAS environment's
       # variables are visible while the app config is evaluated.

@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "eunomia",
+    "slug": "eunomia-mobile",
+    "version": "0.1.0",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.cubicecho.eunomia.mobile",
+      "versionCode": 1,
+      "permissions": ["android.permission.PACKAGE_USAGE_STATS"],
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8766e902-3e68-429e-b7b1-a2fc0d92fa1f",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "plugins": [
+      "expo-background-task",
+      "./plugins/with-cleartext-traffic",
+      "./plugins/with-package-visibility"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8766e902-3e68-429e-b7b1-a2fc0d92fa1f"
+      }
+    },
+    "owner": "cubicecho"
+  }
+}

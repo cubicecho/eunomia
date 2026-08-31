@@ -1,5 +1,5 @@
 <!-- The agent's clockface, as the browser-tab icon: same mark as the tray and
-     the Windows installer (apps/desktop/scripts/gen-tray-icon.mjs), on the
+     the Windows installer (apps/app/electron/scripts/gen-tray-icon.mjs), on the
      dashboard's dark panel color so it reads on a light tab strip too. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <circle cx="16" cy="16" r="15.68" fill="#161b22" />

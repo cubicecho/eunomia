@@ -17,11 +17,12 @@
     "pretest": "npm run codegen:types",
     "test": "npm run test --workspaces --if-present",
     "dev:server": "npm run dev -w @eunomia/server",
-    "dev:desktop": "npm run dev -w @eunomia/desktop",
+    "dev:desktop": "npm run desktop -w @eunomia/app",
     "dev:web": "npm run dev -w @eunomia/web",
-    "dev:mobile": "npm run start -w @eunomia/mobile",
-    "dist:win": "npm run dist:win -w @eunomia/desktop",
-    "dist:apk": "npm run apk -w @eunomia/mobile"
+    "dev:mobile": "npm run start -w @eunomia/app",
+    "dist:win": "npm run dist:win -w @eunomia/app",
+    "dist:linux": "npm run dist:linux -w @eunomia/app",
+    "dist:apk": "npm run apk -w @eunomia/app"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.13",
@@ -33,6 +34,7 @@
   "allowScripts": {
     "electron@43.4.0": true,
     "esbuild@0.25.12": true,
-    "esbuild@0.28.2": true
+    "esbuild@0.28.2": true,
+    "electron-winstaller@5.4.0": true
   }
 }

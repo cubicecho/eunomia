@@ -1,0 +1,110 @@
+{
+  "name": "@eunomia/app",
+  "version": "0.1.0",
+  "description": "Records which application is in use and sends it to a self-hosted eunomia server.",
+  "author": {
+    "name": "Benjamin Van Treese",
+    "email": "vantreeseba@gmail.com"
+  },
+  "main": "index.ts",
+  "dependencies": {
+    "@eunomia/agent": "*",
+    "@miniben90/x-win": "^3.6.0",
+    "expo": "~57.0.17",
+    "expo-application": "~57.0.2",
+    "expo-background-task": "~57.0.14",
+    "expo-dev-client": "~57.0.16",
+    "expo-file-system": "~57.0.6",
+    "expo-status-bar": "~57.0.1",
+    "expo-task-manager": "~57.0.14",
+    "expo-updates": "~57.0.18",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-web": "^0.21.0",
+    "react-native-webview": "13.16.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "~19.2.2",
+    "@types/react-dom": "~19.2.2",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "typescript": "~6.0.3",
+    "vitest": "^3.2.7"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "android:release": "EUNOMIA_ALLOW_CLEARTEXT=1 expo run:android --variant release",
+    "prebuild": "expo prebuild --platform android",
+    "preapk": "npm --prefix ../.. run codegen:types",
+    "apk": "EUNOMIA_ALLOW_CLEARTEXT=1 expo prebuild --platform android && cd android && ./gradlew assembleRelease && echo \"APK: $(pwd)/app/build/outputs/apk/release/app-release.apk\"",
+    "apk:eas": "eas build --platform android --profile preview",
+    "apk:eas:local": "eas build --platform android --profile preview --local",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "export:web": "expo export --platform web --output-dir dist-web",
+    "predesktop": "npm run export:web && npm run build:preload",
+    "desktop": "electron ./electron",
+    "provision": "electron ./electron --provision",
+    "build:main": "esbuild electron/main.ts --bundle --platform=node --format=cjs --external:electron --external:@miniben90/x-win --outfile=dist/main.cjs",
+    "build:preload": "esbuild electron/dashboard-preload.cjs electron/agent-preload.cjs --bundle --platform=node --format=cjs --external:electron --outdir=dist --out-extension:.js=.cjs",
+    "fetch:win-native": "node electron/scripts/fetch-win-native.mjs",
+    "predist:win": "npm --prefix ../.. run codegen:types",
+    "dist:win": "npm run export:web && npm run build:main && npm run build:preload && npm run fetch:win-native && electron-builder --win --x64",
+    "predist:linux": "npm --prefix ../.. run codegen:types",
+    "dist:linux": "npm run export:web && npm run build:main && npm run build:preload && electron-builder --linux --x64",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p electron"
+  },
+  "build": {
+    "appId": "com.cubicecho.eunomia",
+    "productName": "eunomia-agent",
+    "publish": null,
+    "electronVersion": "43.4.0",
+    "directories": {
+      "output": "release",
+      "buildResources": "electron/build"
+    },
+    "files": [
+      "dist/**",
+      "dist-web/**",
+      "package.json",
+      "!node_modules/**",
+      "node_modules/@miniben90/x-win/*.{js,json}",
+      "node_modules/@miniben90/x-win/LICENSE",
+      "node_modules/@miniben90/x-win/x-win.${os}*.node",
+      "node_modules/@miniben90/x-win-${os}*/**"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "extraMetadata": {
+      "main": "dist/main.cjs"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "include": "electron/build/installer.nsh"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "executableName": "eunomia-agent",
+      "category": "Utility",
+      "icon": "assets/icon.png"
+    }
+  },
+  "private": true
+}
