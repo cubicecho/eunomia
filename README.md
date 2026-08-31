@@ -218,7 +218,7 @@ npm run dist:win -w @eunomia/app     # release/eunomia-agent Setup *.exe
 
 Both export the agent UI (`expo export --platform web`), bundle the main
 process with esbuild, and cross-build from Linux (`dist:win` downloads the
-win32 `x-win` prebuild). The Windows build is a one-click per-user NSIS installer — no
+win32 `x-win` prebuild, which it skips when Windows is already the host). The Windows build is a one-click per-user NSIS installer — no
 admin prompt, and uninstalling keeps the outbox/config in AppData. It is
 unsigned, so SmartScreen will warn on first run ("More info" → "Run
 anyway"). Packaged agents **launch at login** once provisioned — an XDG
