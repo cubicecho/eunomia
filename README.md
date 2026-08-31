@@ -231,6 +231,18 @@ removes the login item too; on Linux there is no uninstaller, so deleting the
 AppImage leaves `~/.config/autostart/eunomia-agent.desktop` behind for you to
 remove as well.
 
+`.github/workflows/desktop.yml` builds both installers and attaches them to the
+GitHub release. It chains off the `Release` workflow that publishes the server
+image rather than triggering on the release itself: semantic-release publishes
+with `GITHUB_TOKEN`, and events raised by that token do not start workflow
+runs. The version in `apps/app/package.json` is not what ships — nothing bumps
+it, so the job stamps the release tag in before packaging, and the installer
+names and the tray both report it. Windows is built on a Windows runner rather
+than cross-packaged under wine. A pull request that touches the shell, its
+`package.json`, or `packages/agent` packages an AppImage and reads the asar
+back, which is the only check that sees a packaging mistake — `tsc` and esbuild
+cannot.
+
 ### Packaging the Android agent
 
 Test APKs are built by EAS, not locally — the Android SDK, the JDK, and the
