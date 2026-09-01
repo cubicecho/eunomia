@@ -64,7 +64,7 @@
     "appId": "com.cubicecho.eunomia",
     "productName": "eunomia-agent",
     "publish": null,
-    "electronVersion": "43.4.0",
+    "electronVersion": "43.5.1",
     "directories": {
       "output": "release",
       "buildResources": "electron/build"
