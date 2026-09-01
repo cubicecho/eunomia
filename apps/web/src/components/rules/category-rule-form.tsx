@@ -252,6 +252,7 @@ export function CategoryRuleForm({ categories, samples, rule, onSaved }: Props) 
       {valid && (
         <Preview total={samples.length} count={hits.length} noun={['activity', 'activities']}>
           {hits.slice(0, 5).map((sample, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: samples have no id and repeat; this preview is a static slice that never reorders
             <PreviewRow key={`${index}-${sample.app}`}>
               {sample.app}
               {sample.context ? ` · ${sample.context}` : ''}

@@ -74,30 +74,32 @@ describe('mcp over http', () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
 
+    // snake_case is what graphql-mcp projects field names to — the convention
+    // agents see across MCP servers, not the schema's spelling.
     expect(names).toEqual([
       'activities',
-      'apiKeys',
-      'appSummary',
+      'api_keys',
+      'app_summary',
       'categories',
-      'categoryRules',
-      'categorySummary',
-      'contextRules',
-      'deviceSummary',
+      'category_rules',
+      'category_summary',
+      'context_rules',
+      'device_summary',
       'devices',
       'me',
-      'mergeRules',
+      'merge_rules',
     ]);
     // The dangerous half: signIn and registerDevice are mutations, and an agent
     // that could call them would be minting credentials, not reading data.
-    expect(names).not.toContain('signIn');
-    expect(names).not.toContain('registerDevice');
-    expect(names).not.toContain('recordPing');
+    expect(names).not.toContain('sign_in');
+    expect(names).not.toContain('register_device');
+    expect(names).not.toContain('record_ping');
   });
 
   it('describes a tool from the SDL, so an agent knows the date format', async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    const summary = tools.find((tool) => tool.name === 'categorySummary');
+    const summary = tools.find((tool) => tool.name === 'category_summary');
 
     expect(summary?.description).toContain('YYYY-MM-DD');
     expect(summary?.annotations?.readOnlyHint).toBe(true);

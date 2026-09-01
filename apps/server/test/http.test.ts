@@ -40,7 +40,7 @@ describe('graphql over http', () => {
     const { body } = await query(`mutation {
       signUp(email: "u@example.com", password: "hunter2hunter2", name: "u") { token }
     }`);
-    return (body.data?.signUp as { token: string }).token;
+    return (body.data!.signUp as { token: string }).token;
   };
 
   beforeEach(async () => {
@@ -103,7 +103,7 @@ describe('graphql over http', () => {
         authorization: `Bearer ${token}`,
       },
     );
-    const apiKey = (reg.body.data?.registerDevice as { apiKey: string }).apiKey;
+    const apiKey = (reg.body.data!.registerDevice as { apiKey: string }).apiKey;
 
     const minted = await query('mutation { sessionFromDeviceKey { token userId } }', {
       'x-api-key': apiKey,
@@ -167,7 +167,7 @@ describe('graphql over http', () => {
         'mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }',
         { authorization: `Bearer ${await signIn()}` },
       );
-      const { apiKey } = reg.body.data?.registerDevice as { apiKey: string };
+      const { apiKey } = reg.body.data!.registerDevice as { apiKey: string };
 
       const result = await uploadBatch(asAgent(apiKey), [
         idle('2026-08-10T09:00:00Z'),
@@ -183,7 +183,7 @@ describe('graphql over http', () => {
         'mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }',
         bearer,
       );
-      const { apiKey } = reg.body.data?.registerDevice as { apiKey: string };
+      const { apiKey } = reg.body.data!.registerDevice as { apiKey: string };
 
       const at = (seconds: number) =>
         new Date(Date.parse('2026-08-10T09:00:00Z') + seconds * 1000).toISOString();
@@ -204,7 +204,7 @@ describe('graphql over http', () => {
         'mutation { registerDevice(name: "skewed", platform: "windows") { apiKey } }',
         bearer,
       );
-      const { apiKey } = reg.body.data?.registerDevice as { apiKey: string };
+      const { apiKey } = reg.body.data!.registerDevice as { apiKey: string };
       const agent = asAgent(apiKey);
       const active = (capturedAt: string): Ping => ({ ...idle(capturedAt), idleSeconds: 0 });
 

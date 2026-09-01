@@ -16,7 +16,7 @@
   "dependencies": {
     "@better-auth/api-key": "^1.6.29",
     "@casl/ability": "^6.7.0",
-    "@cubicecho/graphql-mcp": "^0.1.1",
+    "@cubicecho/graphql-mcp": "^2.5.0",
     "@eunomia/gql": "*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@vantreeseba/drizzle-graphql": "^7.9.1",

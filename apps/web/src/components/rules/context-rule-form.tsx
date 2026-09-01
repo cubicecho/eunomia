@@ -189,6 +189,7 @@ export function ContextRuleForm({ samples, rule, onSaved }: Props) {
       {valid && (
         <Preview total={samples.length} count={hits.length} noun={['title', 'titles']}>
           {hits.slice(0, 5).map((hit, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: samples have no id and repeat; this preview is a static slice that never reorders
             <PreviewRow key={`${index}-${hit.title}`}>
               {hit.title} <span className="text-foreground">→ {hit.context}</span>
             </PreviewRow>

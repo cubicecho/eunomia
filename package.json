@@ -32,7 +32,7 @@
     "drizzle-orm": "1.0.0-rc.2-e38a2ba"
   },
   "allowScripts": {
-    "electron@43.4.0": true,
+    "electron@43.5.1": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
     "electron-winstaller@5.4.0": true
