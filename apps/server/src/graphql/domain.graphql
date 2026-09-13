@@ -80,6 +80,10 @@ type Mutation {
   renameDevice(id: String!, name: String!): Devices!
   rotateDeviceKey(id: String!): DeviceRegistration!
   mergeDevice(id: String!, intoId: String!): Devices!
+  # Rebuilds the device's activities and summaries from its raw ping log, from
+  # the nearest seam at or before `from` (an ISO timestamp; omitted = the
+  # whole log), under the current rules. Session-only (see permissions.ts).
+  replayDevice(id: String!, from: String): DeviceReplay!
   deleteDevice(id: String!): Boolean!
 
   # Integration keys: what another app authenticates to this server with.
@@ -162,6 +166,17 @@ type MagicLinkRequest {
 type DeviceRegistration {
   device: Devices!
   apiKey: String!
+}
+
+"""
+What a replay rebuilt: where it restarted the fold (null when the device's log
+had nothing to replay), how many pings it folded, and how many activities it
+wrote. Activity ids from before the replay no longer exist.
+"""
+type DeviceReplay {
+  from: String
+  pings: Int!
+  activities: Int!
 }
 
 """

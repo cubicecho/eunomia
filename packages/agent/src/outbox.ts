@@ -29,8 +29,8 @@ export const OUTBOX_MAX_PINGS = 50_000;
  * compaction pays for itself (see compact) — rewriting the whole file per
  * 50-ping batch made draining a weekend's backlog quadratic. The cost of the
  * lag is at-least-once delivery: a crash mid-drain re-sends pings the server
- * already took. That is a no-op server-side, since foldPing accrues nothing
- * for a ping at or before the device's last recorded one.
+ * already took. That is a no-op server-side: the server's raw ping log drops
+ * a ping identical to one it already stored, before anything folds it.
  */
 export class Outbox {
   // No TS parameter properties: electron runs this file with strip-only

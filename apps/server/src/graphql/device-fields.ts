@@ -1,6 +1,7 @@
 import type { MutationResolvers } from '@eunomia/gql/resolvers';
 import { and, eq, inArray } from 'drizzle-orm';
 import { mergeDeviceHistory } from '../activity/merge.ts';
+import { replayDevice } from '../activity/replay.ts';
 import { revokeDeviceKeys } from '../api-keys.ts';
 import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
@@ -92,6 +93,14 @@ export function deviceFields(db: Db, auth: AuthGateway) {
         .where(eq(devices.id, target.id))
         .returning();
       return updated!;
+    },
+    replayDevice: async (_source, args, ctx) => {
+      const userId = requireUser(ctx);
+      const device = await requireOwned(db, devices, args.id, userId, 'Unknown device');
+      const from = args.from == null ? undefined : new Date(args.from);
+      if (from && Number.isNaN(from.getTime())) throw badInput('Invalid from');
+      const result = await replayDevice(db, device.id, { from });
+      return { ...result, from: result.from?.toISOString() ?? null };
     },
     // True when the device was deleted. Its activities cascade away, and its
     // API keys are revoked (only hashes are stored, so deleting the rows is a

@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { activities, categories, categoryRules, devices, user } from '../src/db/schema.ts';
@@ -173,5 +174,40 @@ describe('authorization scoping', () => {
 
     const me = await data('{ me }', null);
     expect(me.me).toBeNull();
+  });
+
+  it('lets only a signed-in owner replay a device', async () => {
+    const replay = (id: string, contextValue: Context) =>
+      graphql({
+        schema,
+        source: `mutation ($id: String!) { replayDevice(id: $id) { from pings activities } }`,
+        variableValues: { id },
+        contextValue,
+      });
+
+    expect((await replay('device-1', asUser(null))).errors?.[0]?.message).toBe('Not authenticated');
+    // An API key — even the device's own — can't rewrite its history.
+    const viaKey = { ...asUser('user-1'), keyId: 'key-1', deviceId: 'device-1' } as Context;
+    expect((await replay('device-1', viaKey)).errors?.[0]?.message).toBe('Not authenticated');
+    // Someone else's device is as unknown as a device that doesn't exist.
+    const theirs = await replay('device-2', asUser('user-1'));
+    expect(theirs.errors?.[0]?.message).toBe('Unknown device');
+    const [untouched] = await db.select().from(activities).where(eq(activities.id, 'act-theirs'));
+    expect(untouched).toBeDefined();
+
+    const mine = await replay('device-1', asUser('user-1'));
+    expect(mine.errors).toBeUndefined();
+    // No pings logged for it, so nothing to rebuild — and nothing lost.
+    expect((mine.data as any).replayDevice).toEqual({ from: null, pings: 0, activities: 0 });
+    expect(
+      await db.select().from(activities).where(eq(activities.deviceId, 'device-1')),
+    ).toHaveLength(2);
+
+    const badFrom = await graphql({
+      schema,
+      source: 'mutation { replayDevice(id: "device-1", from: "yesterday") { pings } }',
+      contextValue: asUser('user-1'),
+    });
+    expect(badFrom.errors?.[0]?.message).toBe('Invalid from');
   });
 });

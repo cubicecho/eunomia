@@ -520,6 +520,17 @@ type DeviceRegistration {
   device: Devices!
 }
 
+"""
+What a replay rebuilt: where it restarted the fold (null when the device's log
+had nothing to replay), how many pings it folded, and how many activities it
+wrote. Activity ids from before the replay no longer exist.
+"""
+type DeviceReplay {
+  activities: Int!
+  from: String
+  pings: Int!
+}
+
 type DeviceSummary {
   deviceId: String!
   name: String!
@@ -547,7 +558,9 @@ type Devices {
   id: String!
   lastSeenAt: DateTime
   name: String!
+  pingLogFrom: DateTime
   platform: DevicesPlatformEnum!
+  replayFrom: DateTime
   summaries(
     """
     Keyset pagination: only return related rows strictly after this cursor (a row's `cursor` field from a previous page of this relation, under the same orderBy).
@@ -575,7 +588,9 @@ input DevicesFilters {
   id: StringFilter
   lastSeenAt: DateTimeFilter
   name: StringFilter
+  pingLogFrom: DateTimeFilter
   platform: DevicesPlatformEnumFilter
+  replayFrom: DateTimeFilter
   summaries: SummariesListRelationFilter
   userId: StringFilter
 }
@@ -585,7 +600,9 @@ input DevicesOrderBy {
   id: InnerOrder
   lastSeenAt: InnerOrder
   name: InnerOrder
+  pingLogFrom: InnerOrder
   platform: InnerOrder
+  replayFrom: InnerOrder
   userId: InnerOrder
 }
 
@@ -839,6 +856,7 @@ type Mutation {
   registerDevice(name: String!, platform: String!): DeviceRegistration!
   renameApiKey(id: String!, name: String!): ApiKey!
   renameDevice(id: String!, name: String!): Devices!
+  replayDevice(from: String, id: String!): DeviceReplay!
   requestMagicLink(email: String!): MagicLinkRequest!
   revokeApiKey(id: String!): Boolean!
   rotateDeviceKey(id: String!): DeviceRegistration!
