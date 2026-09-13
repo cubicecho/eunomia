@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { errorMessage } from '@/hooks/use-query';
+import { kindInfo } from '@/lib/kinds';
 
 interface Props {
   packs: RulePack[];
@@ -101,7 +102,8 @@ function PackRow({
           {outdated && <Badge variant="outline">Update available</Badge>}
         </div>
         <p className="text-muted-foreground text-sm">
-          {pack.description} Category: {pack.categoryName}.
+          {pack.description} Category: {pack.categoryName} (
+          {kindInfo(pack.categoryKind).label.toLowerCase()}).
         </p>
         <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1 text-xs">
           <ChevronRight className={open ? 'size-3 rotate-90' : 'size-3'} />

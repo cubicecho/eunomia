@@ -296,6 +296,7 @@ type Categories {
   """
   cursor: String
   id: String!
+  kind: CategoriesKindEnum!
   name: String!
   rules(
     """
@@ -323,15 +324,103 @@ input CategoriesFilters {
   color: StringFilter
   createdAt: DateTimeFilter
   id: StringFilter
+  kind: CategoriesKindEnumFilter
   name: StringFilter
   rules: CategoryRulesListRelationFilter
   userId: StringFilter
+}
+
+enum CategoriesKindEnum {
+  """Value: distracting"""
+  distracting
+
+  """Value: focus"""
+  focus
+
+  """Value: neutral"""
+  neutral
+
+  """Value: personal"""
+  personal
+
+  """Value: work"""
+  work
+}
+
+input CategoriesKindEnumFilter {
+  """Every branch matches"""
+  AND: [CategoriesKindEnumFilter!]
+
+  """Negates the nested operators"""
+  NOT: CategoriesKindEnumFilter
+
+  """At least one branch matches; ANDed with any sibling operators"""
+  OR: [CategoriesKindEnumFilter!]
+
+  """
+  Matches values containing the given string. `%`, `_` and `\` are matched literally.
+  """
+  contains: String
+
+  """
+  Matches values ending with the given string. `%`, `_` and `\` are matched literally.
+  """
+  endsWith: String
+
+  """Equal to"""
+  eq: CategoriesKindEnum
+
+  """Greater than"""
+  gt: CategoriesKindEnum
+
+  """Greater than or equal to"""
+  gte: CategoriesKindEnum
+
+  """Case-insensitive `contains`."""
+  iContains: String
+
+  """Case-insensitive `endsWith`."""
+  iEndsWith: String
+
+  """Case-insensitive `startsWith`."""
+  iStartsWith: String
+  ilike: String
+
+  """Matches any one of these values (SQL `IN`)"""
+  inArray: [CategoriesKindEnum!]
+
+  """When true, matches rows where the column is not NULL"""
+  isNotNull: Boolean
+
+  """When true, matches rows where the column is NULL"""
+  isNull: Boolean
+  like: String
+
+  """Less than"""
+  lt: CategoriesKindEnum
+
+  """Less than or equal to"""
+  lte: CategoriesKindEnum
+
+  """Not equal to"""
+  ne: CategoriesKindEnum
+  notIlike: String
+
+  """Matches none of these values (SQL `NOT IN`)"""
+  notInArray: [CategoriesKindEnum!]
+  notLike: String
+
+  """
+  Matches values starting with the given string. `%`, `_` and `\` are matched literally.
+  """
+  startsWith: String
 }
 
 input CategoriesOrderBy {
   color: InnerOrder
   createdAt: InnerOrder
   id: InnerOrder
+  kind: InnerOrder
   name: InnerOrder
   userId: InnerOrder
 }
@@ -340,6 +429,9 @@ type CategoryDaySummary {
   categoryId: String
   color: String
   day: String!
+
+  """The category's kind; null for uncategorized time."""
+  kind: CategoriesKindEnum
   name: String
   seconds: Float!
 }
@@ -1067,7 +1159,9 @@ type Mutation {
     to: String!
   ): Float!
   createApiKey(expiresInDays: Int, name: String!): ApiKeyIssued!
-  createCategory(color: String, name: String!): Categories!
+
+  """`kind` defaults to neutral."""
+  createCategory(color: String, kind: CategoriesKindEnum, name: String!): Categories!
   createCategoryRule(appPattern: String, categoryId: String!, contextPattern: String, priority: Int, titlePattern: String): CategoryRules!
   createContextRule(appPattern: String, priority: Int, titlePattern: String!): ContextRules!
   createMergeRule(fromApp: String!, fromContext: String, toApp: String!, toContext: String): MergeRules!
@@ -1153,8 +1247,11 @@ type Mutation {
   signOut: Boolean!
   signUp(email: String!, name: String!, password: String!): AuthSession!
 
-  """A whole replacement, like updateCategoryRule: a null color clears it."""
-  updateCategory(color: String, id: String!, name: String!): Categories!
+  """
+  A whole replacement, like updateCategoryRule: a null color clears it, and a
+  null or omitted kind makes the category neutral.
+  """
+  updateCategory(color: String, id: String!, kind: CategoriesKindEnum, name: String!): Categories!
   updateCategoryRule(appPattern: String, categoryId: String!, contextPattern: String, id: String!, priority: Int, titlePattern: String): CategoryRules!
   updateContextRule(appPattern: String, id: String!, priority: Int, titlePattern: String!): ContextRules!
   verifyMagicLink(token: String!): AuthSession!
@@ -1388,6 +1485,11 @@ executable names and Android launcher labels (`apps`), Android package names
 """
 type RulePack {
   apps: [String!]!
+
+  """
+  The kind a category the install creates gets. A reused category keeps its own.
+  """
+  categoryKind: CategoriesKindEnum!
 
   """
   The category the rules fill, created on install unless the caller has one of this name.

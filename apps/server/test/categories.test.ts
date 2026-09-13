@@ -140,6 +140,26 @@ describe('categories', () => {
     expect((cleared.data as any).updateCategory.color).toBeNull();
   });
 
+  it('gives a category a kind, neutral unless told otherwise', async () => {
+    const created = await run(
+      'mutation { a: createCategory(name: "Code", kind: focus) { id kind } b: createCategory(name: "Misc") { kind } }',
+    );
+    expect(created.errors).toBeUndefined();
+    const { a, b } = created.data as any;
+    expect([a.kind, b.kind]).toEqual(['focus', 'neutral']);
+
+    const updated = await run(
+      `mutation { updateCategory(id: "${a.id}", name: "Code", kind: distracting) { kind } }`,
+    );
+    expect((updated.data as any).updateCategory.kind).toBe('distracting');
+    // A whole replacement, like color: no kind is neutral again.
+    const reset = await run(`mutation { updateCategory(id: "${a.id}", name: "Code") { kind } }`);
+    expect((reset.data as any).updateCategory.kind).toBe('neutral');
+
+    const bogus = await run('mutation { createCategory(name: "X", kind: fun) { id } }');
+    expect(bogus.errors?.length).toBeGreaterThan(0);
+  });
+
   it('refuses a blank or duplicate name, on create and rename alike', async () => {
     const work = await createCategory();
     const play = await run('mutation { createCategory(name: "Play") { id } }');

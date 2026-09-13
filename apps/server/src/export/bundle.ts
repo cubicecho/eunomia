@@ -120,6 +120,7 @@ const SECTIONS: Section[] = [
         id: categories.id,
         name: categories.name,
         color: categories.color,
+        kind: categories.kind,
         createdAt: categories.createdAt,
       })
       .from(categories)

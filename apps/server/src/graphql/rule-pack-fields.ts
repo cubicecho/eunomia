@@ -19,6 +19,7 @@ const packOut = (pack: RulePack, installedVersion: number | undefined) => ({
   description: pack.description,
   version: pack.version,
   categoryName: pack.category.name,
+  categoryKind: pack.category.kind,
   apps: pack.apps,
   packages: pack.packages,
   sites: pack.sites,

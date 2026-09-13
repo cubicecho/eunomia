@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
-import { categories, categoryRules } from '../db/schema.ts';
+import { type CategoryKind, categories, categoryRules } from '../db/schema.ts';
 import { notFound } from '../errors.ts';
 import { sweepRules } from './rules.ts';
 
@@ -30,7 +30,6 @@ import { sweepRules } from './rules.ts';
 // as "is one of", so a pack rule opens in the editor as a plain list rather
 // than a regex.
 
-/** How a pack sorts its category's time, as the category is created with. */
 export interface RulePack {
   /** Stable key; also the prefix of every rule tag the pack writes. */
   id: string;
@@ -42,8 +41,11 @@ export interface RulePack {
    * changes nothing, so an edit to an installed rule survives it.
    */
   version: number;
-  /** The category the rules fill, by name — reused when the user already has it. */
-  category: { name: string; color: string };
+  /**
+   * The category the rules fill, by name — reused when the user already has
+   * it, in which case its color and kind stay the user's.
+   */
+  category: { name: string; color: string; kind: CategoryKind };
   /** Desktop executable names and Android launcher labels. */
   apps: string[];
   /** Android package names. */
@@ -61,7 +63,7 @@ export const RULE_PACKS: readonly RulePack[] = [
     name: 'Development',
     description: 'Editors, IDEs, terminals and developer tools, plus code hosting and docs sites.',
     version: 1,
-    category: { name: 'Development', color: '#3987e5' },
+    category: { name: 'Development', color: '#3987e5', kind: 'focus' },
     apps: [
       // Editors and IDEs.
       'code',
@@ -160,7 +162,7 @@ export const RULE_PACKS: readonly RulePack[] = [
     description:
       'Work chat, email and video calls: Slack, Teams, Zoom, Outlook, Gmail and friends.',
     version: 1,
-    category: { name: 'Communication', color: '#199e70' },
+    category: { name: 'Communication', color: '#199e70', kind: 'work' },
     apps: [
       'slack',
       'Slack.app',
@@ -218,7 +220,7 @@ export const RULE_PACKS: readonly RulePack[] = [
     name: 'Messaging',
     description: 'Personal messengers: Signal, Telegram, WhatsApp, Messages, Element.',
     version: 1,
-    category: { name: 'Messaging', color: '#9085e9' },
+    category: { name: 'Messaging', color: '#9085e9', kind: 'personal' },
     apps: [
       'signal-desktop',
       'Signal',
@@ -257,7 +259,7 @@ export const RULE_PACKS: readonly RulePack[] = [
     name: 'Productivity',
     description: 'Documents, spreadsheets, notes, calendars and project tools.',
     version: 1,
-    category: { name: 'Productivity', color: '#c98500' },
+    category: { name: 'Productivity', color: '#c98500', kind: 'work' },
     apps: [
       'WINWORD',
       'EXCEL',
@@ -331,7 +333,7 @@ export const RULE_PACKS: readonly RulePack[] = [
     name: 'Social',
     description: 'Social networks and forums: Reddit, Instagram, X, TikTok, Discord and more.',
     version: 1,
-    category: { name: 'Social', color: '#d55181' },
+    category: { name: 'Social', color: '#d55181', kind: 'distracting' },
     apps: [
       'Discord',
       'Discord.app',
@@ -391,7 +393,7 @@ export const RULE_PACKS: readonly RulePack[] = [
     name: 'Entertainment',
     description: 'Video, streaming and music: YouTube, Netflix, Twitch, Spotify, media players.',
     version: 1,
-    category: { name: 'Entertainment', color: '#d95926' },
+    category: { name: 'Entertainment', color: '#d95926', kind: 'distracting' },
     apps: [
       'spotify',
       'Spotify.app',
@@ -451,7 +453,7 @@ export const RULE_PACKS: readonly RulePack[] = [
     name: 'Gaming',
     description: 'Game launchers and stores: Steam, Epic, Battle.net, GOG, Lutris, Heroic.',
     version: 1,
-    category: { name: 'Gaming', color: '#008300' },
+    category: { name: 'Gaming', color: '#008300', kind: 'personal' },
     apps: [
       'steam',
       // Steam's own windows belong to its embedded browser process.
@@ -610,6 +612,7 @@ export async function installRulePack(db: Db, userId: string, id: string): Promi
               userId,
               name: pack.category.name,
               color: pack.category.color,
+              kind: pack.category.kind,
             })
             // A category of this name created between the select and here.
             .onConflictDoUpdate({

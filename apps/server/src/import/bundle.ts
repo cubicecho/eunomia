@@ -12,6 +12,7 @@ import { setUserTimeZone } from '../activity/time-zone.ts';
 import type { Db } from '../db/client.ts';
 import {
   activities,
+  CATEGORY_KINDS,
   categories,
   categoryRules,
   contextRules,
@@ -99,7 +100,15 @@ const RECORDS = {
     platform: z.enum(['windows', 'macos', 'linux', 'android']),
     createdAt: instant.optional(),
   }),
-  category: z.object({ id, name, color: z.string().max(100).nullable().optional() }),
+  category: z.object({
+    id,
+    name,
+    color: z.string().max(100).nullable().optional(),
+    // Absent from bundles written before categories had kinds, which restore
+    // as neutral — as those categories were migrated. An unknown kind (a
+    // newer server's) is neutral too, rather than costing the whole category.
+    kind: z.enum(CATEGORY_KINDS).optional().catch(undefined),
+  }),
   categoryRule: z.object({
     categoryId: id,
     appPattern: pattern,
@@ -384,7 +393,13 @@ async function restoreRecords({ db, userId, state, tally }: Restore, records: re
             ? [existing]
             : await db
                 .insert(categories)
-                .values({ id: crypto.randomUUID(), userId, name: label, color: category.color })
+                .values({
+                  id: crypto.randomUUID(),
+                  userId,
+                  name: label,
+                  color: category.color,
+                  kind: category.kind ?? 'neutral',
+                })
                 .returning({ id: categories.id });
           state.categories[category.id] = row!.id;
           tally.accepted += 1;

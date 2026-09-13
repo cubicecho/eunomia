@@ -52,7 +52,7 @@ describe('categorySummary', () => {
       { id: 'device-2', userId: 'user-2', name: 'desktop', platform: 'windows' },
     ]);
     await db.insert(categories).values([
-      { id: 'work', userId: 'user-1', name: 'Work', color: '#3fb950' },
+      { id: 'work', userId: 'user-1', name: 'Work', color: '#3fb950', kind: 'focus' },
       { id: 'their-cat', userId: 'user-2', name: 'Theirs' },
     ]);
     await db.insert(activities).values([
@@ -71,7 +71,7 @@ describe('categorySummary', () => {
 
   const query = `{
     categorySummary(from: "2026-08-10T00:00:00Z", to: "2026-08-12T00:00:00Z") {
-      day categoryId name color seconds
+      day categoryId name color kind seconds
     }
   }`;
 
@@ -80,9 +80,23 @@ describe('categorySummary', () => {
     expect(result.errors).toBeUndefined();
     // Ordered by day, then categoryId with SQL nulls (uncategorized) last.
     expect((result.data as any).categorySummary).toEqual([
-      { day: '2026-08-10', categoryId: 'work', name: 'Work', color: '#3fb950', seconds: 900 },
-      { day: '2026-08-10', categoryId: null, name: null, color: null, seconds: 120 },
-      { day: '2026-08-11', categoryId: 'work', name: 'Work', color: '#3fb950', seconds: 900 },
+      {
+        day: '2026-08-10',
+        categoryId: 'work',
+        name: 'Work',
+        color: '#3fb950',
+        kind: 'focus',
+        seconds: 900,
+      },
+      { day: '2026-08-10', categoryId: null, name: null, color: null, kind: null, seconds: 120 },
+      {
+        day: '2026-08-11',
+        categoryId: 'work',
+        name: 'Work',
+        color: '#3fb950',
+        kind: 'focus',
+        seconds: 900,
+      },
     ]);
   });
 
@@ -90,7 +104,14 @@ describe('categorySummary', () => {
     const result = await run(query, 'user-2');
     expect(result.errors).toBeUndefined();
     expect((result.data as any).categorySummary).toEqual([
-      { day: '2026-08-10', categoryId: 'their-cat', name: 'Theirs', color: null, seconds: 5000 },
+      {
+        day: '2026-08-10',
+        categoryId: 'their-cat',
+        name: 'Theirs',
+        color: null,
+        kind: 'neutral',
+        seconds: 5000,
+      },
     ]);
   });
 

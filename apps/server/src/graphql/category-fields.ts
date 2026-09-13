@@ -46,7 +46,9 @@ async function categoryValues(
   if (clash) throw badInput(`There is already a category called “${name}”`);
   // A blank color is no color: the charts fall back to a stable palette slot.
   const color = args.color?.trim();
-  return { name, color: color ? color : null };
+  // Omitted is neutral on update too: the dialog always sends the whole
+  // category, so there is no "leave the kind as it was" to express.
+  return { name, color: color ? color : null, kind: args.kind ?? 'neutral' };
 }
 
 export function categoryFields(db: Db) {
@@ -59,7 +61,7 @@ export function categoryFields(db: Db) {
         .returning();
       return row!;
     },
-    // Rename and recolor. Nothing else refers to a category by name — rules,
+    // Rename, recolor and re-kind. Nothing else refers to a category by name — rules,
     // activities and summaries all hold its id — so this touches one row.
     updateCategory: async (_source, args, ctx) => {
       const userId = requireUser(ctx);

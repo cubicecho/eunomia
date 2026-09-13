@@ -128,6 +128,7 @@ export function summaryFields(db: Db) {
             categoryId: summaries.categoryId,
             name: categories.name,
             color: categories.color,
+            kind: categories.kind,
             seconds: sql<number>`sum(${summaries.seconds})::float`,
           })
           .from(summaries)
@@ -141,13 +142,20 @@ export function summaryFields(db: Db) {
               ...summaryDayBounds(from, to),
             ),
           )
-          .groupBy(summaries.day, summaries.categoryId, categories.name, categories.color),
+          .groupBy(
+            summaries.day,
+            summaries.categoryId,
+            categories.name,
+            categories.color,
+            categories.kind,
+          ),
         db
           .select({
             day: dayOf,
             categoryId: activities.categoryId,
             name: categories.name,
             color: categories.color,
+            kind: categories.kind,
             seconds: sql<number>`sum(${activities.activeSeconds})::float`,
           })
           .from(activities)
@@ -162,7 +170,13 @@ export function summaryFields(db: Db) {
               ...liveDayBounds(from, to),
             ),
           )
-          .groupBy(dayOf, activities.categoryId, categories.name, categories.color),
+          .groupBy(
+            dayOf,
+            activities.categoryId,
+            categories.name,
+            categories.color,
+            categories.kind,
+          ),
         (row) => `${row.day}\n${row.categoryId ?? ''}`,
       );
       return rows.sort(

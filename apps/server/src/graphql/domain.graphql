@@ -160,9 +160,13 @@ type Mutation {
   recordPings(deviceId: String, pings: [PingInput!]!): Int!
 
   # Categories, and the two mutations that move time between them by hand.
-  createCategory(name: String!, color: String): Categories!
-  "A whole replacement, like updateCategoryRule: a null color clears it."
-  updateCategory(id: String!, name: String!, color: String): Categories!
+  "`kind` defaults to neutral."
+  createCategory(name: String!, color: String, kind: CategoriesKindEnum): Categories!
+  """
+  A whole replacement, like updateCategoryRule: a null color clears it, and a
+  null or omitted kind makes the category neutral.
+  """
+  updateCategory(id: String!, name: String!, color: String, kind: CategoriesKindEnum): Categories!
   deleteCategory(id: String!): Boolean!
   assignActivity(activityId: String!, categoryId: String): Activities!
   """
@@ -386,6 +390,8 @@ type RulePack {
   version: Int!
   "The category the rules fill, created on install unless the caller has one of this name."
   categoryName: String!
+  "The kind a category the install creates gets. A reused category keeps its own."
+  categoryKind: CategoriesKindEnum!
   apps: [String!]!
   packages: [String!]!
   sites: [String!]!
@@ -411,6 +417,8 @@ type CategoryDaySummary {
   categoryId: String
   name: String
   color: String
+  "The category's kind; null for uncategorized time."
+  kind: CategoriesKindEnum
   seconds: Float!
 }
 

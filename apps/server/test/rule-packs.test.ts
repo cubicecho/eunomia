@@ -137,8 +137,10 @@ describe('starter rule packs', () => {
     it('creates the category and its rules, and is idempotent', async () => {
       const first = await install('development');
       expect(first).toMatchObject({ added: 3, updated: 0, pack: { installedVersion: 1 } });
-      const { categories } = await data('{ categories { id name color } }');
-      expect(categories).toEqual([{ id: first.categoryId, name: 'Development', color: '#3987e5' }]);
+      const { categories } = await data('{ categories { id name color kind } }');
+      expect(categories).toEqual([
+        { id: first.categoryId, name: 'Development', color: '#3987e5', kind: 'focus' },
+      ]);
 
       const second = await install('development');
       expect(second).toMatchObject({ categoryId: first.categoryId, added: 0, updated: 0 });
@@ -152,7 +154,10 @@ describe('starter rule packs', () => {
       );
       const result = await install('social');
       expect(result.categoryId).toBe(createCategory.id);
-      expect((await data('{ categories { color } }')).categories).toEqual([{ color: '#000' }]);
+      // Still the user's own color and kind.
+      expect((await data('{ categories { color kind } }')).categories).toEqual([
+        { color: '#000', kind: 'neutral' },
+      ]);
     });
 
     it('leaves an edited rule alone, and restores a deleted one', async () => {

@@ -88,6 +88,7 @@ export type AppSummaryRow = AppSummaryQuery['appSummary'][number];
 /** A recent activity, as the rule forms' live preview sees it. */
 export type ActivitySample = RecentActivitiesQuery['activities'][number];
 export type Category = CategoriesQuery['categories'][number];
+export type CategoryKind = Category['kind'];
 export type CategoryRule = CategoryRulesQuery['categoryRules'][number];
 export type ContextRule = ContextRulesQuery['contextRules'][number];
 export type RulePack = RulePacksQuery['rulePacks'][number];
@@ -248,12 +249,19 @@ export const fetchMergeRules = (): Promise<MergeRule[]> =>
 
 export const fetchDevices = (): Promise<Device[]> => sdk.Devices().then((d) => d.devices);
 
-export const createCategory = (name: string, color: string | null): Promise<unknown> =>
-  sdk.CreateCategory({ name, color });
+export const createCategory = (
+  name: string,
+  color: string | null,
+  kind: CategoryKind,
+): Promise<unknown> => sdk.CreateCategory({ name, color, kind });
 
 /** A whole replacement, like updateCategoryRule: a null color clears it. */
-export const updateCategory = (id: string, name: string, color: string | null): Promise<unknown> =>
-  sdk.UpdateCategory({ id, name, color });
+export const updateCategory = (
+  id: string,
+  name: string,
+  color: string | null,
+  kind: CategoryKind,
+): Promise<unknown> => sdk.UpdateCategory({ id, name, color, kind });
 
 export const deleteCategory = (id: string): Promise<unknown> => sdk.DeleteCategory({ id });
 

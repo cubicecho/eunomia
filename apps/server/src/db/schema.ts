@@ -141,6 +141,10 @@ export const devices = pgTable('devices', {
   replayFrom: timestamp('replay_from', { withTimezone: true }),
 });
 
+/** The kinds a category can be, in the order the dashboard lists them. */
+export const CATEGORY_KINDS = ['focus', 'work', 'neutral', 'personal', 'distracting'] as const;
+export type CategoryKind = (typeof CATEGORY_KINDS)[number];
+
 // User-defined buckets activities get assigned to ("Work", "Gaming", ...).
 // Per-user, not global: two users' "Work" mean different things.
 export const categories = pgTable(
@@ -153,6 +157,11 @@ export const categories = pgTable(
     name: text('name').notNull(),
     // Optional display color for dashboards (any CSS color string).
     color: text('color'),
+    // What sort of time the category holds, for the dashboard's time-by-kind
+    // breakdown: deep work, other work, neither, personal time, or time the
+    // user would rather spend less of. Neutral until someone says otherwise —
+    // which includes every category that existed before kinds did.
+    kind: text('kind', { enum: CATEGORY_KINDS }).notNull().default('neutral'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => [uniqueIndex('categories_user_name_idx').on(t.userId, t.name)],

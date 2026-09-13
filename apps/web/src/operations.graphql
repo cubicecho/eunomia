@@ -114,6 +114,7 @@ query CategorySummary($from: String!, $to: String!, $deviceId: String) {
     categoryId
     name
     color
+    kind
     seconds
   }
 }
@@ -158,6 +159,7 @@ query Categories {
     id
     name
     color
+    kind
   }
 }
 
@@ -234,15 +236,16 @@ mutation RevokeApiKey($id: String!) {
   revokeApiKey(id: $id)
 }
 
-mutation CreateCategory($name: String!, $color: String) {
-  createCategory(name: $name, color: $color) {
+mutation CreateCategory($name: String!, $color: String, $kind: CategoriesKindEnum) {
+  createCategory(name: $name, color: $color, kind: $kind) {
     id
   }
 }
 
-# A whole replacement: a null color clears it back to a palette slot.
-mutation UpdateCategory($id: String!, $name: String!, $color: String) {
-  updateCategory(id: $id, name: $name, color: $color) {
+# A whole replacement: a null color clears it back to a palette slot, and a
+# null kind makes the category neutral.
+mutation UpdateCategory($id: String!, $name: String!, $color: String, $kind: CategoriesKindEnum) {
+  updateCategory(id: $id, name: $name, color: $color, kind: $kind) {
     id
   }
 }
@@ -345,6 +348,7 @@ query RulePacks {
     description
     version
     categoryName
+    categoryKind
     apps
     packages
     sites
