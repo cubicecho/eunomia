@@ -100,6 +100,29 @@ type Mutation {
   # midnight; older summaries stay where they were bucketed. Session-only (see
   # permissions.ts).
   setTimeZone(timeZone: String): Me!
+  # Days of raw pings and activities to keep, fewer than the server keeps; null
+  # follows the server. Applied at the next prune. Session-only.
+  setRetention(days: Int): Me!
+
+  # Deletion. Session-only (see permissions.ts); none of them can be undone.
+  """
+  Deletes everything recorded between `from` (inclusive) and `to` (exclusive),
+  ISO timestamps, on one device or — with no `deviceId` — all of them. Pings
+  from the range that are still on their way from an agent are dropped when
+  they arrive. See `RangeDeletion.partialDays` for what can't be split.
+  """
+  deleteRange(from: String!, to: String!, deviceId: String): RangeDeletion!
+  """
+  Deletes an app — or, with `context`, one context of it — from every device:
+  pings, activities, focus segments and summaries, as the dashboard names it
+  (after context and merge rules). Doesn't stop it being recorded from now on.
+  """
+  purgeApp(app: String!, context: String): AppPurge!
+  """
+  Deletes the caller's account and everything in it, revoking every key. `email`
+  must be the account's own, retyped. Export first: nothing is recoverable.
+  """
+  deleteAccount(email: String!): Boolean!
 
   # Devices. registerDevice and rotateDeviceKey are the only fields that ever
   # return an API key, and only at the moment it is minted.
@@ -207,10 +230,16 @@ each summary query — is a calendar day in `effectiveTimeZone`.
 """
 type Me {
   id: String!
+  "The account's email — what `deleteAccount` asks to have retyped."
+  email: String!
   "The IANA zone chosen with `setTimeZone`, or null to follow the server's."
   timeZone: String
   "The zone this user's days split in: `timeZone`, or the server's own when that is null."
   effectiveTimeZone: String!
+  "Days of raw pings and activities chosen with `setRetention`, or null to follow the server's."
+  retentionDays: Int
+  "Days of raw pings and activities actually kept: the shorter of `retentionDays` and the server's, or null for forever. Summaries are kept regardless."
+  effectiveRetentionDays: Int
 }
 
 # Session payload for signUp/signIn: the raw token goes back as
@@ -231,6 +260,31 @@ type MagicLinkRequest {
 type DeviceRegistration {
   device: Devices!
   apiKey: String!
+}
+
+"""
+What `deleteRange` removed.
+"""
+type RangeDeletion {
+  "Devices the range was deleted from."
+  devices: Int!
+  "Raw pings deleted."
+  pings: Int!
+  "Calendar days entirely inside the range; their summaries are gone outright."
+  days: Int!
+  """
+  Days (`YYYY-MM-DD`, in the caller's time zone) the range only partly covers
+  that still hold time with no raw record left to split — pruned past retention,
+  or imported as daily totals. Their totals may still include some of the range.
+  """
+  partialDays: [String!]!
+}
+
+"What `purgeApp` removed."
+type AppPurge {
+  pings: Int!
+  activities: Int!
+  summaries: Int!
 }
 
 """

@@ -455,4 +455,92 @@ describe('authorization scoping', () => {
       expect(result.errors?.[0]?.extensions?.code).toBe('BAD_USER_INPUT');
     }
   });
+
+  describe('deleting data', () => {
+    const as = (contextValue: Context, source: string, variableValues?: Record<string, unknown>) =>
+      graphql({ schema, source, variableValues, contextValue });
+    // A key of each kind — an integration key and a device's own.
+    const keys = [
+      { ...asUser('user-1'), keyId: 'key-1' },
+      { ...asUser('user-1'), keyId: 'key-1', deviceId: 'device-1' },
+    ] as Context[];
+    const activityIds = async () =>
+      (await db.select({ id: activities.id }).from(activities)).map((row) => row.id).sort();
+    const range = `mutation ($deviceId: String) {
+      deleteRange(from: "2026-08-17T00:00:00Z", to: "2026-08-18T00:00:00Z", deviceId: $deviceId) {
+        devices pings days partialDays
+      }
+    }`;
+    const purge = 'mutation { purgeApp(app: "steam") { pings activities summaries } }';
+    const retention = 'mutation ($days: Int) { setRetention(days: $days) { id retentionDays } }';
+    const account = 'mutation ($email: String!) { deleteAccount(email: $email) }';
+
+    it('refuses anonymous callers and API keys, for every deletion', async () => {
+      for (const context of [asUser(null), ...keys]) {
+        for (const [source, variables] of [
+          [range, {}],
+          [purge, {}],
+          [retention, { days: 1 }],
+          [account, { email: 'u@example.com' }],
+        ] as const) {
+          const result = await as(context, source, variables);
+          expect(result.errors?.[0]?.message).toBe('Not authenticated');
+        }
+      }
+      expect(await activityIds()).toEqual(['act-1', 'act-2', 'act-theirs']);
+      const [stillThere] = await db.select().from(user).where(eq(user.id, 'user-1'));
+      expect(stillThere?.retentionDays).toBeNull();
+    });
+
+    it("deletes a range from the caller's devices only", async () => {
+      const theirs = await as(asUser('user-1'), range, { deviceId: 'device-2' });
+      expect(theirs.errors?.[0]?.message).toBe('Unknown device');
+      expect(await activityIds()).toEqual(['act-1', 'act-2', 'act-theirs']);
+
+      const mine = await as(asUser('user-1'), range);
+      expect(mine.errors).toBeUndefined();
+      expect((mine.data as any).deleteRange).toEqual({
+        devices: 1,
+        pings: 0,
+        days: 1,
+        partialDays: [],
+      });
+      // user-2 had steam at the same time on the same day.
+      expect(await activityIds()).toEqual(['act-theirs']);
+    });
+
+    it("purges an app from the caller's devices only", async () => {
+      const mine = await as(asUser('user-1'), purge);
+      expect((mine.data as any).purgeApp).toEqual({ pings: 0, activities: 0, summaries: 0 });
+      expect(await activityIds()).toEqual(['act-1', 'act-2', 'act-theirs']);
+      const theirs = await as(asUser('user-2'), purge);
+      expect((theirs.data as any).purgeApp).toEqual({ pings: 0, activities: 1, summaries: 0 });
+      expect(await activityIds()).toEqual(['act-1', 'act-2']);
+    });
+
+    it('sets retention for the caller alone', async () => {
+      const mine = await as(asUser('user-1'), retention, { days: 7 });
+      expect((mine.data as any).setRetention).toEqual({ id: 'user-1', retentionDays: 7 });
+      const rows = await db.select({ id: user.id, days: user.retentionDays }).from(user);
+      expect(rows.sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+        { id: 'user-1', days: 7 },
+        { id: 'user-2', days: null },
+      ]);
+    });
+
+    it("deletes the caller's own account, and only with its email", async () => {
+      // Someone else's address doesn't delete theirs, or the caller's.
+      const wrong = await as(asUser('user-1'), account, { email: 'v@example.com' });
+      expect(wrong.errors?.[0]?.extensions?.code).toBe('BAD_USER_INPUT');
+      expect(await db.select({ id: user.id }).from(user)).toHaveLength(2);
+
+      const mine = await as(asUser('user-1'), account, { email: ' U@Example.com ' });
+      expect(mine.errors).toBeUndefined();
+      expect((mine.data as any).deleteAccount).toBe(true);
+      expect((await db.select({ id: user.id }).from(user)).map((row) => row.id)).toEqual([
+        'user-2',
+      ]);
+      expect(await activityIds()).toEqual(['act-theirs']);
+    });
+  });
 });

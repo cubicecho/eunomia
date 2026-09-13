@@ -60,7 +60,7 @@ export interface ReplayOptions {
  * down the primary key that stop at the first hit, and a device idle overnight
  * has a seam a day, so neither reads more than about a day of pings.
  */
-async function findSeam(
+export async function findSeam(
   db: Db,
   device: Device,
   target: Date | null,

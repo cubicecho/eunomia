@@ -196,6 +196,13 @@ type AppContextSummary {
   seconds: Float!
 }
 
+"""What `purgeApp` removed."""
+type AppPurge {
+  activities: Int!
+  pings: Int!
+  summaries: Int!
+}
+
 type AuthSession {
   token: String!
   userId: String!
@@ -954,10 +961,23 @@ each summary query — is a calendar day in `effectiveTimeZone`.
 """
 type Me {
   """
+  Days of raw pings and activities actually kept: the shorter of `retentionDays` and the server's, or null for forever. Summaries are kept regardless.
+  """
+  effectiveRetentionDays: Int
+
+  """
   The zone this user's days split in: `timeZone`, or the server's own when that is null.
   """
   effectiveTimeZone: String!
+
+  """The account's email — what `deleteAccount` asks to have retyped."""
+  email: String!
   id: String!
+
+  """
+  Days of raw pings and activities chosen with `setRetention`, or null to follow the server's.
+  """
+  retentionDays: Int
 
   """
   The IANA zone chosen with `setTimeZone`, or null to follow the server's.
@@ -1017,11 +1037,25 @@ type Mutation {
   createCategoryRule(appPattern: String, categoryId: String!, contextPattern: String, priority: Int, titlePattern: String): CategoryRules!
   createContextRule(appPattern: String, priority: Int, titlePattern: String!): ContextRules!
   createMergeRule(fromApp: String!, fromContext: String, toApp: String!, toContext: String): MergeRules!
+
+  """
+  Deletes the caller's account and everything in it, revoking every key. `email`
+  must be the account's own, retyped. Export first: nothing is recoverable.
+  """
+  deleteAccount(email: String!): Boolean!
   deleteCategory(id: String!): Boolean!
   deleteCategoryRule(id: String!): Boolean!
   deleteContextRule(id: String!): Boolean!
   deleteDevice(id: String!): Boolean!
   deleteMergeRule(id: String!): Boolean!
+
+  """
+  Deletes everything recorded between `from` (inclusive) and `to` (exclusive),
+  ISO timestamps, on one device or — with no `deviceId` — all of them. Pings
+  from the range that are still on their way from an agent are dropped when
+  they arrive. See `RangeDeletion.partialDays` for what can't be split.
+  """
+  deleteRange(deviceId: String, from: String!, to: String!): RangeDeletion!
 
   """
   Imports history from a file into the caller's own account, a chunk of records
@@ -1050,6 +1084,13 @@ type Mutation {
     target: ImportTarget
   ): ImportChunk!
   mergeDevice(id: String!, intoId: String!): Devices!
+
+  """
+  Deletes an app — or, with `context`, one context of it — from every device:
+  pings, activities, focus segments and summaries, as the dashboard names it
+  (after context and merge rules). Doesn't stop it being recorded from now on.
+  """
+  purgeApp(app: String!, context: String): AppPurge!
   recordPing(app: String, capturedAt: String!, context: String, deviceId: String, idleSeconds: Int!, title: String): Activities
   recordPings(deviceId: String, pings: [PingInput!]!): Int!
   registerDevice(name: String!, platform: String!): DeviceRegistration!
@@ -1060,6 +1101,7 @@ type Mutation {
   revokeApiKey(id: String!): Boolean!
   rotateDeviceKey(id: String!): DeviceRegistration!
   sessionFromDeviceKey: AuthSession!
+  setRetention(days: Int): Me!
   setTimeZone(timeZone: String): Me!
   signIn(email: String!, password: String!): AuthSession!
   signOut: Boolean!
@@ -1260,6 +1302,27 @@ type Query {
     orderBy: MergeRulesOrderBy
     where: MergeRulesFilters
   ): [MergeRules!]!
+}
+
+"""What `deleteRange` removed."""
+type RangeDeletion {
+  """
+  Calendar days entirely inside the range; their summaries are gone outright.
+  """
+  days: Int!
+
+  """Devices the range was deleted from."""
+  devices: Int!
+
+  """
+  Days (`YYYY-MM-DD`, in the caller's time zone) the range only partly covers
+  that still hold time with no raw record left to split — pruned past retention,
+  or imported as daily totals. Their totals may still include some of the range.
+  """
+  partialDays: [String!]!
+
+  """Raw pings deleted."""
+  pings: Int!
 }
 
 input StringFilter {

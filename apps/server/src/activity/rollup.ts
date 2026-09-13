@@ -143,14 +143,21 @@ export async function rollupActivities(db: Db, deviceId?: string): Promise<numbe
 
 /**
  * Takes the seconds of a device's rolled activities that started at or after
- * `from` back out of their summary rows — the inverse of rollupActivities, for
- * replay, which is about to delete those activities and fold them again.
+ * `from` (and before `to`, when given) back out of their summary rows — the
+ * inverse of rollupActivities, for replay, which is about to delete those
+ * activities and fold them again, and for a range deletion, which is about to
+ * delete them for good.
  *
  * Subtracts rather than deleting the affected days' rows: a day can hold
  * seconds from activities that started before `from`, or that were pruned
  * long ago, and nothing but the summary row remembers those.
  */
-export async function unrollActivities(db: Db, deviceId: string, from: Date): Promise<void> {
+export async function unrollActivities(
+  db: Db,
+  deviceId: string,
+  from: Date,
+  to?: Date,
+): Promise<void> {
   const rows = await db
     .select({
       day: dayOf,
@@ -167,6 +174,7 @@ export async function unrollActivities(db: Db, deviceId: string, from: Date): Pr
         eq(activities.deviceId, deviceId),
         eq(activities.rolledUp, true),
         gte(activities.startedAt, from),
+        to ? lt(activities.startedAt, to) : undefined,
       ),
     )
     .groupBy(dayOf, activities.app, activities.context, activities.categoryId);
@@ -314,23 +322,54 @@ export async function mergeCategorySummaries(db: Db, categoryId: string): Promis
 }
 
 /**
- * Deletes raw activities older than `retentionDays` that have already been
- * folded into summaries — the aggregates (and so every dashboard view) are
- * unaffected, but pruned time can no longer be re-categorized individually.
- * Un-rolled and open rows are never touched at any age: their seconds only
- * exist on the activity row. A non-positive `retentionDays` keeps everything.
- * Returns how many rows were deleted.
+ * How many days of raw history a device's owner keeps, as a column expression
+ * over `user`: the server's `serverDays`, shortened by the user's own setting
+ * (user.retentionDays) when they chose fewer. Null keeps everything — a server
+ * set to keep forever, with a user who never asked for less.
+ *
+ * least() skips nulls, which is the whole rule: a user with no setting gets
+ * the server's, and a setting can only ever come out shorter.
+ */
+export function ownerRetentionDays(serverDays: number): SQL<number | null> {
+  return serverDays > 0
+    ? sql<number | null>`least(${user.retentionDays}, ${serverDays})`
+    : sql<number | null>`${user.retentionDays}`;
+}
+
+/**
+ * The instant raw rows older than a device's owner's retention start from, as
+ * a column expression over `user` — null when they keep everything. Relative
+ * to `now` so a run applies one cutoff per user throughout.
+ */
+export function retentionCutoff(serverDays: number, now: Date): SQL<Date | null> {
+  return sql<Date | null>`${now.toISOString()}::timestamptz - make_interval(days => ${ownerRetentionDays(serverDays)})`;
+}
+
+/**
+ * Deletes raw activities older than their owner's retention — the server's
+ * `retentionDays`, or fewer where the user chose fewer — that have already
+ * been folded into summaries. The aggregates (and so every dashboard view)
+ * are unaffected, but pruned time can no longer be re-categorized
+ * individually. Un-rolled and open rows are never touched at any age: their
+ * seconds only exist on the activity row. A non-positive `retentionDays` keeps
+ * everything for users who haven't asked for less. Returns how many rows were
+ * deleted.
  */
 export async function pruneActivities(db: Db, retentionDays: number): Promise<number> {
-  if (!(retentionDays > 0)) return 0;
-  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const cutoff = db
+    .select({ cutoff: retentionCutoff(retentionDays, new Date()) })
+    .from(devices)
+    .innerJoin(user, eq(devices.userId, user.id))
+    .where(eq(devices.id, activities.deviceId));
   const deleted = await db
     .delete(activities)
     .where(
       and(
         eq(activities.rolledUp, true),
         isNotNull(activities.closedAt),
-        lt(activities.startedAt, cutoff),
+        // Null for an owner who keeps everything, and a comparison with null
+        // is never true — so their rows are never candidates.
+        sql`${activities.startedAt} < (${cutoff})`,
       ),
     )
     .returning({ id: activities.id });
@@ -344,7 +383,8 @@ export const DEFAULT_RETENTION_DAYS = 90;
  * Days of raw activities — and of the raw pings they were folded from — to
  * keep. Summaries are never pruned, so history charts survive; only
  * per-activity detail (titles, re-categorization, replay) ages out. Set
- * ACTIVITY_RETENTION_DAYS=0 to keep raw rows forever.
+ * ACTIVITY_RETENTION_DAYS=0 to keep raw rows forever. A user can keep less
+ * than this, never more (ownerRetentionDays).
  *
  * Throws on anything else. This setting decides what gets deleted, and every
  * way of quietly guessing at a bad value is wrong in a way the operator only
