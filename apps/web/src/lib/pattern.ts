@@ -112,12 +112,21 @@ export function describePattern(pattern: string): string {
       return `ends with “${match.value}”`;
     case 'exactly':
       return `is “${match.value}”`;
-    case 'oneOf':
-      return `is one of ${match.value}`;
+    case 'oneOf': {
+      // A rule pack's lists run to dozens of names; the table shows the first
+      // few and the full list stays in the hover and the editor.
+      const values = alternatives(match.value);
+      return values.length <= ONE_OF_SHOWN
+        ? `is one of ${match.value}`
+        : `is one of ${values.slice(0, ONE_OF_SHOWN).join(', ')} and ${values.length - ONE_OF_SHOWN} more`;
+    }
     case 'regex':
       return match.value;
   }
 }
+
+/** How many alternatives describePattern spells out before summarizing. */
+const ONE_OF_SHOWN = 4;
 
 // --- extractors: which part of the title is the context? -----------------
 

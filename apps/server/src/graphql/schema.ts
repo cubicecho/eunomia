@@ -23,6 +23,7 @@ import { mergeFields } from './merge-fields.ts';
 import { permissions, type Resolvers } from './permissions.ts';
 import { pingFields } from './ping-fields.ts';
 import { ruleFields } from './rule-fields.ts';
+import { rulePackFields, rulePackQueryFields } from './rule-pack-fields.ts';
 import { summaryFields } from './summaries.ts';
 import { userFields, userQueryFields } from './user-fields.ts';
 
@@ -110,6 +111,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
       ...apiKeyQueryFields(db),
       ...userQueryFields(db),
       ...exportFields(db),
+      ...rulePackQueryFields(db),
     },
     Mutation: {
       ...authFields(auth),
@@ -117,6 +119,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
       ...apiKeyFields(db, auth),
       ...categoryFields(db),
       ...ruleFields(db),
+      ...rulePackFields(db),
       ...mergeFields(db),
       ...pingFields(db),
       ...userFields(db),

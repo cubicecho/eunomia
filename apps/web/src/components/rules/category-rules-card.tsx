@@ -6,6 +6,7 @@ import { CategoryRuleForm } from '@/components/rules/category-rule-form';
 import { Pattern } from '@/components/rules/pattern';
 import { AddRuleButton, EditRuleButton, RuleDialog } from '@/components/rules/rule-dialog';
 import { Swatch } from '@/components/rules/swatch';
+import { Badge } from '@/components/ui/badge';
 import {
   Card,
   CardAction,
@@ -95,6 +96,15 @@ export function CategoryRulesCard({ categories, rules, samples, run, reload }: P
                         <span className="flex items-center gap-2">
                           <Swatch color={categoryColor(rule.categoryId, category?.color ?? null)} />
                           {name}
+                          {rule.pack && (
+                            // Still an ordinary rule; the badge only says where it came from.
+                            <Badge
+                              variant="outline"
+                              title={`From the ${rule.pack.split('/')[0]} rule pack`}
+                            >
+                              pack
+                            </Badge>
+                          )}
                         </span>
                       </TableCell>
                       <TableCell>

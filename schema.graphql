@@ -356,6 +356,8 @@ type CategoryRules {
   """
   cursor: String
   id: String!
+  pack: String
+  packVersion: Int
   priority: Int!
   titlePattern: String
   userId: String!
@@ -378,6 +380,8 @@ input CategoryRulesFilters {
   contextPattern: StringFilter
   createdAt: DateTimeFilter
   id: StringFilter
+  pack: StringFilter
+  packVersion: IntFilter
   priority: IntFilter
   titlePattern: StringFilter
   userId: StringFilter
@@ -403,6 +407,8 @@ input CategoryRulesOrderBy {
   contextPattern: InnerOrder
   createdAt: InnerOrder
   id: InnerOrder
+  pack: InnerOrder
+  packVersion: InnerOrder
   priority: InnerOrder
   titlePattern: InnerOrder
   userId: InnerOrder
@@ -1111,6 +1117,18 @@ type Mutation {
     """Where the history goes. First call only, and not for BUNDLE."""
     target: ImportTarget
   ): ImportChunk!
+
+  """
+  Installs a starter rule pack: creates its category (or reuses the caller's
+  category of that name) and writes its rules as ordinary category rules, then
+  applies every rule to past activity like `applyCategoryRules`.
+  
+  Idempotent. Installing again never duplicates a rule: a rule already written
+  by this version of the pack is left as it is, edits included, a rule an older
+  version wrote is updated to this version's lists, and a pack rule that was
+  deleted is written again.
+  """
+  installRulePack(id: String!): RulePackInstall!
   mergeDevice(id: String!, intoId: String!): Devices!
 
   """
@@ -1333,6 +1351,12 @@ type Query {
     orderBy: MergeRulesOrderBy
     where: MergeRulesFilters
   ): [MergeRules!]!
+
+  """
+  The starter rule packs this server ships, and which of them the caller has
+  installed (see `installRulePack`).
+  """
+  rulePacks: [RulePack!]!
 }
 
 """What `deleteRange` removed."""
@@ -1354,6 +1378,45 @@ type RangeDeletion {
 
   """Raw pings deleted."""
   pings: Int!
+}
+
+"""
+A curated, versioned set of exact-match category rules for well-known apps and
+sites. The lists are what the rules match, as the agents report them: desktop
+executable names and Android launcher labels (`apps`), Android package names
+(`packages`), and browser hostnames (`sites`).
+"""
+type RulePack {
+  apps: [String!]!
+
+  """
+  The category the rules fill, created on install unless the caller has one of this name.
+  """
+  categoryName: String!
+  description: String!
+  id: String!
+
+  """
+  The newest version of this pack whose rules the caller still has, or null when none.
+  """
+  installedVersion: Int
+  name: String!
+  packages: [String!]!
+  sites: [String!]!
+  version: Int!
+}
+
+type RulePackInstall {
+  """Rules written that weren't there before."""
+  added: Int!
+
+  """Activities the follow-up sweep moved to a different category."""
+  categorized: Int!
+  categoryId: String!
+  pack: RulePack!
+
+  """Rules rewritten from an older version of the pack."""
+  updated: Int!
 }
 
 input StringFilter {

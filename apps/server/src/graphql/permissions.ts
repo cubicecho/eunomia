@@ -78,6 +78,7 @@ export const permissions = {
     categorySummary: authenticated,
     appSummary: authenticated,
     deviceSummary: authenticated,
+    rulePacks: authenticated,
     // Listing is session-only for the same reason issuing is: a leaked key
     // should not be able to enumerate its siblings.
     apiKeys: sessionAuthenticated,
@@ -137,6 +138,7 @@ export const permissions = {
     updateCategoryRule: authenticated,
     deleteCategoryRule: authenticated,
     applyCategoryRules: authenticated,
+    installRulePack: authenticated,
     createContextRule: authenticated,
     updateContextRule: authenticated,
     deleteContextRule: authenticated,

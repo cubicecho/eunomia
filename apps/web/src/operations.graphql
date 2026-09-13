@@ -169,6 +169,7 @@ query CategoryRules {
     titlePattern
     contextPattern
     priority
+    pack
   }
 }
 
@@ -333,6 +334,33 @@ mutation AssignEntry(
 
 mutation ApplyCategoryRules {
   applyCategoryRules
+}
+
+# Starter rule packs: the catalogue, with what the caller already has. The rules
+# an install writes come back through CategoryRules like any other.
+query RulePacks {
+  rulePacks {
+    id
+    name
+    description
+    version
+    categoryName
+    apps
+    packages
+    sites
+    installedVersion
+  }
+}
+
+# Idempotent; also sweeps every rule over past activity, so `categorized` is
+# the same count applyCategoryRules reports.
+mutation InstallRulePack($id: String!) {
+  installRulePack(id: $id) {
+    categoryId
+    added
+    updated
+    categorized
+  }
 }
 
 mutation RenameDevice($id: String!, $name: String!) {

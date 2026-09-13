@@ -27,6 +27,7 @@ describe('graphql schema', () => {
       'focusSegments',
       'me',
       'mergeRules',
+      'rulePacks',
     ]);
     expect(Object.keys(schema.getMutationType()?.getFields() ?? {}).sort()).toEqual([
       'applyCategoryRules',
@@ -46,6 +47,7 @@ describe('graphql schema', () => {
       'deleteMergeRule',
       'deleteRange',
       'importChunk',
+      'installRulePack',
       'mergeDevice',
       'purgeApp',
       'recordPing',

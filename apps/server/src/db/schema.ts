@@ -181,8 +181,21 @@ export const categoryRules = pgTable(
     // Lower runs first; ties broken by creation time.
     priority: integer('priority').notNull().default(0),
     createdAt: timestamp('created_at').notNull().defaultNow(),
+    // Provenance, for rules a starter rule pack wrote: which of the pack's rules
+    // this is ('development/apps'), and the pack version that last wrote its
+    // patterns. Null for every rule a person wrote. The rule is an ordinary rule
+    // either way — editing it keeps the tag, and reinstalling the same version
+    // leaves the edit alone. See src/activity/rule-packs.ts.
+    pack: text('pack'),
+    packVersion: integer('pack_version'),
   },
-  (t) => [index('category_rules_user_idx').on(t.userId, t.priority)],
+  (t) => [
+    index('category_rules_user_idx').on(t.userId, t.priority),
+    // One rule per pack slot per user: installing twice, or twice at once, can
+    // never write a slot's rule twice. Rules a person wrote (pack NULL) are
+    // distinct under the default NULLS DISTINCT and never collide.
+    uniqueIndex('category_rules_user_pack_idx').on(t.userId, t.pack),
+  ],
 );
 
 // Context extraction: per-user, priority-ordered rules that pull a sub-app
