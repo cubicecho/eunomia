@@ -1,7 +1,7 @@
 import type { Ping } from './ping.ts';
 
 // Client-side privacy controls: sanitization runs before a ping is queued, so
-// ignored apps and redacted titles never touch the outbox on disk, let alone
+// ignored apps and redacted titles never touch the ping log on disk, let alone
 // the server. Patterns are case-insensitive regexes matched against the app
 // identifier (executable / package name).
 

@@ -5,7 +5,7 @@ import { format } from 'node:util';
 // A packaged agent has nowhere to print: on Windows there is no console
 // attached at all, so a revoked key, a crashed sampler, or a stalled upload
 // leaves no trace anyone can look at. Tee everything the agent logs to a file
-// next to its config and outbox, and let the tray open it.
+// next to its config and ping log, and let the tray open it.
 
 const MAX_BYTES = 512 * 1024;
 

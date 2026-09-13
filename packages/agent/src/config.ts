@@ -28,6 +28,11 @@ export interface StoredConfig extends AgentConfig {
    * calls a foreground activity. Defaults to on.
    */
   launchableAppsOnly?: boolean;
+  /**
+   * Days of ping log kept on the device (see Outbox). Past it the oldest day
+   * files are deleted, sent or not. Default DEFAULT_LOG_RETENTION_DAYS.
+   */
+  logRetentionDays?: number;
   /** Privacy: pings from a matching app are dropped entirely. */
   ignoreApps?: string[];
   /** Privacy: matching apps keep their time but lose title and context. */
@@ -70,6 +75,9 @@ export function parseConfig(raw: unknown): StoredConfig | null {
   }
   if (typeof parsed.syncIntervalSeconds === 'number') {
     config.syncIntervalSeconds = parsed.syncIntervalSeconds;
+  }
+  if (typeof parsed.logRetentionDays === 'number') {
+    config.logRetentionDays = parsed.logRetentionDays;
   }
   if (isStringArray(parsed.ignoreApps)) config.ignoreApps = parsed.ignoreApps;
   if (isStringArray(parsed.redactApps)) config.redactApps = parsed.redactApps;

@@ -20,7 +20,14 @@ export {
   type StoredConfig,
   serializeConfig,
 } from './config.ts';
-export { OUTBOX_MAX_PINGS, Outbox, type OutboxStore } from './outbox.ts';
+export {
+  DEFAULT_LOG_RETENTION_DAYS,
+  logRetentionDays,
+  MIN_LOG_RETENTION_DAYS,
+  Outbox,
+  type OutboxOptions,
+  type PingLogStore,
+} from './outbox.ts';
 export {
   DEFAULT_SYNC_INTERVAL_SECONDS,
   FLUSH_BATCH_SIZE,
