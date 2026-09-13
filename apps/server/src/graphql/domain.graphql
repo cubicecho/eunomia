@@ -63,6 +63,27 @@ extend type Query {
     "End of the window, EXCLUSIVE — pass the day after the last one you want."
     to: String!
   ): [DeviceSummary!]!
+
+  """
+  The caller's data as a downloadable file, one chunk per call. Call it with no
+  `cursor`, append `data`, and call again with the same arguments plus `cursor:
+  next` until `next` is null; the concatenated `data` is the file.
+
+  Not a snapshot: rows written between calls may or may not be included.
+  Session-only — an API key can't export (see permissions.ts).
+  """
+  accountExport(
+    format: ExportFormat!
+    """
+    First day to include, `YYYY-MM-DD` in the caller's time zone. Only for
+    ACTIVITYWATCH and SUMMARIES_CSV; omitted means from the beginning.
+    """
+    from: String
+    "Day after the last one to include (EXCLUSIVE). Omitted means up to now."
+    to: String
+    "The previous chunk's `next`. Omitted starts the file."
+    cursor: String
+  ): ExportChunk!
 }
 
 type Mutation {
@@ -258,6 +279,37 @@ type AppContextSummary {
   categoryName: String
   categoryColor: String
   seconds: Float!
+}
+
+"What `accountExport` writes."
+enum ExportFormat {
+  """
+  Everything the account holds, as JSON Lines (`.jsonl`): a
+  `{"format":"eunomia-export","version":1}` header, then one record per line
+  tagged with `type` — profile, device, category, categoryRule, contextRule,
+  mergeRule, summary, activity, focusSegment, ping — and a closing `end` record
+  with the counts. Never includes API keys, sessions or other credentials.
+  Always the whole account: takes no date range.
+  """
+  BUNDLE
+  """
+  The raw ping log as an ActivityWatch export (aw-server's `/api/0/export`
+  JSON): an `aw-watcher-window_<device>` and an `aw-watcher-afk_<device>` bucket
+  per device, importable from ActivityWatch's Import page.
+  """
+  ACTIVITYWATCH
+  "Daily totals as CSV: `day,device,category,app,context,seconds`."
+  SUMMARIES_CSV
+}
+
+"One piece of an export file."
+type ExportChunk {
+  "The next part of the file, to append to the parts before it."
+  data: String!
+  "Rows read for this chunk — for a progress count, not a count of lines."
+  rows: Int!
+  "Pass as `cursor` to get the next chunk; null when the file is complete."
+  next: String
 }
 
 # Active seconds per device over a range: the "split by device" view, and the

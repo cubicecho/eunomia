@@ -36,6 +36,16 @@ mutation SetTimeZone($timeZone: String) {
   }
 }
 
+# One chunk of an export file; called in a loop until `next` is null (see
+# exportFile in api.ts).
+query AccountExport($format: ExportFormat!, $from: String, $to: String, $cursor: String) {
+  accountExport(format: $format, from: $from, to: $to, cursor: $cursor) {
+    data
+    rows
+    next
+  }
+}
+
 # deviceId is optional throughout: omitted, the aggregates fold every device
 # the user owns together, which is the default view.
 query CategorySummary($from: String!, $to: String!, $deviceId: String) {
