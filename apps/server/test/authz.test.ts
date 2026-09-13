@@ -165,6 +165,8 @@ describe('authorization scoping', () => {
       '{ categories { id } }',
       '{ categoryRules { id } }',
       'mutation { applyCategoryRules }',
+      'mutation { updateCategory(id: "cat-1", name: "Mine now") { id } }',
+      'mutation { assignEntry(app: "firefox", categoryId: "cat-1", from: "2026-08-17", to: "2026-08-18") }',
       'mutation { registerDevice(name: "x", platform: "linux") { apiKey } }',
     ]) {
       const result = await run(source, null);

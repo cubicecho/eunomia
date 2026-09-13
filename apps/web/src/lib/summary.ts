@@ -261,3 +261,28 @@ export function allEntries(rows: AppSummaryRow[]): EntryGroup[] {
     }))
     .sort((a, b) => b.seconds - a.seconds);
 }
+
+/** One uncategorized (app, context) pair, as the review queue lists it. */
+export interface QueueEntry {
+  app: string;
+  /** Null is the app's time under no context, an entry apart from its contexts. */
+  context: string | null;
+  seconds: number;
+}
+
+/**
+ * The review queue: every entry with uncategorized time in the window, largest
+ * first — the order in which labelling one pays off most.
+ *
+ * Only the uncategorized part of an entry counts. An entry split between Work
+ * and nothing lists just the seconds still unlabelled, which is also exactly
+ * what assignEntry moves.
+ */
+export function uncategorizedEntries(rows: AppSummaryRow[]): QueueEntry[] {
+  // appSummary keys on (app, context, category), so each uncategorized row is
+  // already a whole entry: no folding, only the filter and the order.
+  return rows
+    .filter((row) => row.categoryId === null && row.seconds > 0)
+    .map((row) => ({ app: row.app, context: row.context, seconds: row.seconds }))
+    .sort((a, b) => b.seconds - a.seconds);
+}

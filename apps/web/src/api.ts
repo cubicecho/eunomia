@@ -158,6 +158,10 @@ export const fetchDevices = (): Promise<Device[]> => sdk.Devices().then((d) => d
 export const createCategory = (name: string, color: string | null): Promise<unknown> =>
   sdk.CreateCategory({ name, color });
 
+/** A whole replacement, like updateCategoryRule: a null color clears it. */
+export const updateCategory = (id: string, name: string, color: string | null): Promise<unknown> =>
+  sdk.UpdateCategory({ id, name, color });
+
 export const deleteCategory = (id: string): Promise<unknown> => sdk.DeleteCategory({ id });
 
 export const createCategoryRule = (rule: CategoryRuleInput): Promise<unknown> =>
@@ -176,6 +180,21 @@ export const updateContextRule = (id: string, rule: ContextRuleInput): Promise<u
   sdk.UpdateContextRule({ id, ...rule });
 
 export const deleteContextRule = (id: string): Promise<unknown> => sdk.DeleteContextRule({ id });
+
+/**
+ * Puts one entry's uncategorized time over [from, to) into a category —
+ * exactly what the review queue listed for it, rolled-up days included.
+ * A null context is the app's contextless time, not the whole app. Resolves
+ * to the seconds assigned.
+ */
+export const assignEntry = (
+  entry: { app: string; context: string | null },
+  categoryId: string,
+  range: { from: string; to: string },
+): Promise<number> =>
+  sdk
+    .AssignEntry({ app: entry.app, context: entry.context, categoryId, ...range })
+    .then((d) => d.assignEntry);
 
 /** Re-runs category rules over past activities; resolves to the number changed. */
 export const applyCategoryRules = (): Promise<number> =>

@@ -32,8 +32,12 @@ const deviceFilter = (column: AnyPgColumn, deviceId: string | null | undefined) 
  * a summary at UTC midnight while the rolled half had been cut at local
  * midnight. On a non-UTC server the two halves then disagreed, and today's
  * evening read as empty until the next 15-minute rollup moved it across.
+ *
+ * Exported with the two bounds below for assignEntry, which has to claim
+ * exactly the seconds these aggregates showed the review queue — the same
+ * window, cut the same way.
  */
-function parseRange(args: { from: string; to: string }): { from: SQL; to: SQL } {
+export function parseRange(args: { from: string; to: string }): { from: SQL; to: SQL } {
   for (const value of [args.from, args.to]) {
     if (Number.isNaN(new Date(value).getTime())) throw badInput('Invalid date range');
   }
@@ -44,13 +48,13 @@ function parseRange(args: { from: string; to: string }): { from: SQL; to: SQL } 
 }
 
 /** The window over raw activity rows — the not-yet-rolled-up half. */
-const liveDayBounds = (from: SQL, to: SQL) => [
+export const liveDayBounds = (from: SQL, to: SQL) => [
   sql`${activities.startedAt} >= ${from}`,
   sql`${activities.startedAt} < ${to}`,
 ];
 
 /** The same window over rolled rows, which only remember their day string. */
-const summaryDayBounds = (from: SQL, to: SQL) => [
+export const summaryDayBounds = (from: SQL, to: SQL) => [
   sql`${summaries.day} >= to_char(${from}, 'YYYY-MM-DD')`,
   sql`${summaries.day} < to_char(${to}, 'YYYY-MM-DD')`,
 ];

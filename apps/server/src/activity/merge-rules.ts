@@ -102,7 +102,7 @@ export function mergeEntry(rules: MergeRule[], entry: Entry): Entry {
 }
 
 /** The rows of one exact entry, fenced to devices the user owns. */
-function entryMatch(
+export function entryMatch(
   deviceColumn: AnyPgColumn,
   appColumn: AnyPgColumn,
   contextColumn: AnyPgColumn,

@@ -37,7 +37,7 @@ export function RulesView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <CategoriesCard categories={categories} run={run} />
+      <CategoriesCard categories={categories} run={run} reload={reload} />
       <CategoryRulesCard
         categories={categories}
         rules={categoryRules}
