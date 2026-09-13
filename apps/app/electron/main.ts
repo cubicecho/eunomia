@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -7,8 +7,16 @@ import {
   createSampler,
   createSanitizer,
   createUploader,
+  currentPause,
+  isPausedAt,
+  logRetentionDays,
   Outbox,
-  type OutboxStore,
+  PAUSE_CHOICES,
+  type PauseWindow,
+  parsePauses,
+  pause,
+  prunePauses,
+  resume,
   type Sample,
   type Sampler,
   type StoredConfig,
@@ -17,6 +25,7 @@ import {
 } from '@eunomia/agent';
 import { activeWindow } from '@miniben90/x-win';
 import { app, Menu, type MenuItem, nativeImage, powerMonitor, shell, Tray } from 'electron';
+import type { PauseState } from '../src/host/types.ts';
 import { syncAutostart } from './autostart.ts';
 import {
   isEnvConfigured,
@@ -27,6 +36,7 @@ import {
 } from './config.ts';
 import { type AgentRuntime, registerAgentIpc } from './ipc.ts';
 import { readLog, resetLog, startFileLog } from './log.ts';
+import { pingLogDir, pingLogStore } from './ping-log.ts';
 import { registerAgentScheme, serveAgentBundle } from './protocol.ts';
 import { TRAY_ICON_16, TRAY_ICON_32 } from './tray-icon.ts';
 import { agentWindow, openAgentWindow } from './window.ts';
@@ -79,14 +89,6 @@ function browserContext(win: ReturnType<typeof activeWindow>, app: string | null
   }
 }
 
-function fileStore(path: string): OutboxStore {
-  return {
-    read: () => (existsSync(path) ? readFileSync(path, 'utf8') : null),
-    append: (data) => appendFileSync(path, data),
-    write: (data) => writeFileSync(path, data),
-  };
-}
-
 let tray: Tray | undefined;
 
 /**
@@ -119,6 +121,23 @@ function ago(ms: number): string {
   return `${Math.round(seconds / 3600)}h ago`;
 }
 
+/** "14:30" — when a pause ends, in the machine's own clock. */
+function clockTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * The pause windows in pause.json. Unreadable is not paused: a corrupt file
+ * must not silently stop tracking, and the tray says plainly which it is.
+ */
+function loadPauses(path: string): PauseWindow[] {
+  try {
+    return existsSync(path) ? parsePauses(JSON.parse(readFileSync(path, 'utf8'))) : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * How often the tray menu is rebuilt. The OS reads whatever template was set
  * last, so an agent that stopped tracking an hour ago would otherwise still be
@@ -126,14 +145,14 @@ function ago(ms: number): string {
  */
 const TRAY_REFRESH_MS = 30_000;
 
-// One agent per machine. A second instance would sample in parallel and share
-// outbox.jsonl, where the outbox's compacting rewrite silently erases
-// whatever the other instance queued in the meantime — so the second launch
-// surfaces the first one's window and exits. `--provision` is a one-shot CLI
-// that writes config.json and quits, so it stays allowed alongside the tray.
+// One agent per machine. A second instance would sample in parallel into the
+// same ping log, interleaving appends and racing the upload cursor — so the
+// second launch surfaces the first one's window and exits. `--provision` is a
+// one-shot CLI that writes config.json and quits, so it stays allowed
+// alongside the tray.
 // Pinned rather than inherited from package.json's name, which is now the
 // Expo app's. userData is derived from it, so leaving it to the default would
-// relocate an existing dev install's config.json, outbox and log — and the
+// relocate an existing dev install's config.json, ping log and log — and the
 // packaged builds set it through electron-builder's productName anyway.
 app.setName('eunomia-agent');
 
@@ -180,9 +199,19 @@ app.whenReady().then(async () => {
   }
 
   const logPath = startFileLog(dataDir);
-  const outbox = new Outbox(fileStore(join(dataDir, 'outbox.jsonl')));
   let config = loadConfig(dataDir);
+  // Config first: opening the log prunes it, and a longer configured retention
+  // must not lose to the default on the way in.
+  const outbox = new Outbox(pingLogStore(dataDir), {
+    retentionDays: logRetentionDays(config ?? {}),
+  });
   let sanitize = createSanitizer(config ?? {});
+
+  // Off the record (@eunomia/agent pause.ts). Kept on disk so a pause "until
+  // resumed" survives a restart or a login: a pause that quietly ended because
+  // the machine rebooted would record exactly what the person asked it not to.
+  const pausePath = join(dataDir, 'pause.json');
+  let pauses = loadPauses(pausePath);
 
   // Sampling starts before anything else: an unprovisioned agent still tracks
   // to its outbox, and its health is the one thing the tray must never guess
@@ -192,6 +221,7 @@ app.whenReady().then(async () => {
     read: readSample,
     readContext,
     sanitize: () => sanitize,
+    paused: (at) => isPausedAt(pauses, at),
   });
 
   // Only provisioned installs register launch-at-login; {"autostart": false}
@@ -221,6 +251,7 @@ app.whenReady().then(async () => {
     writeAgentConfig(dataDir, next);
     config = next;
     sanitize = createSanitizer(next);
+    outbox.setRetentionDays(logRetentionDays(next));
     syncAutostart(next.autostart !== false);
     startUploads(next);
     refreshTrayMenu();
@@ -239,6 +270,12 @@ app.whenReady().then(async () => {
   // every tick — a native module that didn't unpack, an accessibility API that
   // stopped answering — looked exactly like a healthy agent with a quiet day.
   const trackingLabel = (): string => {
+    const paused = pauseState();
+    if (paused.paused) {
+      return paused.until === null
+        ? 'PAUSED — off the record until resumed'
+        : `PAUSED — off the record until ${clockTime(paused.until)}`;
+    }
     const status = sampler.status();
     if (!status.error && status.lastPingAt === null) return 'Tracking — nothing recorded yet';
     if (!status.healthy) return `NOT TRACKING: ${status.error}`;
@@ -269,9 +306,40 @@ app.whenReady().then(async () => {
     refreshTrayMenu();
   };
 
+  const pauseState = (): PauseState => {
+    const current = currentPause(pauses, Date.now());
+    return { paused: current !== null, until: current?.to ?? null };
+  };
+
+  // A timed pause ends on its own; this is what makes the tray notice at that
+  // moment rather than up to TRAY_REFRESH_MS later.
+  let pauseEndTimer: ReturnType<typeof setTimeout> | undefined;
+  const setPauses = (next: PauseWindow[]): PauseState => {
+    pauses = prunePauses(next, Date.now());
+    writeFileSync(pausePath, JSON.stringify(pauses));
+    if (pauseEndTimer) clearTimeout(pauseEndTimer);
+    const { until } = pauseState();
+    if (until !== null) pauseEndTimer = setTimeout(refreshTrayMenu, until - Date.now() + 500);
+    refreshTrayMenu();
+    return pauseState();
+  };
+  // Logged as a fact about the log itself: without it, a quiet hour in
+  // agent.log reads as a broken sampler rather than a chosen one.
+  const pauseFor = (ms: number | null): PauseState => {
+    console.log(`recording paused ${ms === null ? 'until resumed' : `for ${ms / 60_000}m`}`);
+    return setPauses(pause(pauses, Date.now(), ms));
+  };
+  const resumeNow = (): PauseState => {
+    console.log('recording resumed');
+    return setPauses(resume(pauses, Date.now()));
+  };
+
+  // Paused outranks everything: it is the one state the person chose, and the
+  // one they most need to be reminded of before they forget they chose it.
   // Not tracking outranks not uploading: a queued ping is recoverable, a
   // second nobody sampled is gone.
   const tooltip = (): string => {
+    if (pauseState().paused) return 'eunomia — paused, off the record';
     if (!sampler.status().healthy) return 'eunomia — NOT TRACKING (see the log)';
     if (uploader?.status().error) return 'eunomia — tracking, but uploads are failing';
     return 'eunomia — tracking active window';
@@ -284,7 +352,16 @@ app.whenReady().then(async () => {
         { label: `eunomia agent ${agentVersion()}`, enabled: false },
         { label: trackingLabel(), enabled: false },
         { label: uploadLabel(), enabled: false },
-        { label: `Outbox: ${join(dataDir, 'outbox.jsonl')}`, enabled: false },
+        pauseState().paused
+          ? { label: 'Resume recording', click: () => resumeNow() }
+          : {
+              label: 'Pause recording',
+              submenu: PAUSE_CHOICES.map((choice) => ({
+                label: choice.label,
+                click: () => pauseFor(choice.ms),
+              })),
+            },
+        { label: `Ping log: ${pingLogDir(dataDir)}`, enabled: false },
         ...(config
           ? [
               { label: 'Open Dashboard', click: () => void showDashboard() },
@@ -335,11 +412,12 @@ app.whenReady().then(async () => {
         // process the store never shipped. Desktop updates ship as a build.
         updates: false,
         externalDashboard: true,
+        pause: true,
       },
       version: agentVersion(),
       platform: platformName(),
       defaultDeviceName: hostname(),
-      outboxPath: join(dataDir, 'outbox.jsonl'),
+      pingLogPath: pingLogDir(dataDir),
       logPath,
       envConfigured: isEnvConfigured(),
     }),
@@ -358,6 +436,9 @@ app.whenReady().then(async () => {
     clearLog: () => resetLog(logPath),
     setAutostart,
     openDashboard: showDashboard,
+    pauseState,
+    pause: pauseFor,
+    resume: resumeNow,
   };
   registerAgentIpc(runtime, agentWindow);
   serveAgentBundle();
@@ -368,6 +449,8 @@ app.whenReady().then(async () => {
   icon.addRepresentation({ scaleFactor: 2, dataURL: TRAY_ICON_32 });
   tray = new Tray(icon);
   refreshTrayMenu();
+  // A pause restored from disk needs its end noticed too.
+  if (pauses.length > 0) setPauses(pauses);
 
   // Double-click is the habit for a tray app, so it opens the dashboard (or
   // the agent window, when there's nothing to show yet). Windows and macOS

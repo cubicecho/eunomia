@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createAuth, createAuthGateway, verifyApiKey } from '../src/auth.ts';
-import { activities, devices, summaries, user } from '../src/db/schema.ts';
+import { activities, devices, focusSegments, pings, summaries, user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
@@ -191,6 +191,13 @@ describe('device management', () => {
         activeSeconds: 300,
       },
     ]);
+    await db.insert(focusSegments).values({
+      id: 'seg-closed',
+      deviceId: duplicate.deviceId,
+      activityId: 'act-closed',
+      startedAt: new Date('2026-08-10T09:00:00Z'),
+      endedAt: new Date('2026-08-10T09:10:00Z'),
+    });
     await db
       .update(devices)
       .set({ lastSeenAt: new Date('2026-08-10T10:05:00Z') })
@@ -209,6 +216,10 @@ describe('device management', () => {
       { id: 'act-closed', deviceId: keeper.deviceId },
       { id: 'act-open', deviceId: keeper.deviceId },
     ]);
+    // The timeline moves with them rather than cascading away with the device.
+    expect(await db.select().from(focusSegments)).toEqual([
+      expect.objectContaining({ id: 'seg-closed', deviceId: keeper.deviceId }),
+    ]);
     // The open one is closed on the way over, so the keeper never ends up with
     // two open rows fold would fight over.
     expect(moved.find((a) => a.id === 'act-open')?.closedAt).toEqual(
@@ -224,6 +235,46 @@ describe('device management', () => {
       userId: 'user-1',
       deviceId: keeper.deviceId,
     });
+  });
+
+  it('moves the raw ping log along with the history', async () => {
+    const duplicate = await register('user-1');
+    const keeper = await register('user-1');
+    await db.insert(pings).values([
+      {
+        deviceId: duplicate.deviceId,
+        capturedAt: new Date('2026-08-10T09:00:00Z'),
+        app: 'code',
+        idleSeconds: 0,
+      },
+      {
+        deviceId: keeper.deviceId,
+        capturedAt: new Date('2026-08-10T09:00:00Z'),
+        app: 'code',
+        idleSeconds: 0,
+      },
+    ]);
+    await db
+      .update(devices)
+      .set({
+        pingLogFrom: new Date('2026-08-01T00:00:00Z'),
+        replayFrom: new Date('2026-08-05T00:00:00Z'),
+      })
+      .where(eq(devices.id, duplicate.deviceId));
+    await db
+      .update(devices)
+      .set({ replayFrom: new Date('2026-08-07T00:00:00Z') })
+      .where(eq(devices.id, keeper.deviceId));
+
+    expect((await merge('user-1', duplicate.deviceId, keeper.deviceId)).errors).toBeUndefined();
+
+    // Both pings survive — same instant, same content, different streams.
+    const log = await db.select().from(pings);
+    expect(log.map((ping) => ping.deviceId)).toEqual([keeper.deviceId, keeper.deviceId]);
+    const [kept] = await db.select().from(devices).where(eq(devices.id, keeper.deviceId));
+    // Complete only where both logs were; pending from the earlier of the two.
+    expect(kept?.pingLogFrom).toEqual(new Date('2026-08-01T00:00:00Z'));
+    expect(kept?.replayFrom).toEqual(new Date('2026-08-05T00:00:00Z'));
   });
 
   it('adds up summary rows the two devices both have', async () => {

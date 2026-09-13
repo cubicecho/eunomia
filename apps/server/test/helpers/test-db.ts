@@ -18,10 +18,11 @@ export async function createMigratedTestDb() {
   const db = createTestDb();
   const { apply } = await pushSchema(schema, db);
   await apply();
-  // Day boundaries follow the session zone (prod sets it from TZ — see
-  // db/client.ts). PGlite would otherwise inherit the developer's machine
-  // zone and make day-bucketing assertions machine-dependent; tests that care
-  // about a non-UTC zone set their own with `set time zone`.
+  // A user without a zone of their own has days in the session zone (prod
+  // sets it from TZ — see db/client.ts). PGlite would otherwise inherit the
+  // developer's machine zone and make day-bucketing assertions
+  // machine-dependent; tests that care about another zone give the user one,
+  // or set the session's with `set time zone`.
   await db.execute(sql`set time zone 'UTC'`);
   return db;
 }

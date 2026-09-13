@@ -28,6 +28,9 @@ describe('createUnsupportedHost', () => {
       ['autostart', 'setAutostart'],
       ['revealLog', 'revealLog'],
       ['externalDashboard', 'openDashboard'],
+      ['pause', 'pauseState'],
+      ['pause', 'pause'],
+      ['pause', 'resume'],
     ];
     for (const [capability, method] of gated) {
       expect(host.capabilities[capability]).toBe(false);

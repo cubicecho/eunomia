@@ -196,6 +196,13 @@ type AppContextSummary {
   seconds: Float!
 }
 
+"""What `purgeApp` removed."""
+type AppPurge {
+  activities: Int!
+  pings: Int!
+  summaries: Int!
+}
+
 type AuthSession {
   token: String!
   userId: String!
@@ -520,6 +527,17 @@ type DeviceRegistration {
   device: Devices!
 }
 
+"""
+What a replay rebuilt: where it restarted the fold (null when the device's log
+had nothing to replay), how many pings it folded, and how many activities it
+wrote. Activity ids from before the replay no longer exist.
+"""
+type DeviceReplay {
+  activities: Int!
+  from: String
+  pings: Int!
+}
+
 type DeviceSummary {
   deviceId: String!
   name: String!
@@ -547,7 +565,9 @@ type Devices {
   id: String!
   lastSeenAt: DateTime
   name: String!
+  pingLogFrom: DateTime
   platform: DevicesPlatformEnum!
+  replayFrom: DateTime
   summaries(
     """
     Keyset pagination: only return related rows strictly after this cursor (a row's `cursor` field from a previous page of this relation, under the same orderBy).
@@ -575,7 +595,9 @@ input DevicesFilters {
   id: StringFilter
   lastSeenAt: DateTimeFilter
   name: StringFilter
+  pingLogFrom: DateTimeFilter
   platform: DevicesPlatformEnumFilter
+  replayFrom: DateTimeFilter
   summaries: SummariesListRelationFilter
   userId: StringFilter
 }
@@ -585,7 +607,9 @@ input DevicesOrderBy {
   id: InnerOrder
   lastSeenAt: InnerOrder
   name: InnerOrder
+  pingLogFrom: InnerOrder
   platform: InnerOrder
+  replayFrom: InnerOrder
   userId: InnerOrder
 }
 
@@ -672,6 +696,43 @@ input DevicesPlatformEnumFilter {
   startsWith: String
 }
 
+"""One piece of an export file."""
+type ExportChunk {
+  """The next part of the file, to append to the parts before it."""
+  data: String!
+
+  """
+  Pass as `cursor` to get the next chunk; null when the file is complete.
+  """
+  next: String
+
+  """Rows read for this chunk — for a progress count, not a count of lines."""
+  rows: Int!
+}
+
+"""What `accountExport` writes."""
+enum ExportFormat {
+  """
+  The raw ping log as an ActivityWatch export (aw-server's `/api/0/export`
+  JSON): an `aw-watcher-window_<device>` and an `aw-watcher-afk_<device>` bucket
+  per device, importable from ActivityWatch's Import page.
+  """
+  ACTIVITYWATCH
+
+  """
+  Everything the account holds, as JSON Lines (`.jsonl`): a
+  `{"format":"eunomia-export","version":1}` header, then one record per line
+  tagged with `type` — profile, device, category, categoryRule, contextRule,
+  mergeRule, summary, activity, focusSegment, ping — and a closing `end` record
+  with the counts. Never includes API keys, sessions or other credentials.
+  Always the whole account: takes no date range.
+  """
+  BUNDLE
+
+  """Daily totals as CSV: `day,device,category,app,context,seconds`."""
+  SUMMARIES_CSV
+}
+
 input FloatFilter {
   """Every branch matches"""
   AND: [FloatFilter!]
@@ -711,6 +772,122 @@ input FloatFilter {
 
   """Matches none of these values (SQL `NOT IN`)"""
   notInArray: [Float!]
+}
+
+type FocusSegments {
+  activity(where: ActivitiesFilters): Activities
+  activityId: String!
+
+  """
+  Opaque cursor of this row's position in the query's ordering. Pass it as `after` to resume from here. Only set on rows returned by a list query.
+  """
+  cursor: String
+  device(where: DevicesFilters): Devices
+  deviceId: String!
+  endedAt: DateTime!
+  id: String!
+  startedAt: DateTime!
+}
+
+input FocusSegmentsFilters {
+  """Every branch matches"""
+  AND: [FocusSegmentsFilters!]
+
+  """Negates the nested filters"""
+  NOT: FocusSegmentsFilters
+
+  """At least one branch matches; ANDed with any sibling fields"""
+  OR: [FocusSegmentsFilters!]
+
+  """Matches rows whose activity matches these filters"""
+  activity: ActivitiesFilters
+  activityId: StringFilter
+
+  """Matches rows whose device matches these filters"""
+  device: DevicesFilters
+  deviceId: StringFilter
+  endedAt: DateTimeFilter
+  id: StringFilter
+  startedAt: DateTimeFilter
+}
+
+input FocusSegmentsOrderBy {
+  """Order by columns of the related activity row"""
+  activity: ActivitiesOrderBy
+  activityId: InnerOrder
+
+  """Order by columns of the related device row"""
+  device: DevicesOrderBy
+  deviceId: InnerOrder
+  endedAt: InnerOrder
+  id: InnerOrder
+  startedAt: InnerOrder
+}
+
+"""What one `importChunk` call did."""
+type ImportChunk {
+  """Records applied (or already present)."""
+  accepted: Int!
+
+  """The devices the import has written into."""
+  deviceIds: [String!]!
+
+  """
+  Pass as `cursor` with the next records; null once the import is complete.
+  """
+  next: String
+
+  """Pings folded by this call."""
+  pings: Int!
+
+  """Send the file again from its first record, with `next` as the cursor."""
+  restart: Boolean!
+
+  """Records passed over; `warnings` says why."""
+  skipped: Int!
+
+  """Why records were skipped, one line per reason."""
+  warnings: [String!]!
+}
+
+"""What `importChunk` reads."""
+enum ImportSource {
+  """
+  ActivityWatch history: the client sends a `{"format":"activitywatch","afk":…}`
+  header, then the events of the window, AFK and web buckets it read from
+  aw-server's export as `{"type","timestamp","duration","data"}` records, sorted
+  by timestamp across buckets. Folded as pings into the target device.
+  """
+  ACTIVITYWATCH
+
+  """
+  An account bundle from `accountExport(format: BUNDLE)`, one JSON line per
+  record. Restores the time zone (unless the caller has one), categories and
+  rules (matched to existing ones), and each device as a new device without
+  keys; activities are rebuilt from the ping log, and summaries are kept only
+  for days the log doesn't reach. Read twice — see `ImportChunk.restart`.
+  """
+  BUNDLE
+
+  """
+  A RescueTime Analytic Data export as CSV records, header first (Date, Time
+  Spent, Activity and optionally Document columns). Added to the target device
+  as daily totals — the file has no order within its intervals to rebuild
+  activities from.
+  """
+  RESCUETIME
+}
+
+"""Where a single-device import writes: an existing device, or a new one."""
+input ImportTarget {
+  """One of the caller's devices."""
+  deviceId: String
+
+  """Or a device to create with this name…"""
+  newDeviceName: String
+
+  """…on this platform: windows, macos, linux or android."""
+  platform: String
 }
 
 input InnerOrder {
@@ -774,6 +951,38 @@ input IntFilter {
 type MagicLinkRequest {
   ok: Boolean!
   token: String
+}
+
+"""
+The signed-in user, as far as a client needs to know them.
+
+Every "day" the API speaks of — `categorySummary.day`, and the `from`/`to` of
+each summary query — is a calendar day in `effectiveTimeZone`.
+"""
+type Me {
+  """
+  Days of raw pings and activities actually kept: the shorter of `retentionDays` and the server's, or null for forever. Summaries are kept regardless.
+  """
+  effectiveRetentionDays: Int
+
+  """
+  The zone this user's days split in: `timeZone`, or the server's own when that is null.
+  """
+  effectiveTimeZone: String!
+
+  """The account's email — what `deleteAccount` asks to have retyped."""
+  email: String!
+  id: String!
+
+  """
+  Days of raw pings and activities chosen with `setRetention`, or null to follow the server's.
+  """
+  retentionDays: Int
+
+  """
+  The IANA zone chosen with `setTimeZone`, or null to follow the server's.
+  """
+  timeZone: String
 }
 
 type MergeRules {
@@ -856,21 +1065,72 @@ type Mutation {
   createCategoryRule(appPattern: String, categoryId: String!, contextPattern: String, priority: Int, titlePattern: String): CategoryRules!
   createContextRule(appPattern: String, priority: Int, titlePattern: String!): ContextRules!
   createMergeRule(fromApp: String!, fromContext: String, toApp: String!, toContext: String): MergeRules!
+
+  """
+  Deletes the caller's account and everything in it, revoking every key. `email`
+  must be the account's own, retyped. Export first: nothing is recoverable.
+  """
+  deleteAccount(email: String!): Boolean!
   deleteCategory(id: String!): Boolean!
   deleteCategoryRule(id: String!): Boolean!
   deleteContextRule(id: String!): Boolean!
   deleteDevice(id: String!): Boolean!
   deleteMergeRule(id: String!): Boolean!
+
+  """
+  Deletes everything recorded between `from` (inclusive) and `to` (exclusive),
+  ISO timestamps, on one device or — with no `deviceId` — all of them. Pings
+  from the range that are still on their way from an agent are dropped when
+  they arrive. See `RangeDeletion.partialDays` for what can't be split.
+  """
+  deleteRange(deviceId: String, from: String!, to: String!): RangeDeletion!
+
+  """
+  Imports history from a file into the caller's own account, a chunk of records
+  per call — the mirror of `accountExport`. The client reads the file and sends
+  its records in order: call with no `cursor` (and, for ACTIVITYWATCH and
+  RESCUETIME, a `target`), then again with `cursor: next` and the next records,
+  passing `done: true` with the last of them, until `next` is null.
+  
+  Each call is applied whole or not at all, so a failed call can be sent again
+  with the same records and cursor. Records that can't be read are skipped and
+  counted rather than failing the call. When `restart` comes back true the
+  client sends the file again from its first record, with the new cursor.
+  Session-only (see permissions.ts).
+  """
+  importChunk(
+    cursor: String
+
+    """No records follow these."""
+    done: Boolean
+
+    """At most 5000 per call, each at most 64 KiB."""
+    records: [String!]!
+    source: ImportSource!
+
+    """Where the history goes. First call only, and not for BUNDLE."""
+    target: ImportTarget
+  ): ImportChunk!
   mergeDevice(id: String!, intoId: String!): Devices!
+
+  """
+  Deletes an app — or, with `context`, one context of it — from every device:
+  pings, activities, focus segments and summaries, as the dashboard names it
+  (after context and merge rules). Doesn't stop it being recorded from now on.
+  """
+  purgeApp(app: String!, context: String): AppPurge!
   recordPing(app: String, capturedAt: String!, context: String, deviceId: String, idleSeconds: Int!, title: String): Activities
   recordPings(deviceId: String, pings: [PingInput!]!): Int!
   registerDevice(name: String!, platform: String!): DeviceRegistration!
   renameApiKey(id: String!, name: String!): ApiKey!
   renameDevice(id: String!, name: String!): Devices!
+  replayDevice(from: String, id: String!): DeviceReplay!
   requestMagicLink(email: String!): MagicLinkRequest!
   revokeApiKey(id: String!): Boolean!
   rotateDeviceKey(id: String!): DeviceRegistration!
   sessionFromDeviceKey: AuthSession!
+  setRetention(days: Int): Me!
+  setTimeZone(timeZone: String): Me!
   signIn(email: String!, password: String!): AuthSession!
   signOut: Boolean!
   signUp(email: String!, name: String!, password: String!): AuthSession!
@@ -910,6 +1170,30 @@ input PingInput {
 }
 
 type Query {
+  """
+  The caller's data as a downloadable file, one chunk per call. Call it with no
+  `cursor`, append `data`, and call again with the same arguments plus `cursor:
+  next` until `next` is null; the concatenated `data` is the file.
+  
+  Not a snapshot: rows written between calls may or may not be included.
+  Session-only — an API key can't export (see permissions.ts).
+  """
+  accountExport(
+    """The previous chunk's `next`. Omitted starts the file."""
+    cursor: String
+    format: ExportFormat!
+
+    """
+    First day to include, `YYYY-MM-DD` in the caller's time zone. Only for
+    ACTIVITYWATCH and SUMMARIES_CSV; omitted means from the beginning.
+    """
+    from: String
+
+    """
+    Day after the last one to include (EXCLUSIVE). Omitted means up to now.
+    """
+    to: String
+  ): ExportChunk!
   activities(
     """
     Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
@@ -940,7 +1224,7 @@ type Query {
     deviceId: String
 
     """
-    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone.
+    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the caller's time zone (`me.effectiveTimeZone`).
     """
     from: String!
 
@@ -982,7 +1266,7 @@ type Query {
     deviceId: String
 
     """
-    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone.
+    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the caller's time zone (`me.effectiveTimeZone`).
     """
     from: String!
 
@@ -1007,7 +1291,7 @@ type Query {
   """
   deviceSummary(
     """
-    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone.
+    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the caller's time zone (`me.effectiveTimeZone`).
     """
     from: String!
 
@@ -1026,9 +1310,19 @@ type Query {
     orderBy: DevicesOrderBy
     where: DevicesFilters
   ): [Devices!]!
+  focusSegments(
+    """
+    Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
+    """
+    after: String
+    limit: Int
+    offset: Int
+    orderBy: FocusSegmentsOrderBy
+    where: FocusSegmentsFilters
+  ): [FocusSegments!]!
 
-  """The caller's user id, or null when the request is anonymous."""
-  me: String
+  """The caller, or null when the request is anonymous."""
+  me: Me
   mergeRules(
     """
     Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
@@ -1039,6 +1333,27 @@ type Query {
     orderBy: MergeRulesOrderBy
     where: MergeRulesFilters
   ): [MergeRules!]!
+}
+
+"""What `deleteRange` removed."""
+type RangeDeletion {
+  """
+  Calendar days entirely inside the range; their summaries are gone outright.
+  """
+  days: Int!
+
+  """Devices the range was deleted from."""
+  devices: Int!
+
+  """
+  Days (`YYYY-MM-DD`, in the caller's time zone) the range only partly covers
+  that still hold time with no raw record left to split — pruned past retention,
+  or imported as daily totals. Their totals may still include some of the range.
+  """
+  partialDays: [String!]!
+
+  """Raw pings deleted."""
+  pings: Int!
 }
 
 input StringFilter {

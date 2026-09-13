@@ -1,9 +1,14 @@
 import type { MutationCreateCategoryArgs, MutationResolvers } from '@eunomia/gql/resolvers';
-import { and, eq, isNull, ne } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { entryMatch, ownDeviceIds } from '../activity/merge-rules.ts';
-import { addSeconds, mergeCategorySummaries, moveRolledSeconds } from '../activity/rollup.ts';
+import {
+  addSeconds,
+  mergeCategorySummaries,
+  moveRolledSeconds,
+  ownerJoin,
+} from '../activity/rollup.ts';
 import type { Db } from '../db/client.ts';
-import { activities, categories, devices, summaries } from '../db/schema.ts';
+import { activities, categories, devices, summaries, user } from '../db/schema.ts';
 import { badInput, notFound } from '../errors.ts';
 import { requireOwned, requireUser } from './guards.ts';
 import { liveDayBounds, parseRange, summaryDayBounds } from './summaries.ts';
@@ -171,17 +176,25 @@ export function categoryFields(db: Db) {
         // just carried above, so there is no moveRolledSeconds here — it would
         // move them twice. Matched on categoryId alone: a category deleted out
         // from under a manual assignment leaves categorySource behind, and that
-        // time is as uncategorized as any.
-        const assigned = await tx
-          .update(activities)
-          .set({ categoryId: category.id, categorySource: 'manual' })
+        // time is as uncategorized as any. The window is the owner's days, which
+        // reads their zone through a join an UPDATE can't take — hence the
+        // subquery.
+        const inWindow = tx
+          .select({ id: activities.id })
+          .from(activities)
+          .innerJoin(devices, ownerJoin.device)
+          .innerJoin(user, ownerJoin.user)
           .where(
             and(
               entryMatch(activities.deviceId, activities.app, activities.context, deviceIds, entry),
               isNull(activities.categoryId),
               ...liveDayBounds(from, to),
             ),
-          )
+          );
+        const assigned = await tx
+          .update(activities)
+          .set({ categoryId: category.id, categorySource: 'manual' })
+          .where(inArray(activities.id, inWindow))
           .returning({ activeSeconds: activities.activeSeconds, rolledUp: activities.rolledUp });
         for (const row of assigned) {
           if (!row.rolledUp) seconds += row.activeSeconds;

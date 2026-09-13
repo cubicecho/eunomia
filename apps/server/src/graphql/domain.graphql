@@ -12,8 +12,8 @@
 # schema assembly.
 
 extend type Query {
-  "The caller's user id, or null when the request is anonymous."
-  me: String
+  "The caller, or null when the request is anonymous."
+  me: Me
 
   """
   The caller's integration keys — the ones issued from the dashboard for other
@@ -32,7 +32,7 @@ extend type Query {
   today is never missing.
   """
   categorySummary(
-    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone."
+    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the caller's time zone (`me.effectiveTimeZone`)."
     from: String!
     "End of the window, EXCLUSIVE — pass the day after the last one you want."
     to: String!
@@ -46,7 +46,7 @@ extend type Query {
   row per app/context/category triple for the whole window.
   """
   appSummary(
-    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone."
+    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the caller's time zone (`me.effectiveTimeZone`)."
     from: String!
     "End of the window, EXCLUSIVE — pass the day after the last one you want."
     to: String!
@@ -58,11 +58,32 @@ extend type Query {
   Time per device over the window — which machine or phone the time came from.
   """
   deviceSummary(
-    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone."
+    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the caller's time zone (`me.effectiveTimeZone`)."
     from: String!
     "End of the window, EXCLUSIVE — pass the day after the last one you want."
     to: String!
   ): [DeviceSummary!]!
+
+  """
+  The caller's data as a downloadable file, one chunk per call. Call it with no
+  `cursor`, append `data`, and call again with the same arguments plus `cursor:
+  next` until `next` is null; the concatenated `data` is the file.
+
+  Not a snapshot: rows written between calls may or may not be included.
+  Session-only — an API key can't export (see permissions.ts).
+  """
+  accountExport(
+    format: ExportFormat!
+    """
+    First day to include, `YYYY-MM-DD` in the caller's time zone. Only for
+    ACTIVITYWATCH and SUMMARIES_CSV; omitted means from the beginning.
+    """
+    from: String
+    "Day after the last one to include (EXCLUSIVE). Omitted means up to now."
+    to: String
+    "The previous chunk's `next`. Omitted starts the file."
+    cursor: String
+  ): ExportChunk!
 }
 
 type Mutation {
@@ -74,12 +95,45 @@ type Mutation {
   signOut: Boolean!
   sessionFromDeviceKey: AuthSession!
 
+  # Account. The caller's time zone: an IANA name, or null to follow the
+  # server's. Moves the days of every activity still kept onto the new zone's
+  # midnight; older summaries stay where they were bucketed. Session-only (see
+  # permissions.ts).
+  setTimeZone(timeZone: String): Me!
+  # Days of raw pings and activities to keep, fewer than the server keeps; null
+  # follows the server. Applied at the next prune. Session-only.
+  setRetention(days: Int): Me!
+
+  # Deletion. Session-only (see permissions.ts); none of them can be undone.
+  """
+  Deletes everything recorded between `from` (inclusive) and `to` (exclusive),
+  ISO timestamps, on one device or — with no `deviceId` — all of them. Pings
+  from the range that are still on their way from an agent are dropped when
+  they arrive. See `RangeDeletion.partialDays` for what can't be split.
+  """
+  deleteRange(from: String!, to: String!, deviceId: String): RangeDeletion!
+  """
+  Deletes an app — or, with `context`, one context of it — from every device:
+  pings, activities, focus segments and summaries, as the dashboard names it
+  (after context and merge rules). Doesn't stop it being recorded from now on.
+  """
+  purgeApp(app: String!, context: String): AppPurge!
+  """
+  Deletes the caller's account and everything in it, revoking every key. `email`
+  must be the account's own, retyped. Export first: nothing is recoverable.
+  """
+  deleteAccount(email: String!): Boolean!
+
   # Devices. registerDevice and rotateDeviceKey are the only fields that ever
   # return an API key, and only at the moment it is minted.
   registerDevice(name: String!, platform: String!): DeviceRegistration!
   renameDevice(id: String!, name: String!): Devices!
   rotateDeviceKey(id: String!): DeviceRegistration!
   mergeDevice(id: String!, intoId: String!): Devices!
+  # Rebuilds the device's activities and summaries from its raw ping log, from
+  # the nearest seam at or before `from` (an ISO timestamp; omitted = the
+  # whole log), under the current rules. Session-only (see permissions.ts).
+  replayDevice(id: String!, from: String): DeviceReplay!
   deleteDevice(id: String!): Boolean!
 
   # Integration keys: what another app authenticates to this server with.
@@ -160,10 +214,54 @@ type Mutation {
   ): MergeRules!
   deleteMergeRule(id: String!): Boolean!
   applyMergeRules: Int!
+
+  """
+  Imports history from a file into the caller's own account, a chunk of records
+  per call — the mirror of `accountExport`. The client reads the file and sends
+  its records in order: call with no `cursor` (and, for ACTIVITYWATCH and
+  RESCUETIME, a `target`), then again with `cursor: next` and the next records,
+  passing `done: true` with the last of them, until `next` is null.
+
+  Each call is applied whole or not at all, so a failed call can be sent again
+  with the same records and cursor. Records that can't be read are skipped and
+  counted rather than failing the call. When `restart` comes back true the
+  client sends the file again from its first record, with the new cursor.
+  Session-only (see permissions.ts).
+  """
+  importChunk(
+    source: ImportSource!
+    "At most 5000 per call, each at most 64 KiB."
+    records: [String!]!
+    cursor: String
+    "Where the history goes. First call only, and not for BUNDLE."
+    target: ImportTarget
+    "No records follow these."
+    done: Boolean
+  ): ImportChunk!
 }
 
 extend schema {
   mutation: Mutation
+}
+
+"""
+The signed-in user, as far as a client needs to know them.
+
+Every "day" the API speaks of — `categorySummary.day`, and the `from`/`to` of
+each summary query — is a calendar day in `effectiveTimeZone`.
+"""
+type Me {
+  id: String!
+  "The account's email — what `deleteAccount` asks to have retyped."
+  email: String!
+  "The IANA zone chosen with `setTimeZone`, or null to follow the server's."
+  timeZone: String
+  "The zone this user's days split in: `timeZone`, or the server's own when that is null."
+  effectiveTimeZone: String!
+  "Days of raw pings and activities chosen with `setRetention`, or null to follow the server's."
+  retentionDays: Int
+  "Days of raw pings and activities actually kept: the shorter of `retentionDays` and the server's, or null for forever. Summaries are kept regardless."
+  effectiveRetentionDays: Int
 }
 
 # Session payload for signUp/signIn: the raw token goes back as
@@ -184,6 +282,42 @@ type MagicLinkRequest {
 type DeviceRegistration {
   device: Devices!
   apiKey: String!
+}
+
+"""
+What `deleteRange` removed.
+"""
+type RangeDeletion {
+  "Devices the range was deleted from."
+  devices: Int!
+  "Raw pings deleted."
+  pings: Int!
+  "Calendar days entirely inside the range; their summaries are gone outright."
+  days: Int!
+  """
+  Days (`YYYY-MM-DD`, in the caller's time zone) the range only partly covers
+  that still hold time with no raw record left to split — pruned past retention,
+  or imported as daily totals. Their totals may still include some of the range.
+  """
+  partialDays: [String!]!
+}
+
+"What `purgeApp` removed."
+type AppPurge {
+  pings: Int!
+  activities: Int!
+  summaries: Int!
+}
+
+"""
+What a replay rebuilt: where it restarted the fold (null when the device's log
+had nothing to replay), how many pings it folded, and how many activities it
+wrote. Activity ids from before the replay no longer exist.
+"""
+type DeviceReplay {
+  from: String
+  pings: Int!
+  activities: Int!
 }
 
 """
@@ -222,8 +356,8 @@ input PingInput {
   idleSeconds: Int!
 }
 
-# Active seconds per category per day (server zone). A null category is
-# uncategorized time.
+# Active seconds per category per day, days in the caller's zone
+# (`me.effectiveTimeZone`). A null category is uncategorized time.
 type CategoryDaySummary {
   day: String!
   categoryId: String
@@ -245,6 +379,91 @@ type AppContextSummary {
   categoryName: String
   categoryColor: String
   seconds: Float!
+}
+
+"What `accountExport` writes."
+enum ExportFormat {
+  """
+  Everything the account holds, as JSON Lines (`.jsonl`): a
+  `{"format":"eunomia-export","version":1}` header, then one record per line
+  tagged with `type` — profile, device, category, categoryRule, contextRule,
+  mergeRule, summary, activity, focusSegment, ping — and a closing `end` record
+  with the counts. Never includes API keys, sessions or other credentials.
+  Always the whole account: takes no date range.
+  """
+  BUNDLE
+  """
+  The raw ping log as an ActivityWatch export (aw-server's `/api/0/export`
+  JSON): an `aw-watcher-window_<device>` and an `aw-watcher-afk_<device>` bucket
+  per device, importable from ActivityWatch's Import page.
+  """
+  ACTIVITYWATCH
+  "Daily totals as CSV: `day,device,category,app,context,seconds`."
+  SUMMARIES_CSV
+}
+
+"What `importChunk` reads."
+enum ImportSource {
+  """
+  An account bundle from `accountExport(format: BUNDLE)`, one JSON line per
+  record. Restores the time zone (unless the caller has one), categories and
+  rules (matched to existing ones), and each device as a new device without
+  keys; activities are rebuilt from the ping log, and summaries are kept only
+  for days the log doesn't reach. Read twice — see `ImportChunk.restart`.
+  """
+  BUNDLE
+  """
+  ActivityWatch history: the client sends a `{"format":"activitywatch","afk":…}`
+  header, then the events of the window, AFK and web buckets it read from
+  aw-server's export as `{"type","timestamp","duration","data"}` records, sorted
+  by timestamp across buckets. Folded as pings into the target device.
+  """
+  ACTIVITYWATCH
+  """
+  A RescueTime Analytic Data export as CSV records, header first (Date, Time
+  Spent, Activity and optionally Document columns). Added to the target device
+  as daily totals — the file has no order within its intervals to rebuild
+  activities from.
+  """
+  RESCUETIME
+}
+
+"Where a single-device import writes: an existing device, or a new one."
+input ImportTarget {
+  "One of the caller's devices."
+  deviceId: String
+  "Or a device to create with this name…"
+  newDeviceName: String
+  "…on this platform: windows, macos, linux or android."
+  platform: String
+}
+
+"What one `importChunk` call did."
+type ImportChunk {
+  "Pass as `cursor` with the next records; null once the import is complete."
+  next: String
+  "Records applied (or already present)."
+  accepted: Int!
+  "Records passed over; `warnings` says why."
+  skipped: Int!
+  "Pings folded by this call."
+  pings: Int!
+  "Send the file again from its first record, with `next` as the cursor."
+  restart: Boolean!
+  "The devices the import has written into."
+  deviceIds: [String!]!
+  "Why records were skipped, one line per reason."
+  warnings: [String!]!
+}
+
+"One piece of an export file."
+type ExportChunk {
+  "The next part of the file, to append to the parts before it."
+  data: String!
+  "Rows read for this chunk — for a progress count, not a count of lines."
+  rows: Int!
+  "Pass as `cursor` to get the next chunk; null when the file is complete."
+  next: String
 }
 
 # Active seconds per device over a range: the "split by device" view, and the

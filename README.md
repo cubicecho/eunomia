@@ -25,7 +25,7 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 - `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in,
   per-category/per-day/per-app views, rules, entry merges, devices, API keys. Talks to the
   server through the generated GraphQL SDK in `packages/gql`.
-- `packages/agent` — agent core shared by every target: crash-safe outbox,
+- `packages/agent` — agent core shared by every target: append-only ping log,
   batch uploader, the usage-event → ping synthesizer, the config parser, and
   the shared provisioning flow.
 - `packages/gql` — nothing but graphql-codegen's output, regenerated from
@@ -74,7 +74,7 @@ for a field the server dropped fails the build rather than the request.
 
 The server also answers the [Model Context Protocol](https://modelcontextprotocol.io/)
 on **`/mcp`**, beside `/graphql` on the same port. Every read in the schema
-becomes a tool — `activities`, `categories`, `devices`, the three summaries —
+becomes a tool — `activities`, `focusSegments`, `categories`, `devices`, the three summaries —
 described from the SDL, so an agent can discover the API and ask what you spent
 last week on. It is [`@cubicecho/graphql-mcp`](https://www.npmjs.com/package/@cubicecho/graphql-mcp)
 pointed at the same schema object `/graphql` serves, which is what makes the two
@@ -83,7 +83,9 @@ surfaces provably the same API rather than two that are meant to agree.
 **Reads only.** Mutations would become tools just as happily, but this schema's
 mutations are the login flow, device registration and ingestion — an agent that
 could call them would be minting credentials, not reading data. Drop
-`includeMutations: false` in `apps/server/src/mcp.ts` if you want them.
+`includeMutations: false` in `apps/server/src/mcp.ts` if you want them. One
+read is left out too: `accountExport`, a file download that would only flood an
+agent's context (and is session-only anyway).
 
 **It authenticates exactly like `/graphql`**, through the same function: an
 API key in `x-api-key`, or a session in `Authorization: Bearer`. An anonymous
@@ -168,35 +170,62 @@ default**. Per device:
   one you get whether the app is open or not.
 
 The floor everywhere is 10 seconds; nothing is lost at any interval — pings
-queue in the outbox until the next sync. The queue holds 50,000 pings (about a
-week of continuous use) before the oldest start falling off, so an outage has
-to be long indeed to cost anything.
+wait in the agent's ping log until the next sync.
+
+### Ping log
+
+Every ping an agent captures is appended to a daily JSONL file in its data
+directory (`pings/YYYY-MM-DD.jsonl`, UTC days, about 1 MB a day of continuous
+use), and uploading only moves a cursor (`pings/cursor.json`) — nothing is
+deleted when the server takes it. The log is a local record of what the agent
+captured, and an outage costs nothing unless it outlasts the retention window.
+
+Day files older than **30 days** are deleted, uploaded or not. Change it with
+`logRetentionDays` in the agent `config.json` (minimum 1). A build that still
+has an `outbox.jsonl` from before the log existed moves its queued pings into
+the log on first start.
 
 ### Privacy controls
 
 Sanitization is client-side and runs before a ping is queued, so filtered
-data never touches disk or the server. Two optional lists in the agent
-`config.json` (desktop userData dir; Android document dir), each holding
+data never touches disk or the server. All of it lives in the agent
+`config.json` (desktop userData dir; Android document dir). The lists hold
 case-insensitive regexes matched against the app identifier (executable name
 on desktop, package name on Android):
 
 ```json
 {
+  "captureLevel": "context",
   "ignoreApps": ["^keepassxc", "signal"],
   "redactApps": ["^firefox"]
 }
 ```
 
+- **`captureLevel`** — how much of every ping this device keeps:
+  - `"title"` (the default) — app, context and window title.
+  - `"context"` — app and context; the window title is stripped.
+  - `"app"` — app only; title and context are stripped.
+
+  "Context" here means what the agent reads itself, which today is the
+  browser site's hostname on Windows and macOS. Contexts your server's context
+  rules extract from window titles need the title, so they are lost at
+  `"context"`: the title never leaves the device for the server to match.
+  Category rules that match on titles stop matching for the same reason. The
+  level applies to pings recorded after the change; what is already in the
+  ping log keeps its detail.
 - **`ignoreApps`** — matching pings are dropped entirely; the time appears
   nowhere.
 - **`redactApps`** — the time still accrues to the app, but its window title
-  and context (browser site) are stripped before anything leaves the device.
+  and context (browser site) are stripped before anything leaves the device,
+  whatever the capture level.
 
 Invalid regexes are skipped with a console warning rather than blocking
-tracking. Independently of these lists, browser tracking only ever reports
-the site's hostname — full URLs never leave the machine. On Android there is
-no shell to edit `config.json` from, so the app edits both lists itself:
-**Privacy…** on the status screen, one pattern per line.
+tracking, and an unrecognized `captureLevel` means the default. Independently
+of these settings, browser tracking only ever reports the site's hostname —
+full URLs never leave the machine. On Android there is no shell to edit
+`config.json` from, so the app edits all three itself: **Privacy…** on the
+status screen (also on desktop). Desktop applies a change on save; Android on
+its next sync.
 
 Android adds a third control on the same screen, **Only apps you can open**
 (`launchableAppsOnly`, on unless set to `false`). The OS usage log records
@@ -209,6 +238,16 @@ you left is not credited with the launcher's time; as with `ignoreApps`, the
 gap a dropped span leaves accrues to whatever comes back, capped at 30
 seconds.
 
+**Pause recording** takes a stretch of time off the record: 30 minutes, an
+hour, or until resumed, from the desktop tray menu or the status screen on
+either agent. While paused the desktop sampler doesn't look at the foreground
+window at all, and Android drops every ping it synthesizes for the paused
+stretch before sanitizing, labelling or queueing it. The tray and the status
+screen say **Paused** until it ends. A pause is local to the device — it is
+kept in `pause.json` (desktop userData) or `pauses.json` (Android documents),
+survives a restart, and the server never learns about it; it sees a gap, and
+the app focused before the gap accrues at most 30 seconds, as above.
+
 ### Packaging the desktop agent
 
 ```bash
@@ -219,7 +258,7 @@ npm run dist:win -w @eunomia/app     # release/eunomia-agent Setup *.exe
 Both export the agent UI (`expo export --platform web`), bundle the main
 process with esbuild, and cross-build from Linux (`dist:win` downloads the
 win32 `x-win` prebuild, which it skips when Windows is already the host). The Windows build is a one-click per-user NSIS installer — no
-admin prompt, and uninstalling keeps the outbox/config in AppData. It is
+admin prompt, and uninstalling keeps the ping log/config in AppData. It is
 unsigned, so SmartScreen will warn on first run ("More info" → "Run
 anyway"). Packaged agents **launch at login** once provisioned — an XDG
 autostart entry on Linux, a login item on Windows/macOS. It is on by default,
@@ -384,6 +423,131 @@ which.
 The **Merge entries** tab drives all of this — every recorded entry with its
 total, and a merge on each.
 
+### Exporting your data
+
+The dashboard's **Settings** tab downloads your account as files, in three
+formats:
+
+- **Everything** — `eunomia-export-<date>.jsonl.gz`: gzipped JSON Lines, a
+  `{"format":"eunomia-export","version":1,…}` header, then one record per line
+  tagged with `type`: `profile` (with the zone your days split in), `device`,
+  `category`, `categoryRule`, `contextRule`, `mergeRule`, `summary`,
+  `activity`, `focusSegment`, `ping`, in that order, and a closing
+  `{"type":"end","counts":{…}}` (missing means the file was cut short). It
+  never contains API keys, sessions or any other credential — the export
+  doesn't read those tables at all. Always the whole account.
+- **ActivityWatch buckets** — the raw ping log in a date range, as
+  aw-server's export JSON: an `aw-watcher-window_<device>` and an
+  `aw-watcher-afk_<device>` bucket per device, for ActivityWatch's
+  **Import** page. Events use the same 30-second gap and 2-minute idle rules
+  the server folds time with. ActivityWatch refuses to import a bucket whose
+  id it already has, so a device named like the ActivityWatch host's own
+  hostname won't import alongside that host's buckets.
+- **Daily totals (CSV)** — `day,device,category,app,context,seconds` for a
+  date range, days in your zone, uncategorized time with an empty category.
+
+The same files come from GraphQL, one chunk per call — call
+`accountExport(format:, from:, to:)`, append `data`, and call again with
+`cursor: next` until `next` is null:
+
+```graphql
+query { accountExport(format: SUMMARIES_CSV, from: "2026-08-01", to: "2026-09-01") { data rows next } }
+```
+
+It is session-only: an API key can't export, so a leaked one can't walk off
+with every window title you've ever had (and so it isn't an
+[MCP](#mcp-for-ai-agents) tool either). The chunks are not a snapshot — rows
+written while an export runs may or may not be in it. For a server-level
+backup see [Backing up](#backing-up-and-starting-over).
+
+### Importing history
+
+The **Import** card under **Settings** reads a file in the browser and sends
+it on in chunks. Everything lands in the signed-in account. It accepts three
+kinds of file:
+
+- **Eunomia export (everything)** restores a bundle from the section above:
+  - Your time zone is restored only if you haven't chosen one.
+  - Categories are matched to yours by name. A rule identical to one you have
+    is skipped, and so is a merge for an entry you already merge.
+  - Every device comes back as a **new** device with no key. Pair an agent
+    with one, or merge it into the device you use now.
+  - The ping log goes through the same ingestion as an agent upload, so
+    activities and focus segments are rebuilt by your rules, not copied.
+  - Daily totals are restored only for days before a device's log begins,
+    such as pruned days, so no day is counted twice.
+  - Restoring the same bundle twice duplicates its devices.
+- **ActivityWatch** reads aw-server's export JSON:
+  - Pick one machine. Its window, AFK and aw-watcher-web buckets become pings
+    on a device you pick or a new one.
+  - An aw-watcher-web page's hostname becomes the context.
+  - Time the AFK watcher marked afk isn't counted.
+  - The result folds like live data, to within the 30-second gap and 2-minute
+    idle rules. ActivityWatch buckets exported from here import back to the
+    same totals.
+  - When the import lands before a device's existing history, that device is
+    replayed.
+  - Pings from before a device's pruned history are left out, with a warning.
+    Import into a new device to keep them.
+- **RescueTime** reads its activity report, as CSV or API JSON:
+  - RescueTime only has totals per app per period, not moments, so the report
+    becomes **daily totals** on the chosen device. Those days have no timeline,
+    focus or sessions.
+  - Your own category rules apply, not RescueTime's categories.
+  - The same file imported twice counts twice.
+  - A later time zone change or `applyCategoryRules` doesn't reach those
+    totals.
+
+Over GraphQL it is `importChunk(source:, records:, cursor:, target:, done:)`,
+called once per chunk:
+
+- Each record is one line of the file, or one event, for ActivityWatch.
+- Pass the returned `next` back as `cursor`, and `done: true` on the last
+  chunk.
+- `restart: true` means a bundle wants its file sent again from the top.
+
+See `apps/web/src/lib/import.ts` for the client loop. Each call is at most
+5,000 records and 8 MiB, and is its own transaction. Like export, import
+accepts only a signed-in session, never an API key.
+
+### Deleting your data
+
+**Settings → Data & privacy** in the dashboard. Every delete asks for
+confirmation, none can be undone, and the server accepts them from a signed-in
+session only — never an API key, so a leaked key can't destroy history.
+Export first if you might want anything back.
+
+- **Retention** (`setRetention(days:)`) keeps raw pings and activities for
+  fewer days than the server's `ACTIVITY_RETENTION_DAYS`, never more; `null`
+  follows the server. It applies at the next prune, within 15 minutes. There
+  is no retention for daily totals: they are the only record of days past raw
+  retention and of imported totals, and a total kept for less time than the
+  raw history it's rebuilt from would just be rebuilt. Delete a range instead.
+- **Delete a time range** (`deleteRange(from:, to:, deviceId:)`, ISO instants,
+  one device or all of them) deletes the raw pings, then rebuilds activities,
+  focus segments and totals from what's left, so wherever the ping log covers
+  the range the result is exactly as if it had never been recorded. Where it
+  doesn't — days past raw retention, or imported as totals — there is nothing
+  to split a day by, so a day's totals are deleted only if the range covers
+  the whole day (in your time zone). Days only partly covered are left as they
+  are and reported back in `partialDays`; the dashboard lists them. At the
+  edges the neighbouring activity may keep up to 30 seconds, the usual gap
+  credit.
+- **Delete an app** (`purgeApp(app:, context:)`) removes an app — or one
+  context of it — from every device and every day, by the name the dashboard
+  shows (after context and merge rules), daily totals included. It doesn't
+  stop the app being recorded: use `ignoreApps` or pause the agent.
+- **Delete account** (`deleteAccount(email:)`, the account's email retyped)
+  revokes every API key and deletes the user and everything they own, pending
+  sign-in links included. Running agents are refused on their next upload.
+
+Deleted stays deleted: a range or app deletion leaves a marker, and pings from
+it that arrive later — an agent's queue flushed after the deletion, or an
+ActivityWatch or bundle import — are dropped on arrival. Markers are pruned
+with the raw history they guard. Imports of daily totals (RescueTime, a
+bundle's totals) don't go through pings, so they aren't blocked: importing a
+file that contains deleted days brings their totals back.
+
 ## Self-hosting
 
 ```bash
@@ -436,18 +600,43 @@ of them an `http://` server hands out that device's API key in the clear.
 response and skips the secret check. It exists so a LAN install works without
 an inbox; anyone who can reach the port can then log in as anyone.
 
-Set `TZ` (IANA name, e.g. `America/Chicago`) so dashboard days split at your
-midnight instead of UTC's. Decide before real data accrues: rolled-up
-summaries keep the day they were bucketed into and won't re-bucket if the
-zone changes later.
+Each user's days split at the midnight of their own time zone, chosen in the
+dashboard's **Settings** tab (or with the `setTimeZone` mutation). `TZ` (IANA
+name, e.g. `America/Chicago`) is the default for users who haven't chosen one;
+unset, that is UTC. Changing a user's zone moves every rolled-up activity still
+on file onto the new zone's days. Summaries older than the retained activities
+(`ACTIVITY_RETENTION_DAYS`, below) can't be moved — nothing records which
+instants they came from — so they keep the day they were bucketed into.
+Changing `TZ` itself moves nothing, so set it before real data accrues if
+users will rely on the default.
 
 Every 15 minutes the server folds closed activities into precomputed
 per-day/app/category **summaries**, then deletes raw activity rows older
-than `ACTIVITY_RETENTION_DAYS` (default 90, `0` to keep them forever).
+than `ACTIVITY_RETENTION_DAYS` (default 90, `0` to keep them forever), or
+the user's own shorter [retention](#deleting-your-data).
 Summaries are never pruned, so the charts keep full history — what ages out
 is per-activity detail: window titles, and the ability to re-categorize an
 individual old activity. Rows that haven't been rolled up yet are never
 deleted at any age.
+
+Every accepted ping is also kept raw, in the `pings` table, pruned on the
+same `ACTIVITY_RETENTION_DAYS`. Activities and summaries are derived from it:
+when an agent uploads pings older than ones already counted (a late flush of
+its queue), the server rebuilds that device's history from the log within a
+minute, and `replayDevice` rebuilds it on demand under the current rules.
+Budget roughly 250 bytes per ping with its index — at one ping every 10
+seconds, about 700 KB a day for a device used eight hours a day, so around
+65 MB per device at the default 90-day retention.
+
+The server also records **focus segments**: the stretches of time credited to
+one activity without a break, in the order they happened — the timeline that
+overlapping activities can't give. They are written by the same fold (and
+rebuilt by the same replay) as activities, so a segment's span agrees with the
+activity's `activeSeconds`: it breaks where a gap stops being credited, and is
+cut back to the moment input stopped when the user goes idle. Read them with
+`focusSegments`, narrowed by `deviceId` and `startedAt`; they come back oldest
+first and carry their `activity` (app, context, category). They are deleted
+with their activity, so the same retention applies.
 
 `GET /healthz` answers `{"ok":true,"version":"…"}` after a `select 1` against
 Postgres, and `503` (with the error) when that fails — so it reports the
@@ -457,7 +646,9 @@ the `app` service's healthcheck; point any external monitor at it too.
 ### Backing up and starting over
 
 All state lives in the `pgdata` volume — the database is the only thing worth
-backing up (agents keep their own outbox and config locally).
+backing up (agents keep their own ping log and config locally). A dump is every
+account at once, restorable only into this server; to take one user's data
+elsewhere, [export it](#exporting-your-data) instead.
 
 ```bash
 # back up: a single compressed SQL dump

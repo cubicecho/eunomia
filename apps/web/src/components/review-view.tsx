@@ -27,6 +27,7 @@ import { type Run, useAction, useQuery } from '@/hooks/use-query';
 import { type DateRange, formatSeconds, rangeOfLastDays } from '@/lib/format';
 import { escapeRegex } from '@/lib/pattern';
 import { type QueueEntry, sumSeconds, uncategorizedEntries } from '@/lib/summary';
+import { useTimeZone } from '@/session';
 
 // The review queue: what the recorder saw that nothing has labelled yet, biggest
 // first, with the two ways to label it one click away. Assigning settles this
@@ -53,7 +54,8 @@ const draftFor = (entry: QueueEntry): RulePatterns => ({
 });
 
 export function ReviewView() {
-  const [range, setRange] = useState<DateRange>(() => rangeOfLastDays(30));
+  const timeZone = useTimeZone();
+  const [range, setRange] = useState<DateRange>(() => rangeOfLastDays(30, timeZone));
   const { data, error, loading, reload } = useQuery(
     () =>
       Promise.all([
@@ -71,7 +73,7 @@ export function ReviewView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <RangePicker range={range} onChange={setRange} />
+      <RangePicker range={range} timeZone={timeZone} onChange={setRange} />
       {error ? (
         <p className="text-destructive text-sm">{error}</p>
       ) : !data ? null : (

@@ -70,6 +70,7 @@ export const permissions = {
     '*': deny,
     devices: authenticated,
     activities: authenticated,
+    focusSegments: authenticated,
     categories: authenticated,
     categoryRules: authenticated,
     contextRules: authenticated,
@@ -80,7 +81,11 @@ export const permissions = {
     // Listing is session-only for the same reason issuing is: a leaked key
     // should not be able to enumerate its siblings.
     apiKeys: sessionAuthenticated,
-    // Public by design: returns the caller's id or null.
+    // Session-only: it hands over every window title ever recorded, a chunk
+    // at a time, in a loop. A key is issued to one app to do one job; one that
+    // leaked should not be able to walk out with the whole history.
+    accountExport: sessionAuthenticated,
+    // Public by design: returns the caller or null.
     me: accept,
   },
   Mutation: {
@@ -94,10 +99,27 @@ export const permissions = {
     signOut: accept,
     // Desktop dashboard hand-off: only a device key may trade itself for a session.
     sessionFromDeviceKey: deviceAuthenticated,
+    // Session-only: it rewrites which day past time falls on and holds every
+    // one of the user's device locks while it does — a preference a human
+    // sets at the dashboard, not something a key should be able to flip.
+    setTimeZone: sessionAuthenticated,
+    // Session-only, and so is every deletion below: they destroy history for
+    // good. A key is issued to record or to read; one that leaked must not be
+    // able to shorten retention, wipe a range, or delete the account — worse
+    // than someone else reading the history is its owner losing it. The
+    // dashboard makes the person confirm each one as well.
+    setRetention: sessionAuthenticated,
+    deleteRange: sessionAuthenticated,
+    purgeApp: sessionAuthenticated,
+    deleteAccount: sessionAuthenticated,
     registerDevice: authenticated,
     renameDevice: authenticated,
     rotateDeviceKey: authenticated,
     mergeDevice: authenticated,
+    // Session-only: a rebuild rewrites a device's whole derived history and
+    // holds its fold lock while it does. Something a human asks for, not
+    // something a leaked key should be able to loop.
+    replayDevice: sessionAuthenticated,
     deleteDevice: authenticated,
     // Credentials are issued and withdrawn by a human at the dashboard, never
     // by something already holding a credential.
@@ -121,5 +143,9 @@ export const permissions = {
     createMergeRule: authenticated,
     deleteMergeRule: authenticated,
     applyMergeRules: authenticated,
+    // Session-only: it writes months of history, creates devices and rules,
+    // and can re-bucket the account's days — something a person starts from
+    // the dashboard with a file in hand, not something a key should loop.
+    importChunk: sessionAuthenticated,
   },
 } satisfies SchemaPermissions;

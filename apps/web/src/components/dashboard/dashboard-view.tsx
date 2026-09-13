@@ -10,9 +10,11 @@ import { TopApps } from '@/components/dashboard/top-apps';
 import { useQuery } from '@/hooks/use-query';
 import { rangeOfLastDays } from '@/lib/format';
 import { categoryTotals, dayRows, sumSeconds, topApps } from '@/lib/summary';
+import { useTimeZone } from '@/session';
 
 export function DashboardView() {
-  const [range, setRange] = useState(() => rangeOfLastDays(7));
+  const timeZone = useTimeZone();
+  const [range, setRange] = useState(() => rangeOfLastDays(7, timeZone));
   /** null = every device folded together, which is the default view. */
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const { data, error, loading } = useQuery(
@@ -37,7 +39,7 @@ export function DashboardView() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <RangePicker range={range} onChange={setRange} />
+        <RangePicker range={range} timeZone={timeZone} onChange={setRange} />
         {/* Its own failure is not worth an error line — the charts below still
             answer the question, just without the device split. */}
         <DevicePicker devices={devices.data ?? []} selected={deviceId} onChange={setDeviceId} />

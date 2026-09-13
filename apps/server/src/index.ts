@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { startReplayTimer } from './activity/replay.ts';
 import { startRollupTimer } from './activity/rollup.ts';
 import { createApp, createContextFactory } from './app.ts';
 import { createAuth, createAuthGateway } from './auth.ts';
@@ -50,6 +51,8 @@ if (registration.allowedEmails.length === 0 && !registration.disableSignUp) {
 
 // Fold closed activities into the summaries table (once now, then periodic).
 startRollupTimer(db);
+// Rebuild devices whose uploads brought pings older than ones already folded.
+startReplayTimer(db);
 
 const gateway = createAuthGateway(auth, db, {
   exposeMagicLinkToken: unsafeLocalNetwork,

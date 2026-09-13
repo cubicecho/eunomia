@@ -67,6 +67,13 @@ export interface SamplerDeps {
    * from the setup window while the loop is running.
    */
   sanitize(): PingSanitizer;
+  /**
+   * Whether the user has taken this moment off the record (pause.ts). Asked
+   * per tick, before the OS is read: a paused tick doesn't look at the
+   * foreground at all, so there is nothing to leak into a log line or a
+   * failure message either.
+   */
+  paused?(at: number): boolean;
   /** Injectable clock, for tests. */
   now?(): number;
 }
@@ -139,6 +146,14 @@ export function createSampler(deps: SamplerDeps): Sampler {
       lastTickAt = at;
       period.ticks++;
 
+      if (deps.paused?.(at)) {
+        // Forget what was last emitted, so the first tick after the pause
+        // pings at once: the server needs that ping to close the gap, or the
+        // app focused before the pause would sit open until its TTL.
+        last = { app: null, title: null, at: 0 };
+        return;
+      }
+
       try {
         const sample = deps.read();
         lastSampleAt = at;
@@ -152,7 +167,7 @@ export function createSampler(deps: SamplerDeps): Sampler {
         if (!changed && at - last.at < PING_INTERVAL_MS) return;
 
         // Sanitized before it exists anywhere: ignored and redacted data never
-        // reaches the outbox file, let alone the server.
+        // reaches the ping log, let alone the server.
         const ping: Ping | null = deps.sanitize()({
           capturedAt: new Date(at).toISOString(),
           app: sample.app,

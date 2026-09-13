@@ -43,6 +43,19 @@ export interface HostCapabilities {
    * — a sandboxed one, since it shows remote content.
    */
   externalDashboard: boolean;
+  /**
+   * Recording can be paused "off the record" for a while. Every shell that
+   * records can; it's a capability so the browser host, which records
+   * nothing, has no button that pretends otherwise.
+   */
+  pause: boolean;
+}
+
+/** Whether recording is paused right now, read back from the shell. */
+export interface PauseState {
+  paused: boolean;
+  /** Epoch ms the pause ends on its own, or null: until resumed (or not paused). */
+  until: number | null;
 }
 
 /** What one sync pass did. Mirrors the Android agent's SyncResult. */
@@ -95,8 +108,8 @@ export interface HostInfo {
   platform: string;
   /** Default device name offered at setup. */
   defaultDeviceName: string;
-  /** Where the queued pings live, shown the way the tray shows it. */
-  outboxPath: string;
+  /** The ping log's directory, shown the way the tray shows it. */
+  pingLogPath: string;
   logPath: string;
   /**
    * Env vars are supplying the server connection, so a config.json written
@@ -138,4 +151,8 @@ export interface AgentHost extends HostInfo {
   setAutostart?(enabled: boolean): Promise<void>;
   revealLog?(): Promise<void>;
   openDashboard?(): Promise<void>;
+  pauseState?(): Promise<PauseState>;
+  /** Pauses for `ms` from now, or until resumed when null. */
+  pause?(ms: number | null): Promise<PauseState>;
+  resume?(): Promise<PauseState>;
 }

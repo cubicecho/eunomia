@@ -21,20 +21,92 @@ export function ago(elapsedMs: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-/** 'YYYY-MM-DD' in the browser's zone (toISOString would shift the day). */
-export function localDay(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+/** The zone this browser runs in — what the Settings tab offers a user. */
+export const browserTimeZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/**
+ * 'YYYY-MM-DD' of an instant in `timeZone` — the calendar day the server puts
+ * it on for a user in that zone. Not the browser's: someone looking at their
+ * data from another continent still sees their own days.
+ */
+export function dayIn(instant: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
-/** 'YYYY-MM-DD' → 'Mon 25', for axis ticks. Parsed as a local date, not UTC. */
+/** The wall clock in `timeZone` at an instant, as its numeric parts. */
+function wallClock(instant: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '00';
+  return {
+    year: part('year'),
+    month: part('month'),
+    day: part('day'),
+    hour: part('hour'),
+    minute: part('minute'),
+  };
+}
+
+/**
+ * 'YYYY-MM-DDTHH:MM' of an instant in `timeZone` — what a datetime-local input
+ * shows, in the user's zone rather than the browser's.
+ */
+export function localIn(instant: Date, timeZone: string): string {
+  const wall = wallClock(instant, timeZone);
+  return `${wall.year}-${wall.month}-${wall.day}T${wall.hour}:${wall.minute}`;
+}
+
+/**
+ * The instant a wall-clock time ('YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM') names in
+ * `timeZone` — the inverse of localIn, for a deletion that has to say exactly
+ * where it starts. Intl only converts the other way, so it guesses with the
+ * zone's offset and corrects once: across a DST change the offset at the
+ * answer is not the offset at the guess. A time the change skipped (02:30 on
+ * a spring-forward night) lands on the far side of the gap.
+ */
+export function instantIn(local: string, timeZone: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(local);
+  if (!match) return new Date(Number.NaN);
+  const [year, month, day, hour = 0, minute = 0] = match.slice(1).map((part) => Number(part ?? 0));
+  const wall = Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1, hour, minute);
+  const offsetAt = (at: number): number => {
+    const clock = wallClock(new Date(at), timeZone);
+    const asUtc = Date.UTC(+clock.year, +clock.month - 1, +clock.day, +clock.hour, +clock.minute);
+    return asUtc - Math.floor(at / 60_000) * 60_000;
+  };
+  const guess = wall - offsetAt(wall);
+  return new Date(wall - offsetAt(guess));
+}
+
+/**
+ * 'YYYY-MM-DD' as a Date at UTC midnight. Everything below is arithmetic on
+ * calendar dates, not instants, and UTC is the one zone with no DST shift to
+ * land a midnight on the wrong side of.
+ */
+const utcDate = (day: string): Date =>
+  /^\d{4}-\d{2}-\d{2}$/.test(day) ? new Date(`${day}T00:00:00Z`) : new Date(Number.NaN);
+
+/** 'YYYY-MM-DD' → 'Mon 25', for axis ticks. The date as written, in no zone. */
 export function shortDay(day: string): string {
-  const [y, m, d] = day.split('-').map(Number);
-  if (!y || !m || !d) return day;
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-  });
+  const date = utcDate(day);
+  if (Number.isNaN(date.getTime())) return day;
+  return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 export interface DateRange {
@@ -43,16 +115,14 @@ export interface DateRange {
 }
 
 /**
- * Ranges are half-open [from, to) whole days. Local calendar days, not UTC
- * ones — the server reads these as whole days in ITS zone, so asking for UTC's
- * "today" cut the evening off for anyone west of Greenwich.
+ * Ranges are half-open [from, to) whole days in the user's time zone (`me`'s
+ * effectiveTimeZone). The server reads the dates as days there, so "today" has
+ * to be today there — asking for the browser's or UTC's cut the evening off
+ * for anyone whose zone was behind it.
  */
-export function rangeOfLastDays(days: number): DateRange {
-  const to = new Date();
-  to.setHours(24, 0, 0, 0); // next local midnight — exclusive, so today counts
-  const from = new Date(to);
-  from.setDate(from.getDate() - days);
-  return { from: localDay(from), to: localDay(to) };
+export function rangeOfLastDays(days: number, timeZone: string): DateRange {
+  const to = addDays(dayIn(new Date(), timeZone), 1); // exclusive, so today counts
+  return { from: addDays(to, -days), to };
 }
 
 /**
@@ -63,24 +133,22 @@ export function rangeOfLastDays(days: number): DateRange {
  * floor is a date no agent's history predates rather than an unbounded query —
  * the server's aggregates take whole days, and there is no "all" to ask for.
  */
-export function rangeOfEverything(): DateRange {
-  const to = new Date();
-  to.setHours(24, 0, 0, 0);
-  return { from: '2000-01-01', to: localDay(to) };
+export function rangeOfEverything(timeZone: string): DateRange {
+  return { from: '2000-01-01', to: addDays(dayIn(new Date(), timeZone), 1) };
 }
 
-/** 'YYYY-MM-DD' shifted by whole local days. */
+/** 'YYYY-MM-DD' shifted by whole calendar days. */
 export function addDays(day: string, delta: number): string {
-  const date = new Date(`${day}T00:00:00`);
+  const date = utcDate(day);
   if (Number.isNaN(date.getTime())) return day;
-  date.setDate(date.getDate() + delta);
-  return localDay(date);
+  date.setUTCDate(date.getUTCDate() + delta);
+  return date.toISOString().slice(0, 10);
 }
 
 /** Whole days covered by a [from, to) range; at least 1. */
 export function daysInRange(range: DateRange): number {
-  const from = new Date(`${range.from}T00:00:00`).getTime();
-  const to = new Date(`${range.to}T00:00:00`).getTime();
+  const from = utcDate(range.from).getTime();
+  const to = utcDate(range.to).getTime();
   if (Number.isNaN(from) || Number.isNaN(to)) return 1;
   return Math.max(1, Math.round((to - from) / 86_400_000));
 }

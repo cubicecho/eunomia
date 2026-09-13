@@ -18,6 +18,94 @@ mutation SignOut {
   signOut
 }
 
+# Who is signed in, and the zone their days split in — every date the
+# dashboard sends is a calendar day in effectiveTimeZone.
+query Me {
+  me {
+    id
+    email
+    timeZone
+    effectiveTimeZone
+    retentionDays
+    effectiveRetentionDays
+  }
+}
+
+mutation SetTimeZone($timeZone: String) {
+  setTimeZone(timeZone: $timeZone) {
+    id
+    email
+    timeZone
+    effectiveTimeZone
+    retentionDays
+    effectiveRetentionDays
+  }
+}
+
+# Data & privacy (settings-view). All four are session-only on the server and
+# confirmed in a dialog here: none of them can be undone.
+mutation SetRetention($days: Int) {
+  setRetention(days: $days) {
+    id
+    email
+    timeZone
+    effectiveTimeZone
+    retentionDays
+    effectiveRetentionDays
+  }
+}
+
+mutation DeleteRange($from: String!, $to: String!, $deviceId: String) {
+  deleteRange(from: $from, to: $to, deviceId: $deviceId) {
+    devices
+    pings
+    days
+    partialDays
+  }
+}
+
+mutation PurgeApp($app: String!, $context: String) {
+  purgeApp(app: $app, context: $context) {
+    pings
+    activities
+    summaries
+  }
+}
+
+mutation DeleteAccount($email: String!) {
+  deleteAccount(email: $email)
+}
+
+# One chunk of an export file; called in a loop until `next` is null (see
+# exportFile in api.ts).
+query AccountExport($format: ExportFormat!, $from: String, $to: String, $cursor: String) {
+  accountExport(format: $format, from: $from, to: $to, cursor: $cursor) {
+    data
+    rows
+    next
+  }
+}
+
+# One chunk of records of an import; called in a loop, passing `next` back as
+# `cursor`, until it is null (see lib/import.ts).
+mutation ImportChunk(
+  $source: ImportSource!
+  $records: [String!]!
+  $cursor: String
+  $target: ImportTarget
+  $done: Boolean
+) {
+  importChunk(source: $source, records: $records, cursor: $cursor, target: $target, done: $done) {
+    next
+    accepted
+    skipped
+    pings
+    restart
+    deviceIds
+    warnings
+  }
+}
+
 # deviceId is optional throughout: omitted, the aggregates fold every device
 # the user owns together, which is the default view.
 query CategorySummary($from: String!, $to: String!, $deviceId: String) {

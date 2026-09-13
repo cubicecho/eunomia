@@ -5,6 +5,7 @@
 // views branch on.
 
 import {
+  type AccountExportQueryVariables,
   type ApiKeysQuery,
   type AppSummaryQuery,
   type CategoriesQuery,
@@ -14,13 +15,19 @@ import {
   type CreateCategoryRuleMutationVariables,
   type CreateContextRuleMutationVariables,
   type CreateMergeRuleMutationVariables,
+  type DeleteRangeMutation,
   type DeviceSummaryQuery,
   type DevicesQuery,
   getSdk,
+  type ImportChunkMutation,
+  type ImportChunkMutationVariables,
+  type MeQuery,
   type MergeRulesQuery,
+  type PurgeAppMutation,
   type RecentActivitiesQuery,
   type Requester,
 } from '@eunomia/gql/web';
+import type { DateRange } from '@/lib/format';
 
 const TOKEN_KEY = 'eunomia.token';
 
@@ -87,6 +94,8 @@ export type Device = DevicesQuery['devices'][number];
 export type DeviceSummaryRow = DeviceSummaryQuery['deviceSummary'][number];
 /** An integration key as it can be listed — everything about it except the key. */
 export type ApiKey = ApiKeysQuery['apiKeys'][number];
+/** The signed-in user: who they are, and the zone their days split in. */
+export type Me = NonNullable<MeQuery['me']>;
 
 /** Everything a category rule is, minus its id — what the rule editor submits. */
 export type CategoryRuleInput = CreateCategoryRuleMutationVariables;
@@ -111,6 +120,86 @@ export const signOut = async (): Promise<void> => {
   await sdk.SignOut().catch(() => {});
   clearToken();
 };
+
+/** Null when the token no longer names a user — the server answers anonymously. */
+export const fetchMe = (): Promise<Me | null> => sdk.Me().then((d) => d.me ?? null);
+
+/**
+ * Sets the zone the user's days split in (null follows the server's). The
+ * server moves the rolled-up days it still has raw activity for, so any chart
+ * loaded before this resolves is stale.
+ */
+export const setTimeZone = (timeZone: string | null): Promise<Me> =>
+  sdk.SetTimeZone({ timeZone }).then((d) => d.setTimeZone);
+
+/**
+ * Days of raw history to keep, fewer than the server does; null follows the
+ * server's. The server prunes to it within the next quarter hour.
+ */
+export const setRetention = (days: number | null): Promise<Me> =>
+  sdk.SetRetention({ days }).then((d) => d.setRetention);
+
+export type RangeDeletion = DeleteRangeMutation['deleteRange'];
+export type AppPurge = PurgeAppMutation['purgeApp'];
+
+/** Deletes [from, to) on one device, or every device with a null deviceId. */
+export const deleteRange = (
+  from: Date,
+  to: Date,
+  deviceId: string | null,
+): Promise<RangeDeletion> =>
+  sdk
+    .DeleteRange({ from: from.toISOString(), to: to.toISOString(), deviceId })
+    .then((d) => d.deleteRange);
+
+/** Deletes an app, or one context of it (non-null `context`), from every device. */
+export const purgeApp = (app: string, context: string | null): Promise<AppPurge> =>
+  sdk.PurgeApp({ app, context }).then((d) => d.purgeApp);
+
+/**
+ * Deletes the account. On success the session is gone with it, so the token
+ * is dropped here rather than left for the next request to discover.
+ */
+export const deleteAccount = async (email: string): Promise<void> => {
+  await sdk.DeleteAccount({ email });
+  clearToken();
+};
+
+/** Which file `exportFile` writes: the whole-account bundle, ActivityWatch buckets, or daily CSV. */
+export type ExportFormat = AccountExportQueryVariables['format'];
+
+/**
+ * Yields an export file a chunk at a time, following the server's cursor until
+ * it says the file is done. A generator rather than one big string so the
+ * caller can write each piece out as it arrives and count progress.
+ *
+ * `range` only for the formats that take one (not BUNDLE).
+ */
+export async function* exportFile(
+  format: ExportFormat,
+  range: DateRange | null = null,
+): AsyncGenerator<{ data: string; rows: number }> {
+  let cursor: string | null = null;
+  do {
+    const { accountExport: chunk } = await sdk.AccountExport({
+      format,
+      from: range?.from,
+      to: range?.to,
+      cursor,
+    });
+    yield { data: chunk.data, rows: chunk.rows };
+    cursor = chunk.next ?? null;
+  } while (cursor !== null);
+}
+
+/** Where an import comes from, and what one call of it reported. */
+export type ImportSource = ImportChunkMutationVariables['source'];
+export type ImportTarget = NonNullable<ImportChunkMutationVariables['target']>;
+export type ImportChunk = ImportChunkMutation['importChunk'];
+
+/** Sends the next records of an import (see lib/import.ts, which drives the calls). */
+export const importChunk = (variables: ImportChunkMutationVariables): Promise<ImportChunk> =>
+  sdk.ImportChunk(variables).then((d) => d.importChunk);
 
 /** deviceId null = every device the user owns, folded together. */
 export const fetchSummary = (

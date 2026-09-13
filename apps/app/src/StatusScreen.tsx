@@ -7,6 +7,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, Button, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import type { AgentHost, BackgroundState, KeepAliveState, SyncSummary } from './host/index.ts';
+import { PauseCard } from './PauseCard.tsx';
 import { MenuItem, Row, Screen, ui } from './ui.tsx';
 import { UpdateRow } from './updates.tsx';
 
@@ -200,6 +201,8 @@ export function StatusScreen({
         </View>
       )}
 
+      {capabilities.pause ? <PauseCard host={host} /> : null}
+
       <Row label="Device">{config.deviceName ?? 'this device'}</Row>
       <Row label="Uploading to">{config.serverUrl}</Row>
       {config.serverUrl.startsWith('http://') ? (
@@ -327,7 +330,7 @@ export function StatusScreen({
       <MenuItem label="View log…" detail="What the agent has been saying" onPress={onOpenLog} />
 
       <Text style={[ui.hint, styles.path]} selectable>
-        Outbox: {host.outboxPath}
+        Ping log: {host.pingLogPath}
       </Text>
     </Screen>
   );
@@ -337,6 +340,9 @@ function privacyDetail(config: StoredConfig, host: AgentHost): string {
   const ignored = config.ignoreApps?.length ?? 0;
   const redacted = config.redactApps?.length ?? 0;
   const parts: string[] = [];
+  // Only mentioned when reduced: full detail is what every install starts with.
+  if (config.captureLevel === 'app') parts.push('app only');
+  if (config.captureLevel === 'context') parts.push('no window titles');
   if (ignored > 0 || redacted > 0) parts.push(`${ignored} ignored, ${redacted} redacted`);
   // Only mentioned when off: on is the default, and this is the line that
   // explains an entry nobody recognizes turning up in the dashboard.

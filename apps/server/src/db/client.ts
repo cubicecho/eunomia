@@ -10,11 +10,10 @@ export function createDb(
   return drizzle({
     connection: {
       connectionString,
-      // Day boundaries (summaries.day, categorySummary) come from the session
-      // time zone. node-postgres never forwards TZ itself, so without this
-      // every "day" splits at UTC midnight. Set TZ to the user's zone BEFORE
-      // real data accrues — rolled summaries store the day as text and won't
-      // re-bucket.
+      // The session time zone is the default day boundary: a user who hasn't
+      // chosen a zone of their own (user.timeZone, rollup.ts ownerZone) has
+      // their days split at its midnight. node-postgres never forwards TZ
+      // itself, so without this that default is UTC.
       ...(timeZone ? { options: `-c TimeZone=${timeZone}` } : {}),
     },
     relations: schema.relations,

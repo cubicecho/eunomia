@@ -123,6 +123,20 @@ describe('foldPing', () => {
     expect(resumed?.activeSeconds).toBe(ACCRUE_CAP_SECONDS);
   });
 
+  it('accrues nothing to the first ping after a silence that closed everything', async () => {
+    await ping(0, 'code');
+    await ping(10, 'code');
+    const resumed = await ping(10 + CLOSE_AFTER_SECONDS + 60, 'code');
+
+    // A fresh row with nothing accrued — the same as the device's very first
+    // ping, which is what lets replay restart the fold from here.
+    const rows = await allRows();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.closedAt).toEqual(at(10));
+    expect(resumed?.id).toBe(rows[1]!.id);
+    expect(resumed?.activeSeconds).toBe(0);
+  });
+
   it('auto-closes an activity unfocused past the close threshold', async () => {
     await ping(0, 'code');
     await ping(10, 'code');

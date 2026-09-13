@@ -295,6 +295,22 @@ describe('assignEntry', () => {
     expect((site.data as any).assignEntry).toBe(200);
   });
 
+  it('cuts the window at midnight in the user’s own time zone', async () => {
+    await db.update(user).set({ timeZone: 'Asia/Tokyo' }).where(eq(user.id, 'user-1'));
+    await db.insert(activities).values([
+      // Aug 10 00:30 in Tokyo, though still Aug 9 in UTC: inside.
+      activity('tokyo-morning', '2026-08-09T15:30:00Z', 100),
+      // Aug 12 00:30 in Tokyo, though still Aug 11 in UTC: outside.
+      activity('tokyo-next', '2026-08-11T15:30:00Z', 800),
+    ]);
+
+    const result = await assign();
+    expect(result.errors).toBeUndefined();
+    expect((result.data as any).assignEntry).toBe(100);
+    const [outside] = await db.select().from(activities).where(eq(activities.id, 'tokyo-next'));
+    expect(outside!.categoryId).toBeNull();
+  });
+
   it('moves rolled time whose raw activities have been pruned', async () => {
     const longAgo = new Date(Date.now() - 100 * 86_400_000).toISOString();
     await db.insert(activities).values([activity('old', longAgo, 600)]);

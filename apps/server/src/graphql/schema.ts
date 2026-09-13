@@ -17,11 +17,14 @@ import { categoryFields } from './category-fields.ts';
 import type { Context } from './context.ts';
 import { deviceFields } from './device-fields.ts';
 import { buildEntities, type Entities, type Fields } from './entities.ts';
+import { exportFields } from './export-fields.ts';
+import { importFields } from './import-fields.ts';
 import { mergeFields } from './merge-fields.ts';
 import { permissions, type Resolvers } from './permissions.ts';
 import { pingFields } from './ping-fields.ts';
 import { ruleFields } from './rule-fields.ts';
 import { summaryFields } from './summaries.ts';
+import { userFields, userQueryFields } from './user-fields.ts';
 
 /**
  * The hand-written half of the schema, as SDL.
@@ -47,6 +50,7 @@ function listQueries(entities: Entities) {
   return {
     devices: entities.queries.devices!,
     activities: entities.queries.activities!,
+    focusSegments: entities.queries.focusSegments!,
     categories: entities.queries.categories!,
     categoryRules: entities.queries.categoryRules!,
     contextRules: entities.queries.contextRules!,
@@ -104,7 +108,8 @@ export function createSchema(db: Db, auth: AuthGateway) {
     Query: {
       ...summaryFields(db),
       ...apiKeyQueryFields(db),
-      me: (_source, _args, ctx) => ctx.userId ?? null,
+      ...userQueryFields(db),
+      ...exportFields(db),
     },
     Mutation: {
       ...authFields(auth),
@@ -114,6 +119,8 @@ export function createSchema(db: Db, auth: AuthGateway) {
       ...ruleFields(db),
       ...mergeFields(db),
       ...pingFields(db),
+      ...userFields(db),
+      ...importFields(db),
     },
   });
   return applyPermissions<Resolvers>(schema, permissions);

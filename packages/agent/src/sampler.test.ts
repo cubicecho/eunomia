@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Outbox, type OutboxStore } from './outbox.ts';
+import { memoryLogStore } from './memory-store.ts';
+import { Outbox } from './outbox.ts';
 import { PING_INTERVAL_MS, type Ping } from './ping.ts';
 import { createSanitizer } from './privacy.ts';
 import {
@@ -9,19 +10,6 @@ import {
   type Sample,
   type SamplerStatus,
 } from './sampler.ts';
-
-function memoryStore(): OutboxStore {
-  let contents: string | null = null;
-  return {
-    read: () => contents,
-    append: (data) => {
-      contents = (contents ?? '') + data;
-    },
-    write: (data) => {
-      contents = data;
-    },
-  };
-}
 
 const sample = (over: Partial<Sample> = {}): Sample => ({
   app: 'firefox',
@@ -39,15 +27,20 @@ interface Harness {
   status(): SamplerStatus;
   /** Overwritten per test to change what the OS reports. */
   read: () => Sample;
+  /** Whether the user has paused recording. */
+  paused: boolean;
+  reads: number;
 }
 
 function harness(options: { ignoreApps?: string[]; context?: string | null } = {}): Harness {
-  const outbox = new Outbox(memoryStore());
+  const outbox = new Outbox(memoryLogStore());
   const sanitize = createSanitizer({ ignoreApps: options.ignoreApps });
   let clock = 1_700_000_000_000;
   const state: Harness = {
     outbox,
     read: () => sample(),
+    paused: false,
+    reads: 0,
     contextReads: 0,
     pings: () => outbox.peek(1000),
     run: () => {},
@@ -55,7 +48,11 @@ function harness(options: { ignoreApps?: string[]; context?: string | null } = {
   };
   const sampler = createSampler({
     outbox,
-    read: () => state.read(),
+    read: () => {
+      state.reads++;
+      return state.read();
+    },
+    paused: () => state.paused,
     readContext: () => {
       state.contextReads++;
       return options.context ?? null;
@@ -112,6 +109,27 @@ describe('sampler emission', () => {
   });
 });
 
+describe('sampler pause', () => {
+  it('reads and emits nothing while paused, and pings at once on resume', () => {
+    const h = harness();
+    h.run(1);
+    h.paused = true;
+    const readsBefore = h.reads;
+    h.run(PING_INTERVAL_MS / CHECK_INTERVAL_MS + 5);
+    // Off the record means the foreground is never even looked at — not only
+    // that its pings are dropped.
+    expect(h.reads).toBe(readsBefore);
+    expect(h.pings()).toHaveLength(1);
+
+    // Same app and title as before the pause, yet it pings right away: that
+    // ping is what closes the gap on the server.
+    h.paused = false;
+    h.run(1);
+    expect(h.pings()).toHaveLength(2);
+    expect(h.status().healthy).toBe(true);
+  });
+});
+
 describe('sampler health', () => {
   it('reports unhealthy once the OS stops answering, and recovers', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -161,7 +179,7 @@ describe('sampler health', () => {
 describe('sampler stalls', () => {
   it('reports a gap the timer swallowed', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const outbox = new Outbox(memoryStore());
+    const outbox = new Outbox(memoryLogStore());
     let clock = 0;
     const sampler = createSampler({
       outbox,
@@ -178,7 +196,7 @@ describe('sampler stalls', () => {
 
   it('summarizes each period, so the log can answer "was it tracking then?"', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const outbox = new Outbox(memoryStore());
+    const outbox = new Outbox(memoryLogStore());
     let clock = 0;
     const sampler = createSampler({
       outbox,

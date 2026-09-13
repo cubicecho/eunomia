@@ -1,5 +1,5 @@
 import type { StoredConfig } from '@eunomia/agent';
-import type { HostInfo, SyncSummary } from './types.ts';
+import type { HostInfo, PauseState, SyncSummary } from './types.ts';
 
 // The contract between the Electron main process and the renderer that shows
 // the agent UI. `electron/agent-preload.cjs` exposes exactly this on
@@ -18,6 +18,9 @@ export interface AgentBridge {
   revealLog(): Promise<void>;
   setAutostart(enabled: boolean): Promise<void>;
   openDashboard(): Promise<void>;
+  pauseState(): Promise<PauseState>;
+  pause(ms: number | null): Promise<PauseState>;
+  resume(): Promise<PauseState>;
 }
 
 /** Every method name, in one place: the preload iterates it. */
@@ -32,6 +35,9 @@ export const BRIDGE_METHODS = [
   'revealLog',
   'setAutostart',
   'openDashboard',
+  'pauseState',
+  'pause',
+  'resume',
 ] as const satisfies readonly (keyof AgentBridge)[];
 
 declare global {

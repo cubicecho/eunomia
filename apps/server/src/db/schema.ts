@@ -1,10 +1,12 @@
 import { buildRelations, createRelationsHelper } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
+  doublePrecision,
   index,
   integer,
   pgTable,
-  real,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -23,6 +25,17 @@ export const user = pgTable('user', {
   image: text('image'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  // Ours, not better-auth's (it neither reads nor writes it). The IANA zone
+  // this user's days split in — summaries.day and every dashboard range. Null
+  // follows the server's session zone (TZ), so an install that never sets one
+  // behaves as before. Only ever written through setUserTimeZone, which
+  // re-buckets the history it can.
+  timeZone: text('time_zone'),
+  // Ours too. How many days of raw pings and activities to keep for this
+  // user, when that is fewer than the server keeps (ACTIVITY_RETENTION_DAYS).
+  // Null follows the server. It can only shorten: the operator's setting is
+  // what the disk was sized for, and a user can't opt out of it.
+  retentionDays: integer('retention_days'),
 });
 
 export const session = pgTable('session', {
@@ -116,6 +129,16 @@ export const devices = pgTable('devices', {
   // syncs shouldn't look stale). Null until the agent's first upload. The
   // dashboard uses this to surface silently dead agents.
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+  // The instant from which this device's raw ping log is complete — every
+  // ping captured at or after it is in `pings`. Null means since the device's
+  // first ping. Replay only rebuilds from inside the complete part: before it
+  // the derived rows came from pings that were never stored (devices older
+  // than the log) or have since been pruned. Pruning advances it.
+  pingLogFrom: timestamp('ping_log_from', { withTimezone: true }),
+  // The earliest capturedAt of a stored ping that arrived after later ones
+  // and so could not be folded live (backfill, a merged history, an import).
+  // Null when the derived rows are current. A replay from here clears it.
+  replayFrom: timestamp('replay_from', { withTimezone: true }),
 });
 
 // User-defined buckets activities get assigned to ("Work", "Gaming", ...).
@@ -235,8 +258,9 @@ export const mergeRules = pgTable(
 // data — alternating IDE/browser for an hour is two rows, not a hundred twenty.
 // An activity is keyed by (app, context); each ping accrues the elapsed focus
 // time to the focused open activity, and an activity auto-closes only after going
-// unfocused for CLOSE_AFTER_SECONDS. Idle time accrues to nothing. No raw ping
-// storage. See src/activity/fold.ts for the mechanics.
+// unfocused for CLOSE_AFTER_SECONDS. Idle time accrues to nothing. Derived
+// from the raw `pings` log, which replay can rebuild it from. See
+// src/activity/fold.ts for the mechanics.
 export const activities = pgTable(
   'activities',
   {
@@ -261,7 +285,10 @@ export const activities = pgTable(
     // Accumulated foreground non-idle seconds — the number dashboards sum.
     // Distinct from the startedAt..lastActiveAt wall-clock span, which also
     // contains time spent focused on other apps.
-    activeSeconds: real('active_seconds').notNull().default(0),
+    // Double, not real: replay recomputes this in JS, and only a float8 column
+    // round-trips a JS number exactly — a real would round every write, so a
+    // rebuilt row could differ from the live one in its last few bits.
+    activeSeconds: doublePrecision('active_seconds').notNull().default(0),
     // Null = open (may still accrue). Set to lastActiveAt when the activity
     // goes unfocused past the close threshold.
     closedAt: timestamp('closed_at', { withTimezone: true }),
@@ -283,7 +310,61 @@ export const activities = pgTable(
   ],
 );
 
-// Precomputed aggregates: active seconds per (device, UTC day of start, app,
+// Focus order: the stretches of time the fold credited to one activity without
+// a break, in the order they happened. Activities say how long each (app,
+// context) was used, but they overlap — two open rows accrue in turn for as
+// long as the user alternates — so they can't say what came after what. A
+// segment can: the device's segments never overlap, and read by startedAt they
+// are its timeline.
+//
+// One row per focus change, not per ping. A ping extends the activity's latest
+// segment when it continues it exactly, and otherwise starts a new one. A
+// segment is exactly the interval the fold accrued, so its span agrees with
+// activeSeconds:
+//
+// - It starts where the ping's accrual starts: the device's previous ping (or
+//   ACCRUE_CAP_SECONDS back, when the gap was longer). So it can begin a little
+//   before its activity's startedAt, which is the first ping itself.
+// - A gap longer than ACCRUE_CAP_SECONDS ends it, because the fold stops
+//   crediting there. A silence past CLOSE_AFTER_SECONDS closes the activity,
+//   which ends it too.
+// - Idle walks it back: when the fold takes the idle ramp back out of an
+//   activity, that activity's segments are cut at the moment input stopped,
+//   and any that started after it are deleted.
+//
+// Written by the fold (src/activity/focus.ts), so live ingestion and replay
+// write the same rows. References the activity rather than copying its app,
+// context and category: those change after the fact (merge rules, manual
+// assignment, rule sweeps), and a copy would go stale. Like activity ids,
+// segment ids change on replay.
+export const focusSegments = pgTable(
+  'focus_segments',
+  {
+    id: text('id').primaryKey(),
+    // Denormalized from the activity: every read is "this user's devices over
+    // a time range", and that is an index on this table rather than a join.
+    deviceId: text('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    // Cascades, which is how segments are pruned: they go with their activity
+    // under ACTIVITY_RETENTION_DAYS, and with it when replay rebuilds.
+    activityId: text('activity_id')
+      .notNull()
+      .references(() => activities.id, { onDelete: 'cascade' }),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    // Equal to startedAt for a focus that accrued nothing: the first ping after
+    // a silence, before a second one extends it.
+    endedAt: timestamp('ended_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index('focus_segments_device_started_idx').on(t.deviceId, t.startedAt),
+    // The fold's lookups: an activity's latest segment, and its segments
+    // an idle walk-back cuts.
+    index('focus_segments_activity_started_idx').on(t.activityId, t.startedAt),
+  ],
+);
+
+// Precomputed aggregates: active seconds per (device, owner's day of start, app,
 // context, category), folded from closed activities by the rollup job so
 // dashboards read a few summary rows instead of every raw activity. Raw rows
 // are kept (marked rolledUp) for drill-down; summaries are the fast path and
@@ -295,15 +376,15 @@ export const summaries = pgTable(
     deviceId: text('device_id')
       .notNull()
       .references(() => devices.id, { onDelete: 'cascade' }),
-    // 'YYYY-MM-DD' of the activity's startedAt (server-timezone day, same
-    // date_trunc the live summary queries use).
+    // 'YYYY-MM-DD' of the activity's startedAt in the device owner's zone
+    // (rollup.ts dayOf — the same expression the live summary queries use).
     day: text('day').notNull(),
     app: text('app').notNull(),
     context: text('context'),
     // Deleting a category merges its summary rows into the uncategorized ones
     // in the resolver, so this FK's action never has rows left to touch.
     categoryId: text('category_id').references(() => categories.id, { onDelete: 'set null' }),
-    seconds: real('seconds').notNull().default(0),
+    seconds: doublePrecision('seconds').notNull().default(0),
   },
   (t) => [
     // NULLS NOT DISTINCT so the upsert's ON CONFLICT treats "no context" /
@@ -314,6 +395,77 @@ export const summaries = pgTable(
   ],
 );
 
+// The raw ping log: every ping a device uploaded, as it arrived (after the
+// agent's own privacy sanitizer, before any server-side interpretation —
+// context here is only what the agent supplied, never what a rule extracted).
+// The source of truth activities and summaries are derived from, so a device's
+// history can be rebuilt (src/activity/replay.ts) when a late ping lands or the
+// derived rows need recomputing. Pruned with ACTIVITY_RETENTION_DAYS.
+//
+// The hot table: one row per ping, ~10s apart per active device, so it keeps
+// no text id and no index beyond its primary key. That key is also the only
+// order anything reads it in — a device's pings by time — and `seq` both breaks
+// ties and records arrival order within one instant, which matters: the
+// Android agent closes one app and opens the next at the same millisecond.
+//
+// Deliberately left out of `relations` below, which is what drizzle-graphql
+// builds its reads from: every window title a device ever reported, row for
+// row, is the most sensitive and largest table here, and nothing on the
+// dashboard needs it — activities are its readable form.
+//
+// Stored row for row rather than run-length encoded. Consecutive pings are
+// rarely identical once idleSeconds and capturedAt are counted, and exact
+// replay needs both, so a run would have to carry every one anyway.
+export const pings = pgTable(
+  'pings',
+  {
+    deviceId: text('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    capturedAt: timestamp('captured_at', { withTimezone: true }).notNull(),
+    seq: bigint('seq', { mode: 'number' }).notNull().generatedAlwaysAsIdentity(),
+    app: text('app'),
+    title: text('title'),
+    context: text('context'),
+    idleSeconds: integer('idle_seconds').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.deviceId, t.capturedAt, t.seq] })],
+);
+
+// What a user deleted, per device, so it stays deleted: a ping captured inside
+// one is dropped at ingestion rather than logged. Deleting a range or purging
+// an app removes what the server holds, but an agent that was offline still
+// has pings from that stretch in its outbox, and an old export can be imported
+// back — without this, the next upload would quietly restore the history the
+// user just asked to be rid of. See src/activity/deletion.ts.
+//
+// A range erasure (app null) covers every ping captured in [from, to). An app
+// erasure covers pings captured before `to` (from null: since the beginning)
+// that fold into the entry (app, context) — context null meaning every context
+// of the app, as on merge_rules. `to` is never later than the moment of the
+// deletion: live pings after it are new history, not the deleted one.
+//
+// Pruned with the pings (prunePings): one older than the retention cutoff has
+// nothing left to protect, since a ping that old is pruned on arrival anyway.
+// Not exported and not in `relations` — it's bookkeeping, not history.
+export const erasures = pgTable(
+  'erasures',
+  {
+    id: text('id').primaryKey(),
+    deviceId: text('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    from: timestamp('from', { withTimezone: true }),
+    to: timestamp('to', { withTimezone: true }).notNull(),
+    app: text('app'),
+    context: text('context'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  // Ingestion asks "anything ending after this batch's earliest ping?", which
+  // for a live upload is nothing at all — one probe here.
+  (t) => [index('erasures_device_to_idx').on(t.deviceId, t.to)],
+);
+
 // --- relations (drizzle v1 relational query builder; drizzle-graphql uses
 // these for eager-loaded nested queries) ---
 
@@ -321,6 +473,7 @@ const r = createRelationsHelper({
   user,
   devices,
   activities,
+  focusSegments,
   categories,
   categoryRules,
   contextRules,
@@ -333,6 +486,7 @@ export const relations = buildRelations(
     user,
     devices,
     activities,
+    focusSegments,
     categories,
     categoryRules,
     contextRules,
@@ -358,6 +512,10 @@ export const relations = buildRelations(
     activities: {
       device: r.one.devices({ from: r.activities.deviceId, to: r.devices.id }),
       category: r.one.categories({ from: r.activities.categoryId, to: r.categories.id }),
+    },
+    focusSegments: {
+      device: r.one.devices({ from: r.focusSegments.deviceId, to: r.devices.id }),
+      activity: r.one.activities({ from: r.focusSegments.activityId, to: r.activities.id }),
     },
     categories: {
       user: r.one.user({ from: r.categories.userId, to: r.user.id }),
@@ -385,3 +543,6 @@ export const relations = buildRelations(
 export type Device = typeof devices.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Summary = typeof summaries.$inferSelect;
+export type StoredPing = typeof pings.$inferSelect;
+export type FocusSegment = typeof focusSegments.$inferSelect;
+export type Erasure = typeof erasures.$inferSelect;
