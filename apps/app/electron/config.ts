@@ -17,7 +17,8 @@ const configPath = (dataDir: string): string => join(dataDir, 'config.json');
 /**
  * Env vars win; otherwise config.json in userData:
  * {"serverUrl": ..., "apiKey": ..., "syncIntervalSeconds"?: ...,
- *  "ignoreApps"?: [regex...], "redactApps"?: [regex...], "autostart"?: bool,
+ *  "ignoreApps"?: [regex...], "redactApps"?: [regex...],
+ *  "captureLevel"?: "app" | "context" | "title", "autostart"?: bool,
  *  "logRetentionDays"?: number, "deviceId"?: ..., "deviceName"?: ...}.
  * EUNOMIA_SYNC_INTERVAL_SECONDS overrides the interval in either case.
  */

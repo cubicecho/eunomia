@@ -37,6 +37,7 @@ describe('parseConfig', () => {
       logRetentionDays: 90,
       ignoreApps: ['keepass'],
       redactApps: ['firefox'],
+      captureLevel: 'context',
     };
     expect(parseConfig(full)).toEqual(full);
   });
@@ -51,6 +52,7 @@ describe('parseConfig', () => {
         logRetentionDays: '90',
         ignoreApps: ['ok', 3],
         redactApps: 'firefox',
+        captureLevel: 'everything',
       }),
     ).toEqual(connected);
   });

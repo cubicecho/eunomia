@@ -337,6 +337,9 @@ function privacyDetail(config: StoredConfig, host: AgentHost): string {
   const ignored = config.ignoreApps?.length ?? 0;
   const redacted = config.redactApps?.length ?? 0;
   const parts: string[] = [];
+  // Only mentioned when reduced: full detail is what every install starts with.
+  if (config.captureLevel === 'app') parts.push('app only');
+  if (config.captureLevel === 'context') parts.push('no window titles');
   if (ignored > 0 || redacted > 0) parts.push(`${ignored} ignored, ${redacted} redacted`);
   // Only mentioned when off: on is the default, and this is the line that
   // explains an entry nobody recognizes turning up in the dashboard.

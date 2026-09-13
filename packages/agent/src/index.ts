@@ -36,7 +36,15 @@ export {
   type Ping,
   syncIntervalMs,
 } from './ping.ts';
-export { createSanitizer, type PingSanitizer, type PrivacyConfig } from './privacy.ts';
+export {
+  CAPTURE_LEVELS,
+  type CaptureLevel,
+  createSanitizer,
+  DEFAULT_CAPTURE_LEVEL,
+  isCaptureLevel,
+  type PingSanitizer,
+  type PrivacyConfig,
+} from './privacy.ts';
 export {
   type DeviceIdentity,
   normalizeServerUrl,
