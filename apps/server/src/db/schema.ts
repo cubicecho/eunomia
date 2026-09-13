@@ -31,6 +31,11 @@ export const user = pgTable('user', {
   // behaves as before. Only ever written through setUserTimeZone, which
   // re-buckets the history it can.
   timeZone: text('time_zone'),
+  // Ours too. How many days of raw pings and activities to keep for this
+  // user, when that is fewer than the server keeps (ACTIVITY_RETENTION_DAYS).
+  // Null follows the server. It can only shorten: the operator's setting is
+  // what the disk was sized for, and a user can't opt out of it.
+  retentionDays: integer('retention_days'),
 });
 
 export const session = pgTable('session', {
@@ -427,6 +432,40 @@ export const pings = pgTable(
   (t) => [primaryKey({ columns: [t.deviceId, t.capturedAt, t.seq] })],
 );
 
+// What a user deleted, per device, so it stays deleted: a ping captured inside
+// one is dropped at ingestion rather than logged. Deleting a range or purging
+// an app removes what the server holds, but an agent that was offline still
+// has pings from that stretch in its outbox, and an old export can be imported
+// back — without this, the next upload would quietly restore the history the
+// user just asked to be rid of. See src/activity/deletion.ts.
+//
+// A range erasure (app null) covers every ping captured in [from, to). An app
+// erasure covers pings captured before `to` (from null: since the beginning)
+// that fold into the entry (app, context) — context null meaning every context
+// of the app, as on merge_rules. `to` is never later than the moment of the
+// deletion: live pings after it are new history, not the deleted one.
+//
+// Pruned with the pings (prunePings): one older than the retention cutoff has
+// nothing left to protect, since a ping that old is pruned on arrival anyway.
+// Not exported and not in `relations` — it's bookkeeping, not history.
+export const erasures = pgTable(
+  'erasures',
+  {
+    id: text('id').primaryKey(),
+    deviceId: text('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    from: timestamp('from', { withTimezone: true }),
+    to: timestamp('to', { withTimezone: true }).notNull(),
+    app: text('app'),
+    context: text('context'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  // Ingestion asks "anything ending after this batch's earliest ping?", which
+  // for a live upload is nothing at all — one probe here.
+  (t) => [index('erasures_device_to_idx').on(t.deviceId, t.to)],
+);
+
 // --- relations (drizzle v1 relational query builder; drizzle-graphql uses
 // these for eager-loaded nested queries) ---
 
@@ -506,3 +545,4 @@ export type Category = typeof categories.$inferSelect;
 export type Summary = typeof summaries.$inferSelect;
 export type StoredPing = typeof pings.$inferSelect;
 export type FocusSegment = typeof focusSegments.$inferSelect;
+export type Erasure = typeof erasures.$inferSelect;

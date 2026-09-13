@@ -29,6 +29,16 @@ export {
   type PingLogStore,
 } from './outbox.ts';
 export {
+  currentPause,
+  isPausedAt,
+  PAUSE_CHOICES,
+  type PauseWindow,
+  parsePauses,
+  pause,
+  prunePauses,
+  resume,
+} from './pause.ts';
+export {
   DEFAULT_SYNC_INTERVAL_SECONDS,
   FLUSH_BATCH_SIZE,
   MIN_SYNC_INTERVAL_SECONDS,

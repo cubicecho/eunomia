@@ -28,6 +28,9 @@ export async function createElectronHost(): Promise<AgentHost> {
     revealLog: () => bridge.revealLog(),
     setAutostart: (enabled: boolean) => bridge.setAutostart(enabled),
     openDashboard: () => bridge.openDashboard(),
+    pauseState: () => bridge.pauseState(),
+    pause: (ms: number | null) => bridge.pause(ms),
+    resume: () => bridge.resume(),
     // Nothing to grant: the desktop agent reads the focused window directly,
     // and macOS's screen-recording prompt is the OS's to raise, not ours.
     usageAccessGranted: async () => true,

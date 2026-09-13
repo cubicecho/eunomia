@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
-import { activities, devices, focusSegments, pings, summaries } from '../db/schema.ts';
+import { activities, devices, erasures, focusSegments, pings, summaries } from '../db/schema.ts';
 import { addSeconds } from './rollup.ts';
 
 /**
@@ -74,6 +74,9 @@ export async function mergeDeviceHistory(
     // seq is a global identity, so re-pointed rows can't collide with the
     // target's on the primary key.
     await tx.update(pings).set({ deviceId: targetId }).where(eq(pings.deviceId, sourceId));
+    // What was deleted from the source stays deleted on the target: the
+    // source's agent may still flush that stretch, now under the target.
+    await tx.update(erasures).set({ deviceId: targetId }).where(eq(erasures.deviceId, sourceId));
     const [source] = await tx.select().from(devices).where(eq(devices.id, sourceId));
     if (source) {
       // greatest() and least() skip nulls, which is the right answer for both:

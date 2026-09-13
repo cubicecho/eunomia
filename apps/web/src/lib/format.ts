@@ -41,6 +41,59 @@ export function dayIn(instant: Date, timeZone: string): string {
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
+/** The wall clock in `timeZone` at an instant, as its numeric parts. */
+function wallClock(instant: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '00';
+  return {
+    year: part('year'),
+    month: part('month'),
+    day: part('day'),
+    hour: part('hour'),
+    minute: part('minute'),
+  };
+}
+
+/**
+ * 'YYYY-MM-DDTHH:MM' of an instant in `timeZone` — what a datetime-local input
+ * shows, in the user's zone rather than the browser's.
+ */
+export function localIn(instant: Date, timeZone: string): string {
+  const wall = wallClock(instant, timeZone);
+  return `${wall.year}-${wall.month}-${wall.day}T${wall.hour}:${wall.minute}`;
+}
+
+/**
+ * The instant a wall-clock time ('YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM') names in
+ * `timeZone` — the inverse of localIn, for a deletion that has to say exactly
+ * where it starts. Intl only converts the other way, so it guesses with the
+ * zone's offset and corrects once: across a DST change the offset at the
+ * answer is not the offset at the guess. A time the change skipped (02:30 on
+ * a spring-forward night) lands on the far side of the gap.
+ */
+export function instantIn(local: string, timeZone: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(local);
+  if (!match) return new Date(Number.NaN);
+  const [year, month, day, hour = 0, minute = 0] = match.slice(1).map((part) => Number(part ?? 0));
+  const wall = Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1, hour, minute);
+  const offsetAt = (at: number): number => {
+    const clock = wallClock(new Date(at), timeZone);
+    const asUtc = Date.UTC(+clock.year, +clock.month - 1, +clock.day, +clock.hour, +clock.minute);
+    return asUtc - Math.floor(at / 60_000) * 60_000;
+  };
+  const guess = wall - offsetAt(wall);
+  return new Date(wall - offsetAt(guess));
+}
+
 /**
  * 'YYYY-MM-DD' as a Date at UTC midnight. Everything below is arithmetic on
  * calendar dates, not instants, and UTC is the one zone with no DST shift to

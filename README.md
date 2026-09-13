@@ -238,6 +238,16 @@ you left is not credited with the launcher's time; as with `ignoreApps`, the
 gap a dropped span leaves accrues to whatever comes back, capped at 30
 seconds.
 
+**Pause recording** takes a stretch of time off the record: 30 minutes, an
+hour, or until resumed, from the desktop tray menu or the status screen on
+either agent. While paused the desktop sampler doesn't look at the foreground
+window at all, and Android drops every ping it synthesizes for the paused
+stretch before sanitizing, labelling or queueing it. The tray and the status
+screen say **Paused** until it ends. A pause is local to the device — it is
+kept in `pause.json` (desktop userData) or `pauses.json` (Android documents),
+survives a restart, and the server never learns about it; it sees a gap, and
+the app focused before the gap accrues at most 30 seconds, as above.
+
 ### Packaging the desktop agent
 
 ```bash
@@ -500,6 +510,44 @@ See `apps/web/src/lib/import.ts` for the client loop. Each call is at most
 5,000 records and 8 MiB, and is its own transaction. Like export, import
 accepts only a signed-in session, never an API key.
 
+### Deleting your data
+
+**Settings → Data & privacy** in the dashboard. Every delete asks for
+confirmation, none can be undone, and the server accepts them from a signed-in
+session only — never an API key, so a leaked key can't destroy history.
+Export first if you might want anything back.
+
+- **Retention** (`setRetention(days:)`) keeps raw pings and activities for
+  fewer days than the server's `ACTIVITY_RETENTION_DAYS`, never more; `null`
+  follows the server. It applies at the next prune, within 15 minutes. There
+  is no retention for daily totals: they are the only record of days past raw
+  retention and of imported totals, and a total kept for less time than the
+  raw history it's rebuilt from would just be rebuilt. Delete a range instead.
+- **Delete a time range** (`deleteRange(from:, to:, deviceId:)`, ISO instants,
+  one device or all of them) deletes the raw pings, then rebuilds activities,
+  focus segments and totals from what's left, so wherever the ping log covers
+  the range the result is exactly as if it had never been recorded. Where it
+  doesn't — days past raw retention, or imported as totals — there is nothing
+  to split a day by, so a day's totals are deleted only if the range covers
+  the whole day (in your time zone). Days only partly covered are left as they
+  are and reported back in `partialDays`; the dashboard lists them. At the
+  edges the neighbouring activity may keep up to 30 seconds, the usual gap
+  credit.
+- **Delete an app** (`purgeApp(app:, context:)`) removes an app — or one
+  context of it — from every device and every day, by the name the dashboard
+  shows (after context and merge rules), daily totals included. It doesn't
+  stop the app being recorded: use `ignoreApps` or pause the agent.
+- **Delete account** (`deleteAccount(email:)`, the account's email retyped)
+  revokes every API key and deletes the user and everything they own, pending
+  sign-in links included. Running agents are refused on their next upload.
+
+Deleted stays deleted: a range or app deletion leaves a marker, and pings from
+it that arrive later — an agent's queue flushed after the deletion, or an
+ActivityWatch or bundle import — are dropped on arrival. Markers are pruned
+with the raw history they guard. Imports of daily totals (RescueTime, a
+bundle's totals) don't go through pings, so they aren't blocked: importing a
+file that contains deleted days brings their totals back.
+
 ## Self-hosting
 
 ```bash
@@ -564,7 +612,8 @@ users will rely on the default.
 
 Every 15 minutes the server folds closed activities into precomputed
 per-day/app/category **summaries**, then deletes raw activity rows older
-than `ACTIVITY_RETENTION_DAYS` (default 90, `0` to keep them forever).
+than `ACTIVITY_RETENTION_DAYS` (default 90, `0` to keep them forever), or
+the user's own shorter [retention](#deleting-your-data).
 Summaries are never pruned, so the charts keep full history — what ages out
 is per-activity detail: window titles, and the ability to re-categorize an
 individual old activity. Rows that haven't been rolled up yet are never

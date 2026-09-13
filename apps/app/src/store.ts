@@ -2,8 +2,10 @@ import {
   initialSynthState,
   logRetentionDays,
   Outbox,
+  type PauseWindow,
   type PingLogStore,
   parseConfigText,
+  parsePauses,
   type StoredConfig,
   type SynthState,
   serializeConfig,
@@ -13,7 +15,8 @@ import { Directory, File, Paths } from 'expo-file-system';
 // Document-directory persistence, mirroring the desktop agent's userData
 // layout: config.json (server + device API key), pings/ (the append-only ping
 // log and its upload cursor), sync-state.json (checkpoint the synthesizer
-// resumes from).
+// resumes from), pauses.json (off-the-record windows the next sync still has to
+// honour).
 
 // The File is resolved per call rather than once at construction: this module
 // is bundled for the web and Electron targets too (the agent UI is shared),
@@ -80,6 +83,21 @@ export function loadSyncState(): SyncState {
 
 export function writeSyncState(state: SyncState): void {
   syncStateFile.write(state);
+}
+
+const pausesFile = jsonFile<unknown>('pauses.json');
+
+/**
+ * Every off-the-record window a sync may still meet. Not just the current one:
+ * the usage log is read after the fact, so a pause that ended an hour ago
+ * still has pings waiting to be dropped until a sync has passed its end.
+ */
+export function loadPauses(): PauseWindow[] {
+  return parsePauses(pausesFile.read());
+}
+
+export function writePauses(windows: PauseWindow[]): void {
+  pausesFile.write(windows);
 }
 
 /** The ping log's directory — shown in the app the way the tray shows it. */

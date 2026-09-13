@@ -15,6 +15,7 @@ import {
   type CreateCategoryRuleMutationVariables,
   type CreateContextRuleMutationVariables,
   type CreateMergeRuleMutationVariables,
+  type DeleteRangeMutation,
   type DeviceSummaryQuery,
   type DevicesQuery,
   getSdk,
@@ -22,6 +23,7 @@ import {
   type ImportChunkMutationVariables,
   type MeQuery,
   type MergeRulesQuery,
+  type PurgeAppMutation,
   type RecentActivitiesQuery,
   type Requester,
 } from '@eunomia/gql/web';
@@ -129,6 +131,39 @@ export const fetchMe = (): Promise<Me | null> => sdk.Me().then((d) => d.me ?? nu
  */
 export const setTimeZone = (timeZone: string | null): Promise<Me> =>
   sdk.SetTimeZone({ timeZone }).then((d) => d.setTimeZone);
+
+/**
+ * Days of raw history to keep, fewer than the server does; null follows the
+ * server's. The server prunes to it within the next quarter hour.
+ */
+export const setRetention = (days: number | null): Promise<Me> =>
+  sdk.SetRetention({ days }).then((d) => d.setRetention);
+
+export type RangeDeletion = DeleteRangeMutation['deleteRange'];
+export type AppPurge = PurgeAppMutation['purgeApp'];
+
+/** Deletes [from, to) on one device, or every device with a null deviceId. */
+export const deleteRange = (
+  from: Date,
+  to: Date,
+  deviceId: string | null,
+): Promise<RangeDeletion> =>
+  sdk
+    .DeleteRange({ from: from.toISOString(), to: to.toISOString(), deviceId })
+    .then((d) => d.deleteRange);
+
+/** Deletes an app, or one context of it (non-null `context`), from every device. */
+export const purgeApp = (app: string, context: string | null): Promise<AppPurge> =>
+  sdk.PurgeApp({ app, context }).then((d) => d.purgeApp);
+
+/**
+ * Deletes the account. On success the session is gone with it, so the token
+ * is dropped here rather than left for the next request to discover.
+ */
+export const deleteAccount = async (email: string): Promise<void> => {
+  await sdk.DeleteAccount({ email });
+  clearToken();
+};
 
 /** Which file `exportFile` writes: the whole-account bundle, ActivityWatch buckets, or daily CSV. */
 export type ExportFormat = AccountExportQueryVariables['format'];

@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
 import { type Device, devices } from '../db/schema.ts';
 import { type ContextRule, extractContext, loadContextRules } from './context.ts';
+import { erasuresFor, isErased } from './erasures.ts';
 import { type Activity, foldPing, lockDevice, type Ping } from './fold.ts';
 import { loadMergeRules, type MergeRule, mergeEntry } from './merge-rules.ts';
 import { appendPings, logHead, type RawPing } from './ping-log.ts';
@@ -55,8 +56,11 @@ export function resolvePing(rules: FoldRules, ping: RawPing): Ping {
  *
  * The lock is what makes a retried upload safe: a batch either lands whole or
  * not at all, and no other upload — or replay — of the same device interleaves
- * with it. Each ping then goes one of four ways:
+ * with it. Each ping then goes one of five ways:
  *
+ * - **Deleted** — captured inside a range or app the user deleted (see
+ *   erasures.ts) — is dropped unlogged: it is history the user already asked
+ *   to be rid of, arriving late.
  * - **A duplicate** of one already logged is dropped: it was handled the first
  *   time it arrived.
  * - **Newer than the log's head** (or at it — a second ping in the same
@@ -85,7 +89,23 @@ export async function ingestPings(
     const locked = await lockDevice(tx, device.id);
     if (!locked) return batch.map(() => null);
     let head = await logHead(tx, device.id);
-    const appended = await appendPings(tx, device.id, batch, head);
+    // Under the lock, so a deletion either committed before this batch (and
+    // its erasure drops the batch's pings from the deleted stretch) or runs
+    // after it (and deletes them along with the rest).
+    const erased = await erasuresFor(tx, device.id, batch);
+    const keep = batch.map((ping) => {
+      if (erased.length === 0) return true;
+      const { app, context } = resolvePing(loaded, ping);
+      return !isErased(erased, ping.capturedAt, app ? { app, context: context ?? null } : null);
+    });
+    const stored = await appendPings(
+      tx,
+      device.id,
+      batch.filter((_, i) => keep[i]),
+      head,
+    );
+    let next = 0;
+    const appended = keep.map((kept) => kept && stored[next++]!);
 
     const touched: (Activity | null)[] = [];
     let backfillFrom: Date | null = null;

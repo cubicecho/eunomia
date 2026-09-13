@@ -39,6 +39,9 @@ function stubRuntime() {
     clearLog: vi.fn(),
     setAutostart: vi.fn(),
     openDashboard: vi.fn(async () => undefined),
+    pauseState: vi.fn(() => ({ paused: false, until: null })),
+    pause: vi.fn((ms: number | null) => ({ paused: true, until: ms === null ? null : 1000 + ms })),
+    resume: vi.fn(() => ({ paused: false, until: null })),
   } satisfies AgentRuntime & Record<string, unknown>;
 }
 
@@ -97,6 +100,16 @@ describe('registerAgentIpc', () => {
 
     handlerFor('setAutostart')(fromAgent, true);
     expect(runtime.setAutostart).toHaveBeenCalledWith(true);
+  });
+
+  it('pauses for a duration or until resumed, and refuses anything else', () => {
+    expect(handlerFor('pause')(fromAgent, 60_000)).toEqual({ paused: true, until: 61_000 });
+    expect(handlerFor('pause')(fromAgent, null)).toEqual({ paused: true, until: null });
+    for (const bad of [0, -5, Number.NaN, '60000', undefined]) {
+      expect(() => handlerFor('pause')(fromAgent, bad)).toThrow(/positive duration/);
+    }
+    expect(runtime.pause).toHaveBeenCalledTimes(2);
+    expect(handlerFor('resume')(fromAgent)).toEqual({ paused: false, until: null });
   });
 
   it('reveals the log rather than opening it — .log usually has no handler', () => {

@@ -103,6 +103,15 @@ export const permissions = {
     // one of the user's device locks while it does — a preference a human
     // sets at the dashboard, not something a key should be able to flip.
     setTimeZone: sessionAuthenticated,
+    // Session-only, and so is every deletion below: they destroy history for
+    // good. A key is issued to record or to read; one that leaked must not be
+    // able to shorten retention, wipe a range, or delete the account — worse
+    // than someone else reading the history is its owner losing it. The
+    // dashboard makes the person confirm each one as well.
+    setRetention: sessionAuthenticated,
+    deleteRange: sessionAuthenticated,
+    purgeApp: sessionAuthenticated,
+    deleteAccount: sessionAuthenticated,
     registerDevice: authenticated,
     renameDevice: authenticated,
     rotateDeviceKey: authenticated,

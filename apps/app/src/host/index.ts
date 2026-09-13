@@ -10,6 +10,7 @@ export type {
   HostCapabilities,
   HostInfo,
   KeepAliveState,
+  PauseState,
   SyncSummary,
 } from './types.ts';
 

@@ -1,6 +1,7 @@
 import type { StoredConfig } from '@eunomia/agent';
 import { type BrowserWindow, ipcMain, shell } from 'electron';
 import { type AgentBridge, BRIDGE_METHODS } from '../src/host/bridge.ts';
+import type { PauseState } from '../src/host/types.ts';
 
 // The main-process half of src/host/bridge.ts. Every method there is one
 // channel here, and registerAgentIpc refuses to finish if one is missing:
@@ -25,6 +26,9 @@ export interface AgentRuntime {
   clearLog(): void;
   setAutostart(enabled: boolean): void;
   openDashboard(): Promise<void>;
+  pauseState(): PauseState;
+  pause(ms: number | null): PauseState;
+  resume(): PauseState;
 }
 
 export function registerAgentIpc(runtime: AgentRuntime, owner: () => BrowserWindow | undefined) {
@@ -59,6 +63,16 @@ export function registerAgentIpc(runtime: AgentRuntime, owner: () => BrowserWind
   });
   handle('setAutostart', (enabled: boolean) => runtime.setAutostart(enabled));
   handle('openDashboard', () => runtime.openDashboard());
+  handle('pauseState', () => runtime.pauseState());
+  handle('pause', (ms: unknown) => {
+    // The one argument here that becomes a timestamp: a NaN or a negative
+    // would write a window that never ends, or ends before it began.
+    if (ms !== null && !(typeof ms === 'number' && Number.isFinite(ms) && ms > 0)) {
+      throw new Error('pause takes a positive duration in ms, or null for until resumed');
+    }
+    return runtime.pause(ms);
+  });
+  handle('resume', () => runtime.resume());
 
   const missing = BRIDGE_METHODS.filter((name) => !registered.has(name));
   if (missing.length > 0) {
