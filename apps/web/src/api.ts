@@ -17,6 +17,7 @@ import {
   type DeviceSummaryQuery,
   type DevicesQuery,
   getSdk,
+  type MeQuery,
   type MergeRulesQuery,
   type RecentActivitiesQuery,
   type Requester,
@@ -87,6 +88,8 @@ export type Device = DevicesQuery['devices'][number];
 export type DeviceSummaryRow = DeviceSummaryQuery['deviceSummary'][number];
 /** An integration key as it can be listed — everything about it except the key. */
 export type ApiKey = ApiKeysQuery['apiKeys'][number];
+/** The signed-in user: who they are, and the zone their days split in. */
+export type Me = NonNullable<MeQuery['me']>;
 
 /** Everything a category rule is, minus its id — what the rule editor submits. */
 export type CategoryRuleInput = CreateCategoryRuleMutationVariables;
@@ -111,6 +114,17 @@ export const signOut = async (): Promise<void> => {
   await sdk.SignOut().catch(() => {});
   clearToken();
 };
+
+/** Null when the token no longer names a user — the server answers anonymously. */
+export const fetchMe = (): Promise<Me | null> => sdk.Me().then((d) => d.me ?? null);
+
+/**
+ * Sets the zone the user's days split in (null follows the server's). The
+ * server moves the rolled-up days it still has raw activity for, so any chart
+ * loaded before this resolves is stale.
+ */
+export const setTimeZone = (timeZone: string | null): Promise<Me> =>
+  sdk.SetTimeZone({ timeZone }).then((d) => d.setTimeZone);
 
 /** deviceId null = every device the user owns, folded together. */
 export const fetchSummary = (

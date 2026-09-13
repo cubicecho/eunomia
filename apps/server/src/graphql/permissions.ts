@@ -81,7 +81,7 @@ export const permissions = {
     // Listing is session-only for the same reason issuing is: a leaked key
     // should not be able to enumerate its siblings.
     apiKeys: sessionAuthenticated,
-    // Public by design: returns the caller's id or null.
+    // Public by design: returns the caller or null.
     me: accept,
   },
   Mutation: {
@@ -95,6 +95,10 @@ export const permissions = {
     signOut: accept,
     // Desktop dashboard hand-off: only a device key may trade itself for a session.
     sessionFromDeviceKey: deviceAuthenticated,
+    // Session-only: it rewrites which day past time falls on and holds every
+    // one of the user's device locks while it does — a preference a human
+    // sets at the dashboard, not something a key should be able to flip.
+    setTimeZone: sessionAuthenticated,
     registerDevice: authenticated,
     renameDevice: authenticated,
     rotateDeviceKey: authenticated,

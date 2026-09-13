@@ -843,6 +843,25 @@ type MagicLinkRequest {
   token: String
 }
 
+"""
+The signed-in user, as far as a client needs to know them.
+
+Every "day" the API speaks of — `categorySummary.day`, and the `from`/`to` of
+each summary query — is a calendar day in `effectiveTimeZone`.
+"""
+type Me {
+  """
+  The zone this user's days split in: `timeZone`, or the server's own when that is null.
+  """
+  effectiveTimeZone: String!
+  id: String!
+
+  """
+  The IANA zone chosen with `setTimeZone`, or null to follow the server's.
+  """
+  timeZone: String
+}
+
 type MergeRules {
   createdAt: DateTime!
 
@@ -911,6 +930,7 @@ type Mutation {
   revokeApiKey(id: String!): Boolean!
   rotateDeviceKey(id: String!): DeviceRegistration!
   sessionFromDeviceKey: AuthSession!
+  setTimeZone(timeZone: String): Me!
   signIn(email: String!, password: String!): AuthSession!
   signOut: Boolean!
   signUp(email: String!, name: String!, password: String!): AuthSession!
@@ -977,7 +997,7 @@ type Query {
     deviceId: String
 
     """
-    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone.
+    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the caller's time zone (`me.effectiveTimeZone`).
     """
     from: String!
 
@@ -1019,7 +1039,7 @@ type Query {
     deviceId: String
 
     """
-    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone.
+    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the caller's time zone (`me.effectiveTimeZone`).
     """
     from: String!
 
@@ -1044,7 +1064,7 @@ type Query {
   """
   deviceSummary(
     """
-    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone.
+    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the caller's time zone (`me.effectiveTimeZone`).
     """
     from: String!
 
@@ -1074,8 +1094,8 @@ type Query {
     where: FocusSegmentsFilters
   ): [FocusSegments!]!
 
-  """The caller's user id, or null when the request is anonymous."""
-  me: String
+  """The caller, or null when the request is anonymous."""
+  me: Me
   mergeRules(
     """
     Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).

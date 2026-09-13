@@ -21,20 +21,39 @@ export function ago(elapsedMs: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-/** 'YYYY-MM-DD' in the browser's zone (toISOString would shift the day). */
-export function localDay(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+/** The zone this browser runs in — what the Settings tab offers a user. */
+export const browserTimeZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/**
+ * 'YYYY-MM-DD' of an instant in `timeZone` — the calendar day the server puts
+ * it on for a user in that zone. Not the browser's: someone looking at their
+ * data from another continent still sees their own days.
+ */
+export function dayIn(instant: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
-/** 'YYYY-MM-DD' → 'Mon 25', for axis ticks. Parsed as a local date, not UTC. */
+/**
+ * 'YYYY-MM-DD' as a Date at UTC midnight. Everything below is arithmetic on
+ * calendar dates, not instants, and UTC is the one zone with no DST shift to
+ * land a midnight on the wrong side of.
+ */
+const utcDate = (day: string): Date =>
+  /^\d{4}-\d{2}-\d{2}$/.test(day) ? new Date(`${day}T00:00:00Z`) : new Date(Number.NaN);
+
+/** 'YYYY-MM-DD' → 'Mon 25', for axis ticks. The date as written, in no zone. */
 export function shortDay(day: string): string {
-  const [y, m, d] = day.split('-').map(Number);
-  if (!y || !m || !d) return day;
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-  });
+  const date = utcDate(day);
+  if (Number.isNaN(date.getTime())) return day;
+  return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 export interface DateRange {
@@ -43,16 +62,14 @@ export interface DateRange {
 }
 
 /**
- * Ranges are half-open [from, to) whole days. Local calendar days, not UTC
- * ones — the server reads these as whole days in ITS zone, so asking for UTC's
- * "today" cut the evening off for anyone west of Greenwich.
+ * Ranges are half-open [from, to) whole days in the user's time zone (`me`'s
+ * effectiveTimeZone). The server reads the dates as days there, so "today" has
+ * to be today there — asking for the browser's or UTC's cut the evening off
+ * for anyone whose zone was behind it.
  */
-export function rangeOfLastDays(days: number): DateRange {
-  const to = new Date();
-  to.setHours(24, 0, 0, 0); // next local midnight — exclusive, so today counts
-  const from = new Date(to);
-  from.setDate(from.getDate() - days);
-  return { from: localDay(from), to: localDay(to) };
+export function rangeOfLastDays(days: number, timeZone: string): DateRange {
+  const to = addDays(dayIn(new Date(), timeZone), 1); // exclusive, so today counts
+  return { from: addDays(to, -days), to };
 }
 
 /**
@@ -63,24 +80,22 @@ export function rangeOfLastDays(days: number): DateRange {
  * floor is a date no agent's history predates rather than an unbounded query —
  * the server's aggregates take whole days, and there is no "all" to ask for.
  */
-export function rangeOfEverything(): DateRange {
-  const to = new Date();
-  to.setHours(24, 0, 0, 0);
-  return { from: '2000-01-01', to: localDay(to) };
+export function rangeOfEverything(timeZone: string): DateRange {
+  return { from: '2000-01-01', to: addDays(dayIn(new Date(), timeZone), 1) };
 }
 
-/** 'YYYY-MM-DD' shifted by whole local days. */
+/** 'YYYY-MM-DD' shifted by whole calendar days. */
 export function addDays(day: string, delta: number): string {
-  const date = new Date(`${day}T00:00:00`);
+  const date = utcDate(day);
   if (Number.isNaN(date.getTime())) return day;
-  date.setDate(date.getDate() + delta);
-  return localDay(date);
+  date.setUTCDate(date.getUTCDate() + delta);
+  return date.toISOString().slice(0, 10);
 }
 
 /** Whole days covered by a [from, to) range; at least 1. */
 export function daysInRange(range: DateRange): number {
-  const from = new Date(`${range.from}T00:00:00`).getTime();
-  const to = new Date(`${range.to}T00:00:00`).getTime();
+  const from = utcDate(range.from).getTime();
+  const to = utcDate(range.to).getTime();
   if (Number.isNaN(from) || Number.isNaN(to)) return 1;
   return Math.max(1, Math.round((to - from) / 86_400_000));
 }

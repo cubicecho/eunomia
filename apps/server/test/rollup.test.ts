@@ -119,9 +119,9 @@ describe('rollup', () => {
     expect(after.find((r) => r.day === '2026-08-11')?.seconds).toBe(100);
   });
 
-  it('buckets days in the session time zone', async () => {
+  it('buckets days in the session time zone for a user without one', async () => {
     // 02:00 UTC on the 11th is still the evening of the 10th in Chicago —
-    // prod sets the zone via the TZ env (see db/client.ts).
+    // prod sets the default zone via the TZ env (see db/client.ts).
     await db.execute(sql`set time zone 'America/Chicago'`);
     try {
       await db.insert(activities).values([activity('a1', '2026-08-11T02:00:00Z', 600)]);

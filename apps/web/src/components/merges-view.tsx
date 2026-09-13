@@ -5,6 +5,7 @@ import { StatusLine } from '@/components/status-line';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { rangeOfEverything } from '@/lib/format';
 import { allEntries } from '@/lib/summary';
+import { useTimeZone } from '@/session';
 
 // The third thing this dashboard can do to a recording after the fact:
 // categories label time, context rules divide it, and a merge renames it.
@@ -15,10 +16,11 @@ import { allEntries } from '@/lib/summary';
 // appearing, and that is exactly the one a user comes here to clean up.
 
 export function MergesView() {
+  const timeZone = useTimeZone();
   const { data, error, reload } = useQuery(() => {
-    const range = rangeOfEverything();
+    const range = rangeOfEverything(timeZone);
     return Promise.all([fetchAppSummary(range.from, range.to), fetchMergeRules()]);
-  }, []);
+  }, [timeZone]);
   const action = useAction();
 
   if (error) return <p className="text-destructive text-sm">{error}</p>;

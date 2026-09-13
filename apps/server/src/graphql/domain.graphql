@@ -12,8 +12,8 @@
 # schema assembly.
 
 extend type Query {
-  "The caller's user id, or null when the request is anonymous."
-  me: String
+  "The caller, or null when the request is anonymous."
+  me: Me
 
   """
   The caller's integration keys — the ones issued from the dashboard for other
@@ -32,7 +32,7 @@ extend type Query {
   today is never missing.
   """
   categorySummary(
-    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone."
+    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the caller's time zone (`me.effectiveTimeZone`)."
     from: String!
     "End of the window, EXCLUSIVE — pass the day after the last one you want."
     to: String!
@@ -46,7 +46,7 @@ extend type Query {
   row per app/context/category triple for the whole window.
   """
   appSummary(
-    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone."
+    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the caller's time zone (`me.effectiveTimeZone`)."
     from: String!
     "End of the window, EXCLUSIVE — pass the day after the last one you want."
     to: String!
@@ -58,7 +58,7 @@ extend type Query {
   Time per device over the window — which machine or phone the time came from.
   """
   deviceSummary(
-    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone."
+    "Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the caller's time zone (`me.effectiveTimeZone`)."
     from: String!
     "End of the window, EXCLUSIVE — pass the day after the last one you want."
     to: String!
@@ -73,6 +73,12 @@ type Mutation {
   verifyMagicLink(token: String!): AuthSession!
   signOut: Boolean!
   sessionFromDeviceKey: AuthSession!
+
+  # Account. The caller's time zone: an IANA name, or null to follow the
+  # server's. Moves the days of every activity still kept onto the new zone's
+  # midnight; older summaries stay where they were bucketed. Session-only (see
+  # permissions.ts).
+  setTimeZone(timeZone: String): Me!
 
   # Devices. registerDevice and rotateDeviceKey are the only fields that ever
   # return an API key, and only at the moment it is minted.
@@ -148,6 +154,20 @@ extend schema {
   mutation: Mutation
 }
 
+"""
+The signed-in user, as far as a client needs to know them.
+
+Every "day" the API speaks of — `categorySummary.day`, and the `from`/`to` of
+each summary query — is a calendar day in `effectiveTimeZone`.
+"""
+type Me {
+  id: String!
+  "The IANA zone chosen with `setTimeZone`, or null to follow the server's."
+  timeZone: String
+  "The zone this user's days split in: `timeZone`, or the server's own when that is null."
+  effectiveTimeZone: String!
+}
+
 # Session payload for signUp/signIn: the raw token goes back as
 # `Authorization: Bearer <token>` on every later request (bearer plugin).
 type AuthSession {
@@ -215,8 +235,8 @@ input PingInput {
   idleSeconds: Int!
 }
 
-# Active seconds per category per day (server zone). A null category is
-# uncategorized time.
+# Active seconds per category per day, days in the caller's zone
+# (`me.effectiveTimeZone`). A null category is uncategorized time.
 type CategoryDaySummary {
   day: String!
   categoryId: String

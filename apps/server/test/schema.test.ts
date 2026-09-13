@@ -52,6 +52,7 @@ describe('graphql schema', () => {
       'revokeApiKey',
       'rotateDeviceKey',
       'sessionFromDeviceKey',
+      'setTimeZone',
       'signIn',
       'signOut',
       'signUp',
