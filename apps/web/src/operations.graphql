@@ -18,6 +18,24 @@ mutation SignOut {
   signOut
 }
 
+# Who is signed in, and the zone their days split in — every date the
+# dashboard sends is a calendar day in effectiveTimeZone.
+query Me {
+  me {
+    id
+    timeZone
+    effectiveTimeZone
+  }
+}
+
+mutation SetTimeZone($timeZone: String) {
+  setTimeZone(timeZone: $timeZone) {
+    id
+    timeZone
+    effectiveTimeZone
+  }
+}
+
 # deviceId is optional throughout: omitted, the aggregates fold every device
 # the user owns together, which is the default view.
 query CategorySummary($from: String!, $to: String!, $deviceId: String) {

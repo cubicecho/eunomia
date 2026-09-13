@@ -1,6 +1,6 @@
-import { and, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, lt, type SQL, sql } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
-import { activities, summaries } from '../db/schema.ts';
+import { activities, devices, summaries, user } from '../db/schema.ts';
 import type { Activity } from './fold.ts';
 import { prunePings } from './ping-log.ts';
 
@@ -10,8 +10,34 @@ import { prunePings } from './ping-log.ts';
 // seconds are stable — the only thing that can change afterwards is the
 // category, and those paths move the seconds explicitly (moveRolledSeconds).
 
-/** The summary day of an activity's startedAt — same expression the live summary queries group by. */
-const dayOf = sql<string>`to_char(date_trunc('day', ${activities.startedAt}), 'YYYY-MM-DD')`;
+/**
+ * The zone a user's days split in: their own, or the session zone the server
+ * connects with (TZ, see db/client.ts) when they never chose one. Reads
+ * `user`, so the query has to join it (ownerJoin).
+ *
+ * A column expression rather than a value looked up first and bound: it can
+ * then sit in a GROUP BY, where two renderings of a bound parameter are two
+ * different expressions to Postgres, and one statement covers every user.
+ */
+export const ownerZone = sql<string>`coalesce(${user.timeZone}, current_setting('TimeZone'))`;
+
+/** A timestamptz's calendar day, 'YYYY-MM-DD', in `zone`. */
+const dayIn = (at: SQL | typeof activities.startedAt, zone: SQL) =>
+  sql<string>`to_char(${at} at time zone ${zone}, 'YYYY-MM-DD')`;
+
+/**
+ * The summary day of an activity's startedAt, in its owner's zone — the one
+ * expression rollups bucket by and the live summary queries group by, so the
+ * two halves of a dashboard aggregate can't split a day differently. Needs
+ * devices and user joined (ownerJoin).
+ */
+export const dayOf = dayIn(activities.startedAt, ownerZone);
+
+/** The joins dayOf and ownerZone read through: activity → device → owner. */
+export const ownerJoin = {
+  device: eq(activities.deviceId, devices.id),
+  user: eq(devices.userId, user.id),
+};
 
 /** Ids per "mark rolled" UPDATE — well under Postgres's 65535 bind parameters. */
 const MARK_CHUNK = 10_000;
@@ -62,13 +88,21 @@ export async function rollupActivities(db: Db, deviceId?: string): Promise<numbe
         activeSeconds: activities.activeSeconds,
       })
       .from(activities)
+      .innerJoin(devices, ownerJoin.device)
+      .innerJoin(user, ownerJoin.user)
       .where(
         and(
           isNotNull(activities.closedAt),
           eq(activities.rolledUp, false),
           deviceId ? eq(activities.deviceId, deviceId) : undefined,
         ),
-      );
+      )
+      // Holds the owners' zones still until these rows are marked rolled: a
+      // time zone change (setUserTimeZone) re-buckets rolled rows, so one
+      // that committed between this read and the mark would miss the rows
+      // bucketed here in the zone it replaced. With the lock, it either
+      // waits for this rollup or this rollup reads its new zone.
+      .for('share', { of: user });
     if (rows.length === 0) return 0;
 
     const groups = new Map<string, { key: SummaryKey; seconds: number }>();
@@ -126,6 +160,8 @@ export async function unrollActivities(db: Db, deviceId: string, from: Date): Pr
       seconds: sql<number>`sum(${activities.activeSeconds})::float`,
     })
     .from(activities)
+    .innerJoin(devices, ownerJoin.device)
+    .innerJoin(user, ownerJoin.user)
     .where(
       and(
         eq(activities.deviceId, deviceId),
@@ -167,6 +203,8 @@ export async function moveRolledSeconds(
   const [row] = await db
     .select({ day: dayOf })
     .from(activities)
+    .innerJoin(devices, ownerJoin.device)
+    .innerJoin(user, ownerJoin.user)
     .where(eq(activities.id, activity.id))
     .limit(1);
   if (!row) return;
@@ -178,6 +216,77 @@ export async function moveRolledSeconds(
   };
   await addSeconds(db, { ...key, categoryId: fromCategoryId }, -activity.activeSeconds);
   await addSeconds(db, { ...key, categoryId: toCategoryId }, activity.activeSeconds);
+}
+
+/**
+ * Moves a user's rolled seconds from the days `fromZone` put them on to the
+ * days `toZone` does — for a time zone change, called before the new zone is
+ * written. Zones are SQL (a bound name, or the server's session zone), since
+ * "no zone of their own" means whatever the server connects with.
+ *
+ * Only as far back as raw activities go: a summary row doesn't remember which
+ * instants its seconds came from, so days whose activities are pruned
+ * (ACTIVITY_RETENTION_DAYS) stay where they were bucketed. Everything still
+ * on file moves, rolled under whichever zone was current — rollups and every
+ * earlier change kept it in its owner's zone of the moment, so that is always
+ * `fromZone`.
+ *
+ * Not a replay: which day a start falls on is all that changed, and rebuilding
+ * activities would also re-apply today's rules and change every id.
+ *
+ * Only activities whose day actually changes are read, which for an ordinary
+ * move is the few hours either side of midnight. Returns how many moved.
+ */
+export async function rebucketSummaries(
+  db: Db,
+  userId: string,
+  fromZone: SQL,
+  toZone: SQL,
+): Promise<number> {
+  const fromDay = dayIn(activities.startedAt, fromZone);
+  const toDay = dayIn(activities.startedAt, toZone);
+  const rows = await db
+    .select({
+      deviceId: activities.deviceId,
+      fromDay,
+      toDay,
+      app: activities.app,
+      context: activities.context,
+      categoryId: activities.categoryId,
+      activeSeconds: activities.activeSeconds,
+    })
+    .from(activities)
+    .innerJoin(devices, eq(activities.deviceId, devices.id))
+    .where(
+      and(eq(devices.userId, userId), eq(activities.rolledUp, true), sql`${fromDay} <> ${toDay}`),
+    );
+
+  const groups = new Map<string, { from: SummaryKey; to: string; seconds: number }>();
+  for (const row of rows) {
+    const key = `${row.deviceId}\n${row.fromDay}\n${row.toDay}\n${row.app}\n${row.context ?? '\0'}\n${row.categoryId ?? '\0'}`;
+    const group = groups.get(key) ?? {
+      from: {
+        deviceId: row.deviceId,
+        day: row.fromDay,
+        app: row.app,
+        context: row.context,
+        categoryId: row.categoryId,
+      },
+      to: row.toDay,
+      seconds: 0,
+    };
+    group.seconds += row.activeSeconds;
+    groups.set(key, group);
+  }
+  const touched = new Set<string>();
+  for (const { from, to, seconds } of groups.values()) {
+    await addSeconds(db, from, -seconds);
+    await addSeconds(db, { ...from, day: to }, seconds);
+    touched.add(from.deviceId);
+  }
+  // A day left with nothing once its evening moved to the next one.
+  for (const deviceId of touched) await dropEmptySummaries(db, deviceId);
+  return rows.length;
 }
 
 /**

@@ -436,10 +436,15 @@ of them an `http://` server hands out that device's API key in the clear.
 response and skips the secret check. It exists so a LAN install works without
 an inbox; anyone who can reach the port can then log in as anyone.
 
-Set `TZ` (IANA name, e.g. `America/Chicago`) so dashboard days split at your
-midnight instead of UTC's. Decide before real data accrues: rolled-up
-summaries keep the day they were bucketed into and won't re-bucket if the
-zone changes later.
+Each user's days split at the midnight of their own time zone, chosen in the
+dashboard's **Settings** tab (or with the `setTimeZone` mutation). `TZ` (IANA
+name, e.g. `America/Chicago`) is the default for users who haven't chosen one;
+unset, that is UTC. Changing a user's zone moves every rolled-up activity still
+on file onto the new zone's days. Summaries older than the retained activities
+(`ACTIVITY_RETENTION_DAYS`, below) can't be moved — nothing records which
+instants they came from — so they keep the day they were bucketed into.
+Changing `TZ` itself moves nothing, so set it before real data accrues if
+users will rely on the default.
 
 Every 15 minutes the server folds closed activities into precomputed
 per-day/app/category **summaries**, then deletes raw activity rows older

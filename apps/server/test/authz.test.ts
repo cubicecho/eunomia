@@ -224,8 +224,78 @@ describe('authorization scoping', () => {
       expect(result.errors?.[0]?.message).toBe('Not authenticated');
     }
 
-    const me = await data('{ me }', null);
+    const me = await data('{ me { id } }', null);
     expect(me.me).toBeNull();
+  });
+
+  it('answers me with the caller alone, key or session', async () => {
+    await db.update(user).set({ timeZone: 'Asia/Tokyo' }).where(eq(user.id, 'user-2'));
+    const source = '{ me { id timeZone effectiveTimeZone } }';
+    expect((await data(source)).me).toEqual({
+      id: 'user-1',
+      timeZone: null,
+      // The test database's session zone — what the server's TZ is in prod.
+      effectiveTimeZone: 'UTC',
+    });
+    expect((await data(source, 'user-2')).me).toEqual({
+      id: 'user-2',
+      timeZone: 'Asia/Tokyo',
+      effectiveTimeZone: 'Asia/Tokyo',
+    });
+    const viaKey = { ...asUser('user-1'), keyId: 'key-1' } as Context;
+    const keyed = await graphql({ schema, source, contextValue: viaKey });
+    expect((keyed.data as any).me.id).toBe('user-1');
+  });
+
+  it('lets only a signed-in user set their own time zone', async () => {
+    const set = (timeZone: string | null, contextValue: Context) =>
+      graphql({
+        schema,
+        source: `mutation ($tz: String) { setTimeZone(timeZone: $tz) { id timeZone effectiveTimeZone } }`,
+        variableValues: { tz: timeZone },
+        contextValue,
+      });
+
+    expect((await set('Asia/Tokyo', asUser(null))).errors?.[0]?.message).toBe('Not authenticated');
+    // A key acts as its owner everywhere else, but not here.
+    const viaKey = { ...asUser('user-1'), keyId: 'key-1' } as Context;
+    expect((await set('Asia/Tokyo', viaKey)).errors?.[0]?.message).toBe('Not authenticated');
+    const zones = async () =>
+      (await db.select({ id: user.id, timeZone: user.timeZone }).from(user)).sort((a, b) =>
+        a.id.localeCompare(b.id),
+      );
+    expect(await zones()).toEqual([
+      { id: 'user-1', timeZone: null },
+      { id: 'user-2', timeZone: null },
+    ]);
+
+    // Stored as Intl spells it, however it was typed.
+    const mine = await set(' america/chicago ', asUser('user-1'));
+    expect(mine.errors).toBeUndefined();
+    expect((mine.data as any).setTimeZone).toEqual({
+      id: 'user-1',
+      timeZone: 'America/Chicago',
+      effectiveTimeZone: 'America/Chicago',
+    });
+    // There is no argument naming whose zone: it is always the caller's.
+    expect(await zones()).toEqual([
+      { id: 'user-1', timeZone: 'America/Chicago' },
+      { id: 'user-2', timeZone: null },
+    ]);
+
+    // Not zones: nonsense, a POSIX string Postgres would read backwards, and
+    // a bare offset Intl takes but pg_timezone_names doesn't list.
+    for (const bad of ['Mars/Olympus', 'UTC+5', '+05:00', '']) {
+      const result = await set(bad, asUser('user-1'));
+      expect(result.errors?.[0]?.extensions?.code).toBe('BAD_USER_INPUT');
+    }
+
+    const cleared = await set(null, asUser('user-1'));
+    expect((cleared.data as any).setTimeZone).toEqual({
+      id: 'user-1',
+      timeZone: null,
+      effectiveTimeZone: 'UTC',
+    });
   });
 
   it('lets only a signed-in owner replay a device', async () => {

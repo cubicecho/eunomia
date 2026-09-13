@@ -1,8 +1,9 @@
 import type { QueryResolvers } from '@eunomia/gql/resolvers';
 import { and, eq, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { dayOf, ownerJoin, ownerZone } from '../activity/rollup.ts';
 import type { Db } from '../db/client.ts';
-import { activities, categories, devices, summaries } from '../db/schema.ts';
+import { activities, categories, devices, summaries, user } from '../db/schema.ts';
 import { badInput } from '../errors.ts';
 import { requireUser } from './guards.ts';
 
@@ -21,32 +22,46 @@ import { requireUser } from './guards.ts';
 const deviceFilter = (column: AnyPgColumn, deviceId: string | null | undefined) =>
   deviceId ? [eq(column, deviceId)] : [];
 
+/** A calendar date as the dashboard sends it. */
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
- * Whole-day window [from, to) resolved in the SERVER's time zone — the same
- * zone rollup buckets summaries.day into (db/client.ts sets the session zone
- * from TZ). Both ends truncate to local midnight, so a bare 'YYYY-MM-DD' from
- * the dashboard means that calendar day here, not in UTC.
+ * Whole-day window [from, to) as calendar dates in the CALLER's time zone
+ * (their own, or the server's when they never set one — rollup.ts ownerZone),
+ * which is the zone rollup buckets their summaries.day into. A bare
+ * 'YYYY-MM-DD' is that calendar day where they are; a full timestamp is
+ * whichever day that instant falls on there.
  *
- * The truncation happens in SQL, not JS, and that is the whole point: a JS
- * Date is an instant, so filtering startedAt by instants cut the live half of
- * a summary at UTC midnight while the rolled half had been cut at local
- * midnight. On a non-UTC server the two halves then disagreed, and today's
- * evening read as empty until the next 15-minute rollup moved it across.
+ * Kept in SQL, not JS, and that is the whole point: a JS Date is an instant,
+ * so filtering startedAt by instants cut the live half of a summary at UTC
+ * midnight while the rolled half had been cut at local midnight. The two
+ * halves then disagreed, and today's evening read as empty until the next
+ * 15-minute rollup moved it across. Both halves read ownerZone, so every
+ * query using these bounds joins the owner (ownerJoin).
  */
 function parseRange(args: { from: string; to: string }): { from: SQL; to: SQL } {
-  for (const value of [args.from, args.to]) {
+  const bound = (value: string): SQL => {
+    if (CALENDAR_DAY.test(value)) {
+      // Round-tripped because Date is lenient: it reads 02-31 as March 3rd,
+      // where Postgres would refuse the cast and fail the request instead.
+      const date = new Date(`${value}T00:00:00Z`);
+      if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+        throw badInput('Invalid date range');
+      }
+      return sql`${value}::date`;
+    }
     if (Number.isNaN(new Date(value).getTime())) throw badInput('Invalid date range');
-  }
-  return {
-    from: sql`date_trunc('day', ${args.from}::timestamptz)`,
-    to: sql`date_trunc('day', ${args.to}::timestamptz)`,
+    return sql`(${value}::timestamptz at time zone ${ownerZone})::date`;
   };
+  return { from: bound(args.from), to: bound(args.to) };
 }
 
 /** The window over raw activity rows — the not-yet-rolled-up half. */
 const liveDayBounds = (from: SQL, to: SQL) => [
-  sql`${activities.startedAt} >= ${from}`,
-  sql`${activities.startedAt} < ${to}`,
+  // A local date at midnight, placed in the owner's zone: the instant their
+  // day starts.
+  sql`${activities.startedAt} >= ${from}::timestamp at time zone ${ownerZone}`,
+  sql`${activities.startedAt} < ${to}::timestamp at time zone ${ownerZone}`,
 ];
 
 /** The same window over rolled rows, which only remember their day string. */
@@ -86,14 +101,13 @@ async function rolledPlusLive<T extends { seconds: number }>(
 export function summaryFields(db: Db) {
   return {
     // Seconds of active time per category per day, for the whole days
-    // [from, to) in the server's time zone.
+    // [from, to) in the caller's time zone.
     // Each activity's whole activeSeconds lands on the day it started —
     // activities are short-lived (auto-closed after 15 min unfocused), so
     // midnight-spanning error is negligible for a dashboard.
     categorySummary: async (_source, args, ctx) => {
       const userId = requireUser(ctx);
       const { from, to } = parseRange(args);
-      const day = sql<string>`to_char(date_trunc('day', ${activities.startedAt}), 'YYYY-MM-DD')`;
       const rows = await rolledPlusLive(
         db
           .select({
@@ -105,6 +119,7 @@ export function summaryFields(db: Db) {
           })
           .from(summaries)
           .innerJoin(devices, eq(summaries.deviceId, devices.id))
+          .innerJoin(user, ownerJoin.user)
           .leftJoin(categories, eq(summaries.categoryId, categories.id))
           .where(
             and(
@@ -116,14 +131,15 @@ export function summaryFields(db: Db) {
           .groupBy(summaries.day, summaries.categoryId, categories.name, categories.color),
         db
           .select({
-            day,
+            day: dayOf,
             categoryId: activities.categoryId,
             name: categories.name,
             color: categories.color,
             seconds: sql<number>`sum(${activities.activeSeconds})::float`,
           })
           .from(activities)
-          .innerJoin(devices, eq(activities.deviceId, devices.id))
+          .innerJoin(devices, ownerJoin.device)
+          .innerJoin(user, ownerJoin.user)
           .leftJoin(categories, eq(activities.categoryId, categories.id))
           .where(
             and(
@@ -133,7 +149,7 @@ export function summaryFields(db: Db) {
               ...liveDayBounds(from, to),
             ),
           )
-          .groupBy(day, activities.categoryId, categories.name, categories.color),
+          .groupBy(dayOf, activities.categoryId, categories.name, categories.color),
         (row) => `${row.day}\n${row.categoryId ?? ''}`,
       );
       return rows.sort(
@@ -166,6 +182,7 @@ export function summaryFields(db: Db) {
           })
           .from(summaries)
           .innerJoin(devices, eq(summaries.deviceId, devices.id))
+          .innerJoin(user, ownerJoin.user)
           .leftJoin(categories, eq(summaries.categoryId, categories.id))
           .where(
             and(
@@ -191,7 +208,8 @@ export function summaryFields(db: Db) {
             seconds: sql<number>`sum(${activities.activeSeconds})::float`,
           })
           .from(activities)
-          .innerJoin(devices, eq(activities.deviceId, devices.id))
+          .innerJoin(devices, ownerJoin.device)
+          .innerJoin(user, ownerJoin.user)
           .leftJoin(categories, eq(activities.categoryId, categories.id))
           .where(
             and(
@@ -231,6 +249,7 @@ export function summaryFields(db: Db) {
           })
           .from(summaries)
           .innerJoin(devices, eq(summaries.deviceId, devices.id))
+          .innerJoin(user, ownerJoin.user)
           .where(and(eq(devices.userId, userId), ...summaryDayBounds(from, to)))
           .groupBy(summaries.deviceId, devices.name, devices.platform),
         db
@@ -241,7 +260,8 @@ export function summaryFields(db: Db) {
             seconds: sql<number>`sum(${activities.activeSeconds})::float`,
           })
           .from(activities)
-          .innerJoin(devices, eq(activities.deviceId, devices.id))
+          .innerJoin(devices, ownerJoin.device)
+          .innerJoin(user, ownerJoin.user)
           .where(
             and(
               eq(devices.userId, userId),

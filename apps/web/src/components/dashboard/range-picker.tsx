@@ -15,6 +15,8 @@ const PRESETS = [
 
 interface Props {
   range: DateRange;
+  /** The user's zone: "today" is today there, and the presets end after it. */
+  timeZone: string;
   onChange(range: DateRange): void;
 }
 
@@ -27,14 +29,14 @@ const shown = (range: DateRange): DateRange => ({ from: range.from, to: addDays(
 const stored = (draft: DateRange): DateRange => ({ from: draft.from, to: addDays(draft.to, 1) });
 
 /** Filters live in one row above the charts: presets first, custom behind them. */
-export function RangePicker({ range, onChange }: Props) {
+export function RangePicker({ range, timeZone, onChange }: Props) {
   const [draft, setDraft] = useState(() => shown(range));
   useEffect(() => setDraft(shown(range)), [range]);
 
   const dirty = draft.from !== range.from || stored(draft).to !== range.to;
   const ordered = draft.from <= draft.to;
   const activePreset = PRESETS.find((preset) => {
-    const candidate = rangeOfLastDays(preset.days);
+    const candidate = rangeOfLastDays(preset.days, timeZone);
     return candidate.from === range.from && candidate.to === range.to;
   });
 
@@ -45,7 +47,7 @@ export function RangePicker({ range, onChange }: Props) {
           <button
             key={preset.days}
             type="button"
-            onClick={() => onChange(rangeOfLastDays(preset.days))}
+            onClick={() => onChange(rangeOfLastDays(preset.days, timeZone))}
             className={cn(
               'rounded-md px-3 py-1 text-sm transition-colors',
               activePreset?.days === preset.days

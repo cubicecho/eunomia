@@ -25,6 +25,12 @@ export const user = pgTable('user', {
   image: text('image'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  // Ours, not better-auth's (it neither reads nor writes it). The IANA zone
+  // this user's days split in — summaries.day and every dashboard range. Null
+  // follows the server's session zone (TZ), so an install that never sets one
+  // behaves as before. Only ever written through setUserTimeZone, which
+  // re-buckets the history it can.
+  timeZone: text('time_zone'),
 });
 
 export const session = pgTable('session', {
@@ -353,7 +359,7 @@ export const focusSegments = pgTable(
   ],
 );
 
-// Precomputed aggregates: active seconds per (device, UTC day of start, app,
+// Precomputed aggregates: active seconds per (device, owner's day of start, app,
 // context, category), folded from closed activities by the rollup job so
 // dashboards read a few summary rows instead of every raw activity. Raw rows
 // are kept (marked rolledUp) for drill-down; summaries are the fast path and
@@ -365,8 +371,8 @@ export const summaries = pgTable(
     deviceId: text('device_id')
       .notNull()
       .references(() => devices.id, { onDelete: 'cascade' }),
-    // 'YYYY-MM-DD' of the activity's startedAt (server-timezone day, same
-    // date_trunc the live summary queries use).
+    // 'YYYY-MM-DD' of the activity's startedAt in the device owner's zone
+    // (rollup.ts dayOf — the same expression the live summary queries use).
     day: text('day').notNull(),
     app: text('app').notNull(),
     context: text('context'),

@@ -22,6 +22,7 @@ import { permissions, type Resolvers } from './permissions.ts';
 import { pingFields } from './ping-fields.ts';
 import { ruleFields } from './rule-fields.ts';
 import { summaryFields } from './summaries.ts';
+import { userFields, userQueryFields } from './user-fields.ts';
 
 /**
  * The hand-written half of the schema, as SDL.
@@ -105,7 +106,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
     Query: {
       ...summaryFields(db),
       ...apiKeyQueryFields(db),
-      me: (_source, _args, ctx) => ctx.userId ?? null,
+      ...userQueryFields(db),
     },
     Mutation: {
       ...authFields(auth),
@@ -115,6 +116,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
       ...ruleFields(db),
       ...mergeFields(db),
       ...pingFields(db),
+      ...userFields(db),
     },
   });
   return applyPermissions<Resolvers>(schema, permissions);
