@@ -40,6 +40,36 @@ describe('createSanitizer', () => {
     expect(sanitize(ping('keepass'))).toBeNull();
   });
 
+  it('keeps everything at the default capture level', () => {
+    expect(createSanitizer({ captureLevel: 'title' })(ping('firefox'))).toEqual(ping('firefox'));
+  });
+
+  it('strips the title but keeps the context at the context level', () => {
+    const sanitize = createSanitizer({ captureLevel: 'context' });
+    expect(sanitize(ping('firefox'))).toEqual({ ...ping('firefox'), title: null });
+  });
+
+  it('strips title and context at the app level', () => {
+    const sanitize = createSanitizer({ captureLevel: 'app' });
+    expect(sanitize(ping('firefox'))).toEqual({ ...ping('firefox'), title: null, context: null });
+  });
+
+  it('redacts a matching app below the context level', () => {
+    const sanitize = createSanitizer({ captureLevel: 'context', redactApps: ['firefox'] });
+    expect(sanitize(ping('firefox'))).toEqual({ ...ping('firefox'), title: null, context: null });
+    expect(sanitize(ping('code'))).toEqual({ ...ping('code'), title: null });
+  });
+
+  it('still drops ignored apps at the app level', () => {
+    const sanitize = createSanitizer({ captureLevel: 'app', ignoreApps: ['keepass'] });
+    expect(sanitize(ping('keepass'))).toBeNull();
+  });
+
+  it('treats an unknown capture level as the default', () => {
+    const sanitize = createSanitizer({ captureLevel: 'everything' as never });
+    expect(sanitize(ping('firefox'))).toEqual(ping('firefox'));
+  });
+
   it('never matches a null app', () => {
     const sanitize = createSanitizer({ ignoreApps: ['.*'] });
     expect(sanitize(ping(null))).toEqual(ping(null));

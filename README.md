@@ -25,7 +25,7 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 - `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in,
   per-category/per-day/per-app views, rules, entry merges, devices, API keys. Talks to the
   server through the generated GraphQL SDK in `packages/gql`.
-- `packages/agent` — agent core shared by every target: crash-safe outbox,
+- `packages/agent` — agent core shared by every target: append-only ping log,
   batch uploader, the usage-event → ping synthesizer, the config parser, and
   the shared provisioning flow.
 - `packages/gql` — nothing but graphql-codegen's output, regenerated from
@@ -168,35 +168,62 @@ default**. Per device:
   one you get whether the app is open or not.
 
 The floor everywhere is 10 seconds; nothing is lost at any interval — pings
-queue in the outbox until the next sync. The queue holds 50,000 pings (about a
-week of continuous use) before the oldest start falling off, so an outage has
-to be long indeed to cost anything.
+wait in the agent's ping log until the next sync.
+
+### Ping log
+
+Every ping an agent captures is appended to a daily JSONL file in its data
+directory (`pings/YYYY-MM-DD.jsonl`, UTC days, about 1 MB a day of continuous
+use), and uploading only moves a cursor (`pings/cursor.json`) — nothing is
+deleted when the server takes it. The log is a local record of what the agent
+captured, and an outage costs nothing unless it outlasts the retention window.
+
+Day files older than **30 days** are deleted, uploaded or not. Change it with
+`logRetentionDays` in the agent `config.json` (minimum 1). A build that still
+has an `outbox.jsonl` from before the log existed moves its queued pings into
+the log on first start.
 
 ### Privacy controls
 
 Sanitization is client-side and runs before a ping is queued, so filtered
-data never touches disk or the server. Two optional lists in the agent
-`config.json` (desktop userData dir; Android document dir), each holding
+data never touches disk or the server. All of it lives in the agent
+`config.json` (desktop userData dir; Android document dir). The lists hold
 case-insensitive regexes matched against the app identifier (executable name
 on desktop, package name on Android):
 
 ```json
 {
+  "captureLevel": "context",
   "ignoreApps": ["^keepassxc", "signal"],
   "redactApps": ["^firefox"]
 }
 ```
 
+- **`captureLevel`** — how much of every ping this device keeps:
+  - `"title"` (the default) — app, context and window title.
+  - `"context"` — app and context; the window title is stripped.
+  - `"app"` — app only; title and context are stripped.
+
+  "Context" here means what the agent reads itself, which today is the
+  browser site's hostname on Windows and macOS. Contexts your server's context
+  rules extract from window titles need the title, so they are lost at
+  `"context"`: the title never leaves the device for the server to match.
+  Category rules that match on titles stop matching for the same reason. The
+  level applies to pings recorded after the change; what is already in the
+  ping log keeps its detail.
 - **`ignoreApps`** — matching pings are dropped entirely; the time appears
   nowhere.
 - **`redactApps`** — the time still accrues to the app, but its window title
-  and context (browser site) are stripped before anything leaves the device.
+  and context (browser site) are stripped before anything leaves the device,
+  whatever the capture level.
 
 Invalid regexes are skipped with a console warning rather than blocking
-tracking. Independently of these lists, browser tracking only ever reports
-the site's hostname — full URLs never leave the machine. On Android there is
-no shell to edit `config.json` from, so the app edits both lists itself:
-**Privacy…** on the status screen, one pattern per line.
+tracking, and an unrecognized `captureLevel` means the default. Independently
+of these settings, browser tracking only ever reports the site's hostname —
+full URLs never leave the machine. On Android there is no shell to edit
+`config.json` from, so the app edits all three itself: **Privacy…** on the
+status screen (also on desktop). Desktop applies a change on save; Android on
+its next sync.
 
 Android adds a third control on the same screen, **Only apps you can open**
 (`launchableAppsOnly`, on unless set to `false`). The OS usage log records
@@ -219,7 +246,7 @@ npm run dist:win -w @eunomia/app     # release/eunomia-agent Setup *.exe
 Both export the agent UI (`expo export --platform web`), bundle the main
 process with esbuild, and cross-build from Linux (`dist:win` downloads the
 win32 `x-win` prebuild, which it skips when Windows is already the host). The Windows build is a one-click per-user NSIS installer — no
-admin prompt, and uninstalling keeps the outbox/config in AppData. It is
+admin prompt, and uninstalling keeps the ping log/config in AppData. It is
 unsigned, so SmartScreen will warn on first run ("More info" → "Run
 anyway"). Packaged agents **launch at login** once provisioned — an XDG
 autostart entry on Linux, a login item on Windows/macOS. It is on by default,
@@ -466,7 +493,7 @@ the `app` service's healthcheck; point any external monitor at it too.
 ### Backing up and starting over
 
 All state lives in the `pgdata` volume — the database is the only thing worth
-backing up (agents keep their own outbox and config locally).
+backing up (agents keep their own ping log and config locally).
 
 ```bash
 # back up: a single compressed SQL dump
