@@ -376,4 +376,83 @@ describe('authorization scoping', () => {
       expect(result.errors?.[0]?.extensions?.code).toBe('BAD_USER_INPUT');
     }
   });
+
+  it('lets only a signed-in user import, and only into their own account', async () => {
+    const importAs = (contextValue: Context, variables: Record<string, unknown>) =>
+      graphql({
+        schema,
+        source: `mutation ($source: ImportSource!, $records: [String!]!, $cursor: String, $target: ImportTarget, $done: Boolean) {
+          importChunk(source: $source, records: $records, cursor: $cursor, target: $target, done: $done) {
+            next accepted skipped pings restart deviceIds warnings
+          }
+        }`,
+        variableValues: variables,
+        contextValue,
+      });
+    const csv = ['Date,Time Spent (seconds),Activity', '2026-08-10,600,steam'];
+    const rescueTime = (target: Record<string, unknown>) => ({
+      source: 'RESCUETIME',
+      records: csv,
+      target,
+      done: true,
+    });
+
+    const anonymous = await importAs(asUser(null), rescueTime({ deviceId: 'device-1' }));
+    expect(anonymous.errors?.[0]?.message).toBe('Not authenticated');
+    // A key can record pings, but not write a history in wholesale.
+    for (const viaKey of [
+      { ...asUser('user-1'), keyId: 'key-1' },
+      { ...asUser('user-1'), keyId: 'key-1', deviceId: 'device-1' },
+    ] as Context[]) {
+      const refused = await importAs(viaKey, rescueTime({ deviceId: 'device-1' }));
+      expect(refused.errors?.[0]?.message).toBe('Not authenticated');
+    }
+
+    // Someone else's device is as unknown as one that doesn't exist.
+    const theirs = await importAs(asUser('user-1'), rescueTime({ deviceId: 'device-2' }));
+    expect(theirs.errors?.[0]?.message).toBe('Unknown device');
+    // Nor can a cursor carry the import there.
+    const forged = Buffer.from(
+      JSON.stringify({
+        v: 1,
+        source: 'RESCUETIME',
+        state: { deviceId: 'device-2', columns: null },
+      }),
+    ).toString('base64url');
+    const viaCursor = await importAs(asUser('user-1'), {
+      source: 'RESCUETIME',
+      records: csv,
+      cursor: forged,
+      done: true,
+    });
+    expect(viaCursor.errors?.[0]?.message).toBe('Unknown device');
+
+    const mine = await importAs(asUser('user-1'), rescueTime({ deviceId: 'device-1' }));
+    expect(mine.errors).toBeUndefined();
+    expect((mine.data as any).importChunk).toMatchObject({
+      next: null,
+      accepted: 1,
+      skipped: 0,
+      deviceIds: ['device-1'],
+    });
+    const summary = await data(
+      '{ appSummary(from: "2026-08-10", to: "2026-08-11") { app seconds } }',
+    );
+    expect(summary.appSummary).toEqual([{ app: 'steam', seconds: 600 }]);
+    const untouched = await data(
+      '{ appSummary(from: "2026-08-10", to: "2026-08-11") { app seconds } }',
+      'user-2',
+    );
+    expect(untouched.appSummary).toEqual([]);
+
+    for (const variables of [
+      { source: 'RESCUETIME', records: csv },
+      { source: 'RESCUETIME', records: csv, cursor: 'garbage' },
+      { source: 'BUNDLE', records: [], target: { deviceId: 'device-1' } },
+      { source: 'ACTIVITYWATCH', records: ['not json'], target: { deviceId: 'device-1' } },
+    ]) {
+      const result = await importAs(asUser('user-1'), variables);
+      expect(result.errors?.[0]?.extensions?.code).toBe('BAD_USER_INPUT');
+    }
+  });
 });

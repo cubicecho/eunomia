@@ -169,6 +169,30 @@ type Mutation {
   ): MergeRules!
   deleteMergeRule(id: String!): Boolean!
   applyMergeRules: Int!
+
+  """
+  Imports history from a file into the caller's own account, a chunk of records
+  per call — the mirror of `accountExport`. The client reads the file and sends
+  its records in order: call with no `cursor` (and, for ACTIVITYWATCH and
+  RESCUETIME, a `target`), then again with `cursor: next` and the next records,
+  passing `done: true` with the last of them, until `next` is null.
+
+  Each call is applied whole or not at all, so a failed call can be sent again
+  with the same records and cursor. Records that can't be read are skipped and
+  counted rather than failing the call. When `restart` comes back true the
+  client sends the file again from its first record, with the new cursor.
+  Session-only (see permissions.ts).
+  """
+  importChunk(
+    source: ImportSource!
+    "At most 5000 per call, each at most 64 KiB."
+    records: [String!]!
+    cursor: String
+    "Where the history goes. First call only, and not for BUNDLE."
+    target: ImportTarget
+    "No records follow these."
+    done: Boolean
+  ): ImportChunk!
 }
 
 extend schema {
@@ -300,6 +324,60 @@ enum ExportFormat {
   ACTIVITYWATCH
   "Daily totals as CSV: `day,device,category,app,context,seconds`."
   SUMMARIES_CSV
+}
+
+"What `importChunk` reads."
+enum ImportSource {
+  """
+  An account bundle from `accountExport(format: BUNDLE)`, one JSON line per
+  record. Restores the time zone (unless the caller has one), categories and
+  rules (matched to existing ones), and each device as a new device without
+  keys; activities are rebuilt from the ping log, and summaries are kept only
+  for days the log doesn't reach. Read twice — see `ImportChunk.restart`.
+  """
+  BUNDLE
+  """
+  ActivityWatch history: the client sends a `{"format":"activitywatch","afk":…}`
+  header, then the events of the window, AFK and web buckets it read from
+  aw-server's export as `{"type","timestamp","duration","data"}` records, sorted
+  by timestamp across buckets. Folded as pings into the target device.
+  """
+  ACTIVITYWATCH
+  """
+  A RescueTime Analytic Data export as CSV records, header first (Date, Time
+  Spent, Activity and optionally Document columns). Added to the target device
+  as daily totals — the file has no order within its intervals to rebuild
+  activities from.
+  """
+  RESCUETIME
+}
+
+"Where a single-device import writes: an existing device, or a new one."
+input ImportTarget {
+  "One of the caller's devices."
+  deviceId: String
+  "Or a device to create with this name…"
+  newDeviceName: String
+  "…on this platform: windows, macos, linux or android."
+  platform: String
+}
+
+"What one `importChunk` call did."
+type ImportChunk {
+  "Pass as `cursor` with the next records; null once the import is complete."
+  next: String
+  "Records applied (or already present)."
+  accepted: Int!
+  "Records passed over; `warnings` says why."
+  skipped: Int!
+  "Pings folded by this call."
+  pings: Int!
+  "Send the file again from its first record, with `next` as the cursor."
+  restart: Boolean!
+  "The devices the import has written into."
+  deviceIds: [String!]!
+  "Why records were skipped, one line per reason."
+  warnings: [String!]!
 }
 
 "One piece of an export file."

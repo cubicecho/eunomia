@@ -2,6 +2,7 @@ import { Globe } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { setTimeZone } from '@/api';
 import { ExportCard } from '@/components/export-card';
+import { ImportCard } from '@/components/import-card';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +13,7 @@ import { browserTimeZone } from '@/lib/format';
 import { useSession } from '@/session';
 
 // What the server keeps about the user rather than their data — the time zone
-// their days split in — and the way to take the data itself away.
+// their days split in — and the ways to take the data itself away and bring it back.
 
 /**
  * Every zone this browser can format dates in — the suggestions for the input.
@@ -113,6 +114,7 @@ export function SettingsView() {
       </Card>
       <StatusLine status={action.status} />
       <ExportCard />
+      <ImportCard />
     </div>
   );
 }
