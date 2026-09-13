@@ -2,7 +2,7 @@ import { File, Paths } from 'expo-file-system';
 
 // A released Android build has nowhere to print: logcat needs a cable and adb,
 // and the background sync runs when nobody is watching at all. Tee everything
-// the agent logs to a file next to its config and outbox, and let the app show
+// the agent logs to a file next to its config and ping log, and let the app show
 // it — the phone's answer to the desktop tray's "Show log file…".
 //
 // Truncates at a cap rather than rotating: this is a tail for "what happened

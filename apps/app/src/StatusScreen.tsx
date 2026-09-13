@@ -327,7 +327,7 @@ export function StatusScreen({
       <MenuItem label="View log…" detail="What the agent has been saying" onPress={onOpenLog} />
 
       <Text style={[ui.hint, styles.path]} selectable>
-        Outbox: {host.outboxPath}
+        Ping log: {host.pingLogPath}
       </Text>
     </Screen>
   );

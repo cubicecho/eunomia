@@ -12,7 +12,7 @@ import { Row, Screen, ui } from './ui.tsx';
 //
 // Sanitization runs before a ping is written (see @eunomia/agent's
 // createSanitizer, applied in sync.ts and in the desktop sampler), so anything
-// matched here never reaches the outbox on disk, let alone the server.
+// matched here never reaches the ping log on disk, let alone the server.
 
 const toLines = (patterns: string[] | undefined): string => (patterns ?? []).join('\n');
 

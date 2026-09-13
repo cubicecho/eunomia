@@ -95,8 +95,8 @@ export interface HostInfo {
   platform: string;
   /** Default device name offered at setup. */
   defaultDeviceName: string;
-  /** Where the queued pings live, shown the way the tray shows it. */
-  outboxPath: string;
+  /** The ping log's directory, shown the way the tray shows it. */
+  pingLogPath: string;
   logPath: string;
   /**
    * Env vars are supplying the server connection, so a config.json written

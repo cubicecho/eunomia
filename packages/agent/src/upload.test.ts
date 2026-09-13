@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type AgentConfig, GraphQLRequestError } from './api.ts';
-import { Outbox, type OutboxStore } from './outbox.ts';
+import { memoryLogStore } from './memory-store.ts';
+import { Outbox } from './outbox.ts';
 import type { Ping } from './ping.ts';
 import { classifyFailure, createUploader } from './upload.ts';
 
@@ -15,19 +16,6 @@ const ping = (n: number): Ping => ({
   context: null,
   idleSeconds: 0,
 });
-
-function memoryStore(): OutboxStore {
-  let contents: string | null = null;
-  return {
-    read: () => contents,
-    append: (data) => {
-      contents = (contents ?? '') + data;
-    },
-    write: (data) => {
-      contents = data;
-    },
-  };
-}
 
 const config: AgentConfig = { serverUrl: 'http://server.test', apiKey: 'k' };
 
@@ -84,7 +72,7 @@ describe('createUploader', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const outbox = new Outbox(memoryStore());
+    const outbox = new Outbox(memoryLogStore());
     outbox.pushMany([ping(1), ping(2)]);
     const uploader = createUploader(config, outbox);
     await uploader.flush();
@@ -106,7 +94,7 @@ describe('createUploader', () => {
     const fetchMock = respond({ data: { recordPings: 2 } });
     vi.stubGlobal('fetch', fetchMock);
 
-    const outbox = new Outbox(memoryStore());
+    const outbox = new Outbox(memoryLogStore());
     outbox.pushMany([ping(1), ping(2)]);
     await createUploader(config, outbox).flush();
 
@@ -120,7 +108,7 @@ describe('createUploader', () => {
   it('drains and clears the error once the server accepts again', async () => {
     vi.stubGlobal('fetch', respond({ data: { recordPings: 2 } }));
 
-    const outbox = new Outbox(memoryStore());
+    const outbox = new Outbox(memoryLogStore());
     outbox.pushMany([ping(1), ping(2)]);
     const uploader = createUploader(config, outbox);
     await uploader.flush();
@@ -136,7 +124,7 @@ describe('createUploader', () => {
     // the same batch went up forever and everything queued behind it.
     vi.stubGlobal('fetch', respond({ data: { recordPings: 0 } }));
 
-    const outbox = new Outbox(memoryStore());
+    const outbox = new Outbox(memoryLogStore());
     outbox.pushMany([ping(1), ping(2)]);
     const uploader = createUploader(config, outbox);
     await uploader.flush();
@@ -154,7 +142,7 @@ describe('createUploader', () => {
       }),
     );
 
-    const outbox = new Outbox(memoryStore());
+    const outbox = new Outbox(memoryLogStore());
     outbox.pushMany([ping(1)]);
     const uploader = createUploader(config, outbox);
     await uploader.flush();

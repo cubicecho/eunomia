@@ -25,7 +25,7 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 - `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in,
   per-category/per-day/per-app views, rules, entry merges, devices, API keys. Talks to the
   server through the generated GraphQL SDK in `packages/gql`.
-- `packages/agent` — agent core shared by every target: crash-safe outbox,
+- `packages/agent` — agent core shared by every target: append-only ping log,
   batch uploader, the usage-event → ping synthesizer, the config parser, and
   the shared provisioning flow.
 - `packages/gql` — nothing but graphql-codegen's output, regenerated from
@@ -168,9 +168,20 @@ default**. Per device:
   one you get whether the app is open or not.
 
 The floor everywhere is 10 seconds; nothing is lost at any interval — pings
-queue in the outbox until the next sync. The queue holds 50,000 pings (about a
-week of continuous use) before the oldest start falling off, so an outage has
-to be long indeed to cost anything.
+wait in the agent's ping log until the next sync.
+
+### Ping log
+
+Every ping an agent captures is appended to a daily JSONL file in its data
+directory (`pings/YYYY-MM-DD.jsonl`, UTC days, about 1 MB a day of continuous
+use), and uploading only moves a cursor (`pings/cursor.json`) — nothing is
+deleted when the server takes it. The log is a local record of what the agent
+captured, and an outage costs nothing unless it outlasts the retention window.
+
+Day files older than **30 days** are deleted, uploaded or not. Change it with
+`logRetentionDays` in the agent `config.json` (minimum 1). A build that still
+has an `outbox.jsonl` from before the log existed moves its queued pings into
+the log on first start.
 
 ### Privacy controls
 
@@ -219,7 +230,7 @@ npm run dist:win -w @eunomia/app     # release/eunomia-agent Setup *.exe
 Both export the agent UI (`expo export --platform web`), bundle the main
 process with esbuild, and cross-build from Linux (`dist:win` downloads the
 win32 `x-win` prebuild, which it skips when Windows is already the host). The Windows build is a one-click per-user NSIS installer — no
-admin prompt, and uninstalling keeps the outbox/config in AppData. It is
+admin prompt, and uninstalling keeps the ping log/config in AppData. It is
 unsigned, so SmartScreen will warn on first run ("More info" → "Run
 anyway"). Packaged agents **launch at login** once provisioned — an XDG
 autostart entry on Linux, a login item on Windows/macOS. It is on by default,
@@ -457,7 +468,7 @@ the `app` service's healthcheck; point any external monitor at it too.
 ### Backing up and starting over
 
 All state lives in the `pgdata` volume — the database is the only thing worth
-backing up (agents keep their own outbox and config locally).
+backing up (agents keep their own ping log and config locally).
 
 ```bash
 # back up: a single compressed SQL dump
