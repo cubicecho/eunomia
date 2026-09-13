@@ -13,6 +13,7 @@ import { ClockMark } from '@/components/clock-mark';
 import { DashboardView } from '@/components/dashboard/dashboard-view';
 import { DevicesView } from '@/components/devices-view';
 import { MergesView } from '@/components/merges-view';
+import { ReviewView } from '@/components/review-view';
 import { RulesView } from '@/components/rules-view';
 import { SettingsView } from '@/components/settings-view';
 import { SignIn } from '@/components/sign-in';
@@ -30,6 +31,7 @@ const EXPIRED = 'session expired — sign in again';
 
 const VIEWS = [
   { value: 'dashboard', label: 'Dashboard' },
+  { value: 'review', label: 'Review' },
   { value: 'rules', label: 'Categories & rules' },
   { value: 'merges', label: 'Merge entries' },
   { value: 'devices', label: 'Devices' },
@@ -120,6 +122,9 @@ export function App() {
 
           <TabsContent value="dashboard">
             <DashboardView />
+          </TabsContent>
+          <TabsContent value="review">
+            <ReviewView />
           </TabsContent>
           <TabsContent value="rules">
             <RulesView />

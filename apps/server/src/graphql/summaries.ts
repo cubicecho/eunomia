@@ -49,8 +49,12 @@ export function isCalendarDay(value: string): boolean {
  * halves then disagreed, and today's evening read as empty until the next
  * 15-minute rollup moved it across. Both halves read ownerZone, so every
  * query using these bounds joins the owner (ownerJoin).
+ *
+ * Exported with the two bounds below for assignEntry, which has to claim
+ * exactly the seconds these aggregates showed the review queue — the same
+ * window, cut the same way.
  */
-function parseRange(args: { from: string; to: string }): { from: SQL; to: SQL } {
+export function parseRange(args: { from: string; to: string }): { from: SQL; to: SQL } {
   const bound = (value: string): SQL => {
     if (CALENDAR_DAY.test(value)) {
       if (!isCalendarDay(value)) throw badInput('Invalid date range');

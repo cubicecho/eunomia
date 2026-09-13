@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { AppSummaryRow } from '@/api';
 import { UNCATEGORIZED_COLOR } from '@/lib/palette';
-import { appCategories, MAX_CONTEXTS_PER_APP, topApps, UNCATEGORIZED } from '@/lib/summary';
+import {
+  appCategories,
+  MAX_CONTEXTS_PER_APP,
+  topApps,
+  UNCATEGORIZED,
+  uncategorizedEntries,
+} from '@/lib/summary';
 
 const row = (
   app: string,
@@ -104,6 +110,23 @@ describe('appCategories', () => {
       { id: 'work', name: 'Work', color: '#3fb950', seconds: 1300 },
       { id: 'fun', name: 'Fun', color: '#d55181', seconds: 900 },
       { id: null, name: UNCATEGORIZED, color: UNCATEGORIZED_COLOR, seconds: 50 },
+    ]);
+  });
+});
+
+describe('uncategorizedEntries', () => {
+  it('lists only the uncategorized part of each entry, largest first', () => {
+    expect(
+      uncategorizedEntries([
+        row('firefox', 'github.com', 900, WORK),
+        row('firefox', 'github.com', 100),
+        row('firefox', null, 400),
+        row('slack', null, 200, FUN),
+        row('code', null, 0),
+      ]),
+    ).toEqual([
+      { app: 'firefox', context: null, seconds: 400 },
+      { app: 'firefox', context: 'github.com', seconds: 100 },
     ]);
   });
 });

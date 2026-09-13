@@ -1032,6 +1032,34 @@ type Mutation {
   applyCategoryRules: Int!
   applyMergeRules: Int!
   assignActivity(activityId: String!, categoryId: String): Activities!
+
+  """
+  Assigns every uncategorized second of one entry — an app, or one context
+  inside it — over a window, the way the review queue lists them (the
+  `categoryId: null` rows of `appSummary`). Time already in a category, by
+  hand or by rule, is left where it is.
+  
+  Rolled-up days move too, including ones whose raw activities have aged out.
+  The activities that are still stored become manual assignments, so rules
+  never move them back. Returns the seconds assigned.
+  """
+  assignEntry(
+    app: String!
+    categoryId: String!
+
+    """Null is the app's time with no context, not every context of the app."""
+    context: String
+
+    """
+    Start of the window, inclusive. A calendar date, `YYYY-MM-DD`, read in the server's time zone.
+    """
+    from: String!
+
+    """
+    End of the window, EXCLUSIVE — pass the day after the last one you want.
+    """
+    to: String!
+  ): Float!
   createApiKey(expiresInDays: Int, name: String!): ApiKeyIssued!
   createCategory(color: String, name: String!): Categories!
   createCategoryRule(appPattern: String, categoryId: String!, contextPattern: String, priority: Int, titlePattern: String): CategoryRules!
@@ -1106,6 +1134,9 @@ type Mutation {
   signIn(email: String!, password: String!): AuthSession!
   signOut: Boolean!
   signUp(email: String!, name: String!, password: String!): AuthSession!
+
+  """A whole replacement, like updateCategoryRule: a null color clears it."""
+  updateCategory(color: String, id: String!, name: String!): Categories!
   updateCategoryRule(appPattern: String, categoryId: String!, contextPattern: String, id: String!, priority: Int, titlePattern: String): CategoryRules!
   updateContextRule(appPattern: String, id: String!, priority: Int, titlePattern: String!): ContextRules!
   verifyMagicLink(token: String!): AuthSession!

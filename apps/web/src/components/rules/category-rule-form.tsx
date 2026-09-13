@@ -57,11 +57,14 @@ const blank = (field: Field): Condition => ({
   match: { mode: 'contains', value: '' },
 });
 
+/** A rule's patterns alone: a stored rule, or a new one with its conditions prefilled. */
+export type RulePatterns = Pick<CategoryRule, 'appPattern' | 'titlePattern' | 'contextPattern'>;
+
 /**
  * The rule's stored regexes, read back into the modes that wrote them — an edit
  * starts where the author left off rather than in raw-regex mode.
  */
-function seedConditions(rule: CategoryRule | undefined): Condition[] {
+function seedConditions(rule: RulePatterns | undefined): Condition[] {
   if (!rule) return [blank('app')];
   const stored: [Field, string | null][] = [
     ['app', rule.appPattern],
@@ -104,6 +107,11 @@ interface Props {
   samples: ActivitySample[];
   /** The rule being edited; omitted when writing a new one. */
   rule?: CategoryRule;
+  /**
+   * Conditions to start a NEW rule from — the review queue's "create rule from
+   * this". Ignored when editing, where the rule itself is the starting point.
+   */
+  draft?: RulePatterns;
   /** Called once the save lands — the dialog closes and the view reloads. */
   onSaved(): void;
 }
@@ -114,11 +122,11 @@ interface Props {
  * mutation so a rejected pattern is reported next to the field that caused it,
  * inside the dialog, with the draft still intact.
  */
-export function CategoryRuleForm({ categories, samples, rule, onSaved }: Props) {
+export function CategoryRuleForm({ categories, samples, rule, draft, onSaved }: Props) {
   const first = categories[0];
   const action = useAction();
   const [categoryId, setCategoryId] = useState(rule?.categoryId ?? (first ? first.id : ''));
-  const [conditions, setConditions] = useState<Condition[]>(() => seedConditions(rule));
+  const [conditions, setConditions] = useState<Condition[]>(() => seedConditions(rule ?? draft));
   const [priority, setPriority] = useState(String(rule?.priority ?? 0));
 
   const patterns = patternsOf(conditions);

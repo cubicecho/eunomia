@@ -239,6 +239,13 @@ mutation CreateCategory($name: String!, $color: String) {
   }
 }
 
+# A whole replacement: a null color clears it back to a palette slot.
+mutation UpdateCategory($id: String!, $name: String!, $color: String) {
+  updateCategory(id: $id, name: $name, color: $color) {
+    id
+  }
+}
+
 mutation DeleteCategory($id: String!) {
   deleteCategory(id: $id)
 }
@@ -313,6 +320,17 @@ mutation DeleteContextRule($id: String!) {
 }
 
 # Re-runs category rules over past activities; resolves to the number changed.
+# The review queue's assign: an entry's uncategorized time over the window.
+mutation AssignEntry(
+  $app: String!
+  $context: String
+  $categoryId: String!
+  $from: String!
+  $to: String!
+) {
+  assignEntry(app: $app, context: $context, categoryId: $categoryId, from: $from, to: $to)
+}
+
 mutation ApplyCategoryRules {
   applyCategoryRules
 }
