@@ -86,6 +86,7 @@ describe('mcp over http', () => {
       'context_rules',
       'device_summary',
       'devices',
+      'focus_segments',
       'me',
       'merge_rules',
     ]);

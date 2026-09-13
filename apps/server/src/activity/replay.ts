@@ -1,17 +1,26 @@
 import { and, asc, desc, eq, gte, isNotNull, isNull, lte, notExists, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Db } from '../db/client.ts';
-import { activities, type Device, devices, pings } from '../db/schema.ts';
+import {
+  activities,
+  type Device,
+  devices,
+  type FocusSegment,
+  focusSegments,
+  pings,
+} from '../db/schema.ts';
+import { focusStep } from './focus.ts';
 import { type Activity, CLOSE_AFTER_SECONDS, foldStep, lockDevice } from './fold.ts';
 import { type FoldRules, loadFoldRules, resolvePing } from './ingest.ts';
 import { readPings } from './ping-log.ts';
 import { dropEmptySummaries, rollupActivities, unrollActivities } from './rollup.ts';
 import { categorize } from './rules.ts';
 
-// Replay: rebuilding a device's activities and summaries from its raw ping log.
-// Live ingestion folds each ping once, as it arrives, and only forwards; replay
-// re-runs that same fold (foldStep, resolvePing, categorize — the very functions
-// ingestion uses) over the stored pings in capturedAt order. It's how a
+// Replay: rebuilding a device's activities, focus segments and summaries from
+// its raw ping log. Live ingestion folds each ping once, as it arrives, and only
+// forwards; replay re-runs that same fold (foldStep, focusStep, resolvePing,
+// categorize — the very functions ingestion uses) over the stored pings in
+// capturedAt order. It's how a
 // backfilled ping lands where it belongs, and how the derived rows are
 // recomputed after anything that changes them wholesale.
 
@@ -100,8 +109,9 @@ const assignmentKey = (a: Pick<Activity, 'app' | 'context' | 'startedAt'>): stri
   `${a.app}\n${a.context ?? '\0'}\n${a.startedAt.getTime()}`;
 
 /**
- * Rebuilds a device's activities and summaries from its raw ping log, from the
- * seam at or before `options.from` onwards, under the current rules.
+ * Rebuilds a device's activities, focus segments and summaries from its raw
+ * ping log, from the seam at or before `options.from` onwards, under the
+ * current rules.
  *
  * One transaction holding the device's fold lock: uploads from the device wait
  * for it (the agents retry), and nothing else can see a half-rebuilt history.
@@ -113,7 +123,8 @@ const assignmentKey = (a: Pick<Activity, 'app' | 'context' | 'startedAt'>): stri
  * - Manual category assignments carry over to the rebuilt activity with the
  *   same (app, context, startedAt); an activity the rebuild changed the start
  *   of loses its assignment and is categorized by the rules.
- * - Activity ids change: every rebuilt row is a new row.
+ * - Activity ids change: every rebuilt row is a new row. So do the ids of the
+ *   focus segments, which are rebuilt from the seam on along with them.
  *
  * Clears the device's pending replayFrom when this rebuild covered it.
  */
@@ -158,6 +169,12 @@ export async function replayDevice(
     for (const row of assigned) manual.set(assignmentKey(row), row.categoryId);
 
     await unrollActivities(tx, deviceId, from);
+    // The deleted activities' focus segments cascade with them. Nothing older
+    // has a segment past the seam — it was stale there, so it stopped accruing
+    // before it — but say it outright rather than lean on that.
+    await tx
+      .delete(focusSegments)
+      .where(and(eq(focusSegments.deviceId, deviceId), gte(focusSegments.startedAt, from)));
     await tx
       .delete(activities)
       .where(and(eq(activities.deviceId, deviceId), gte(activities.startedAt, from)));
@@ -170,12 +187,20 @@ export async function replayDevice(
 
     const open = new Map<string, Activity>();
     let closed: Activity[] = [];
+    // Segments are held with their activity while it is open — only an open
+    // activity's segments can still be extended or cut — and written after it.
+    const segments = new Map<string, FocusSegment[]>();
     let written = 0;
     let folded = 0;
     const flush = async (rows: Activity[]): Promise<void> => {
       for (let i = 0; i < rows.length; i += WRITE_CHUNK) {
         await tx.insert(activities).values(rows.slice(i, i + WRITE_CHUNK));
       }
+      const covering = rows.flatMap((row) => segments.get(row.id) ?? []);
+      for (let i = 0; i < covering.length; i += WRITE_CHUNK) {
+        await tx.insert(focusSegments).values(covering.slice(i, i + WRITE_CHUNK));
+      }
+      for (const row of rows) segments.delete(row.id);
       written += rows.length;
     };
 
@@ -201,6 +226,23 @@ export async function replayDevice(
           // As ingestion does: the rules run on every row a ping touches.
           const current = open.get(step.touched.id) ?? step.touched;
           open.set(current.id, categorize(rules.category, current));
+        }
+        const touching = [step.accrued?.activity.id, step.walkedBack?.activity.id];
+        const held = touching.flatMap((id) => (id ? (segments.get(id) ?? []) : []));
+        const focus = focusStep(held, step);
+        for (const segment of [...focus.update, ...(focus.insert ? [focus.insert] : [])]) {
+          const list = segments.get(segment.activityId) ?? [];
+          const at = list.findIndex((s) => s.id === segment.id);
+          if (at === -1) list.push(segment);
+          else list[at] = segment;
+          segments.set(segment.activityId, list);
+        }
+        for (const segment of focus.remove) {
+          const list = segments.get(segment.activityId)!;
+          list.splice(
+            list.findIndex((s) => s.id === segment.id),
+            1,
+          );
         }
       }
       if (closed.length >= WRITE_CHUNK) {

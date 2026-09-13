@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
-import { activities, devices, pings, summaries } from '../db/schema.ts';
+import { activities, devices, focusSegments, pings, summaries } from '../db/schema.ts';
 import { addSeconds } from './rollup.ts';
 
 /**
@@ -19,6 +19,10 @@ import { addSeconds } from './rollup.ts';
  * - Summaries. Their unique key starts with deviceId, so a row that already
  *   exists on the target for the same day/app/context/category collides. Those
  *   are added into the target's row and dropped; the rest re-point.
+ *
+ * Focus segments move with their activities. Unlike one device's, the merged
+ * segments can overlap in time — two machines used at once were two timelines,
+ * and folding them apart kept them that way.
  *
  * The raw pings move too, so the target's log is both devices' streams
  * interleaved. The derived rows are not rebuilt from it: the two histories
@@ -45,6 +49,11 @@ export async function mergeDeviceHistory(
       .set({ deviceId: targetId })
       .where(eq(activities.deviceId, sourceId))
       .returning({ id: activities.id });
+
+    await tx
+      .update(focusSegments)
+      .set({ deviceId: targetId })
+      .where(eq(focusSegments.deviceId, sourceId));
 
     const rows = await tx.select().from(summaries).where(eq(summaries.deviceId, sourceId));
     for (const row of rows) {

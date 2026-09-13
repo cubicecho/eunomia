@@ -1,7 +1,14 @@
 import { eq } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { activities, categories, categoryRules, devices, user } from '../src/db/schema.ts';
+import {
+  activities,
+  categories,
+  categoryRules,
+  devices,
+  focusSegments,
+  user,
+} from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
@@ -157,6 +164,51 @@ describe('authorization scoping', () => {
     expect(result.devices).toEqual([
       { id: 'device-1', activities: [{ id: 'act-2' }, { id: 'act-1' }] },
     ]);
+  });
+
+  it('scopes focus segments to the caller, through filters and relations alike', async () => {
+    const segment = (id: string, deviceId: string, activityId: string, minute: number) => ({
+      id,
+      deviceId,
+      activityId,
+      startedAt: new Date(Date.UTC(2026, 7, 17, 12, minute)),
+      endedAt: new Date(Date.UTC(2026, 7, 17, 12, minute + 1)),
+    });
+    await db
+      .insert(focusSegments)
+      .values([
+        segment('seg-2', 'device-1', 'act-2', 5),
+        segment('seg-1', 'device-1', 'act-1', 0),
+        segment('seg-theirs', 'device-2', 'act-theirs', 0),
+      ]);
+
+    // Oldest first by default: segments are read as a timeline.
+    const mine = await data('{ focusSegments { id activity { app } } }');
+    expect(mine.focusSegments).toEqual([
+      { id: 'seg-1', activity: { app: 'code' } },
+      { id: 'seg-2', activity: { app: 'firefox' } },
+    ]);
+    const theirs = await data('{ focusSegments { id } }', 'user-2');
+    expect(theirs.focusSegments).toEqual([{ id: 'seg-theirs' }]);
+
+    // The read a timeline makes: one device, one time range.
+    const ranged = await data(
+      '{ focusSegments(where: { deviceId: { eq: "device-1" }, startedAt: { gte: "2026-08-17T12:03:00Z" } }) { id } }',
+    );
+    expect(ranged.focusSegments).toEqual([{ id: 'seg-2' }]);
+
+    for (const where of [
+      '{ deviceId: { eq: "device-1" } }',
+      '{ device: { userId: { eq: "user-1" } } }',
+      '{ activity: { app: { eq: "code" } } }',
+    ]) {
+      const widened = await data(`{ focusSegments(where: ${where}) { id } }`, 'user-2');
+      expect(widened.focusSegments).toEqual([]);
+    }
+
+    expect((await run('{ focusSegments { id } }', null)).errors?.[0]?.message).toBe(
+      'Not authenticated',
+    );
   });
 
   it('rejects anonymous access to protected fields but not public ones', async () => {

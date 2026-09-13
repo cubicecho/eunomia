@@ -23,6 +23,7 @@ describe('graphql schema', () => {
       'contextRules',
       'deviceSummary',
       'devices',
+      'focusSegments',
       'me',
       'mergeRules',
     ]);

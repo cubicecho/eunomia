@@ -74,7 +74,7 @@ for a field the server dropped fails the build rather than the request.
 
 The server also answers the [Model Context Protocol](https://modelcontextprotocol.io/)
 on **`/mcp`**, beside `/graphql` on the same port. Every read in the schema
-becomes a tool — `activities`, `categories`, `devices`, the three summaries —
+becomes a tool — `activities`, `focusSegments`, `categories`, `devices`, the three summaries —
 described from the SDL, so an agent can discover the API and ask what you spent
 last week on. It is [`@cubicecho/graphql-mcp`](https://www.npmjs.com/package/@cubicecho/graphql-mcp)
 pointed at the same schema object `/graphql` serves, which is what makes the two
@@ -484,6 +484,16 @@ minute, and `replayDevice` rebuilds it on demand under the current rules.
 Budget roughly 250 bytes per ping with its index — at one ping every 10
 seconds, about 700 KB a day for a device used eight hours a day, so around
 65 MB per device at the default 90-day retention.
+
+The server also records **focus segments**: the stretches of time credited to
+one activity without a break, in the order they happened — the timeline that
+overlapping activities can't give. They are written by the same fold (and
+rebuilt by the same replay) as activities, so a segment's span agrees with the
+activity's `activeSeconds`: it breaks where a gap stops being credited, and is
+cut back to the moment input stopped when the user goes idle. Read them with
+`focusSegments`, narrowed by `deviceId` and `startedAt`; they come back oldest
+first and carry their `activity` (app, context, category). They are deleted
+with their activity, so the same retention applies.
 
 `GET /healthz` answers `{"ok":true,"version":"…"}` after a `select 1` against
 Postgres, and `503` (with the error) when that fails — so it reports the

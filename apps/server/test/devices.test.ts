@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createAuth, createAuthGateway, verifyApiKey } from '../src/auth.ts';
-import { activities, devices, pings, summaries, user } from '../src/db/schema.ts';
+import { activities, devices, focusSegments, pings, summaries, user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
@@ -191,6 +191,13 @@ describe('device management', () => {
         activeSeconds: 300,
       },
     ]);
+    await db.insert(focusSegments).values({
+      id: 'seg-closed',
+      deviceId: duplicate.deviceId,
+      activityId: 'act-closed',
+      startedAt: new Date('2026-08-10T09:00:00Z'),
+      endedAt: new Date('2026-08-10T09:10:00Z'),
+    });
     await db
       .update(devices)
       .set({ lastSeenAt: new Date('2026-08-10T10:05:00Z') })
@@ -208,6 +215,10 @@ describe('device management', () => {
     expect(moved.map((a) => ({ id: a.id, deviceId: a.deviceId }))).toEqual([
       { id: 'act-closed', deviceId: keeper.deviceId },
       { id: 'act-open', deviceId: keeper.deviceId },
+    ]);
+    // The timeline moves with them rather than cascading away with the device.
+    expect(await db.select().from(focusSegments)).toEqual([
+      expect.objectContaining({ id: 'seg-closed', deviceId: keeper.deviceId }),
     ]);
     // The open one is closed on the way over, so the keeper never ends up with
     // two open rows fold would fight over.

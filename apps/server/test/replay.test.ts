@@ -12,6 +12,7 @@ import {
   contextRules,
   type Device,
   devices,
+  focusSegments,
   mergeRules,
   summaries,
   user,
@@ -106,9 +107,24 @@ describe('replay', () => {
       .from(summaries)
       .where(eq(summaries.deviceId, id))
       .orderBy(asc(summaries.day), asc(summaries.app), asc(summaries.context));
+    // Segments by the activity they cover rather than its id, which a rebuild
+    // changes.
+    const segments = await db
+      .select({
+        app: activities.app,
+        context: activities.context,
+        activityStartedAt: activities.startedAt,
+        startedAt: focusSegments.startedAt,
+        endedAt: focusSegments.endedAt,
+      })
+      .from(focusSegments)
+      .innerJoin(activities, eq(activities.id, focusSegments.activityId))
+      .where(eq(focusSegments.deviceId, id))
+      .orderBy(asc(focusSegments.startedAt), asc(focusSegments.endedAt));
     return {
       activities: rows.map(({ id: _id, deviceId: _device, ...row }) => row),
       summaries: sums.map(({ id: _id, deviceId: _device, ...row }) => row),
+      segments,
     };
   };
 
@@ -118,6 +134,8 @@ describe('replay', () => {
   ) => {
     // Activities exactly — every second and timestamp a live fold wrote.
     expect(actual.activities).toEqual(expected.activities);
+    // Focus segments exactly too, in the order they happened.
+    expect(actual.segments).toEqual(expected.segments);
     // Summaries to float residue: a rebuild takes a sum back out and adds its
     // parts back in, which isn't bit-exact.
     expect(actual.summaries.map(({ seconds: _s, ...key }) => key)).toEqual(
@@ -193,6 +211,14 @@ describe('replay', () => {
     expect(live.activities.length).toBeGreaterThan(20);
     expect(live.activities.some((a) => a.closedAt === null)).toBe(true);
     expect(new Set(live.summaries.map((s) => s.day)).size).toBeGreaterThan(1);
+    // A real timeline: more switches than rows (returns to an open activity),
+    // never overlapping.
+    expect(live.segments.length).toBeGreaterThan(live.activities.length);
+    for (const [i, segment] of live.segments.entries()) {
+      expect(segment.endedAt >= segment.startedAt).toBe(true);
+      const next = live.segments[i + 1];
+      if (next) expect(next.startedAt >= segment.endedAt).toBe(true);
+    }
 
     const result = await replayDevice(db, 'device-1');
 
