@@ -1,12 +1,21 @@
 import {
   createSanitizer,
   createUploader,
+  isPausedAt,
   type Ping,
+  prunePauses,
   synthesizePings,
   type UsageEvent,
 } from '@eunomia/agent';
 import UsageEvents, { type NativeUsageEvent } from '../modules/usage-events';
-import { getOutbox, loadConfig, loadSyncState, writeSyncState } from './store.ts';
+import {
+  getOutbox,
+  loadConfig,
+  loadPauses,
+  loadSyncState,
+  writePauses,
+  writeSyncState,
+} from './store.ts';
 
 // One sync pass: read the OS usage log since the last checkpoint, synthesize
 // the pings a live agent would have emitted (shared logic in @eunomia/agent),
@@ -106,12 +115,18 @@ async function syncOnce(): Promise<SyncResult> {
     .map(toUsageEvent)
     .filter((e): e is UsageEvent => e !== null);
   const { pings, state: synth } = synthesizePings(state.synth, events, now);
+  const pauses = loadPauses();
   // Privacy rules apply before pings ever hit disk (see @eunomia/agent).
   const sanitize = createSanitizer(config ?? {});
   // On by default, and by omission: an install predating the setting means a
   // user who has never been asked, and the noise is worth more gone than kept.
   const appsOnly = config?.launchableAppsOnly !== false;
   const clean = pings
+    // Off the record first, before anything else looks at the ping: a paused
+    // stretch is dropped whole, its apps never sanitized, labelled or logged.
+    // Synthesis still ran across it so the state machine stays in step with
+    // the usage log; only its output is thrown away. The server sees a gap.
+    .filter((ping) => !isPausedAt(pauses, Date.parse(ping.capturedAt)))
     .map(sanitize)
     .filter((p): p is Ping => p !== null)
     // Dropped after synthesis rather than before it, so the launcher's minutes
@@ -127,6 +142,10 @@ async function syncOnce(): Promise<SyncResult> {
   // the reverse order would silently drop the window.
   outbox.pushMany(clean);
   writeSyncState({ checkpoint: now, synth });
+  // Windows over by the checkpoint have done their job. Re-read rather than
+  // reusing `pauses`: the status screen may have paused or resumed while the
+  // usage log was being read, and that write must not be lost.
+  writePauses(prunePauses(loadPauses(), now));
 
   let uploadError: string | null = null;
   if (config) {

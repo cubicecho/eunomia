@@ -20,6 +20,7 @@ const info: HostInfo = {
     revealLog: true,
     updates: false,
     externalDashboard: true,
+    pause: true,
   },
   version: '0.1.0',
   platform: 'linux',
@@ -86,7 +87,7 @@ describe('createElectronHost', () => {
     }
   });
 
-  it('carries the arguments of the two methods that take any', async () => {
+  it('carries the arguments of the methods that take any', async () => {
     const { bridge, calls } = fakeBridge();
     globalThis.eunomia = bridge;
     const host = await createElectronHost();
@@ -95,10 +96,14 @@ describe('createElectronHost', () => {
     calls.length = 0;
     await host.saveConfig(config);
     await host.setAutostart?.(true);
+    await host.pause?.(30 * 60_000);
+    await host.pause?.(null);
 
     expect(calls).toEqual([
       ['saveConfig', [config]],
       ['setAutostart', [true]],
+      ['pause', [30 * 60_000]],
+      ['pause', [null]],
     ]);
   });
 

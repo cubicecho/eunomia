@@ -7,6 +7,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, Button, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import type { AgentHost, BackgroundState, KeepAliveState, SyncSummary } from './host/index.ts';
+import { PauseCard } from './PauseCard.tsx';
 import { MenuItem, Row, Screen, ui } from './ui.tsx';
 import { UpdateRow } from './updates.tsx';
 
@@ -199,6 +200,8 @@ export function StatusScreen({
           />
         </View>
       )}
+
+      {capabilities.pause ? <PauseCard host={host} /> : null}
 
       <Row label="Device">{config.deviceName ?? 'this device'}</Row>
       <Row label="Uploading to">{config.serverUrl}</Row>

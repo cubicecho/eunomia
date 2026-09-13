@@ -39,6 +39,9 @@ interface Harness {
   status(): SamplerStatus;
   /** Overwritten per test to change what the OS reports. */
   read: () => Sample;
+  /** Whether the user has paused recording. */
+  paused: boolean;
+  reads: number;
 }
 
 function harness(options: { ignoreApps?: string[]; context?: string | null } = {}): Harness {
@@ -48,6 +51,8 @@ function harness(options: { ignoreApps?: string[]; context?: string | null } = {
   const state: Harness = {
     outbox,
     read: () => sample(),
+    paused: false,
+    reads: 0,
     contextReads: 0,
     pings: () => outbox.peek(1000),
     run: () => {},
@@ -55,7 +60,11 @@ function harness(options: { ignoreApps?: string[]; context?: string | null } = {
   };
   const sampler = createSampler({
     outbox,
-    read: () => state.read(),
+    read: () => {
+      state.reads++;
+      return state.read();
+    },
+    paused: () => state.paused,
     readContext: () => {
       state.contextReads++;
       return options.context ?? null;
@@ -109,6 +118,27 @@ describe('sampler emission', () => {
     h.read = () => sample({ app: 'code' });
     h.run(1);
     expect(h.pings().map((p) => p.app)).toEqual(['code']);
+  });
+});
+
+describe('sampler pause', () => {
+  it('reads and emits nothing while paused, and pings at once on resume', () => {
+    const h = harness();
+    h.run(1);
+    h.paused = true;
+    const readsBefore = h.reads;
+    h.run(PING_INTERVAL_MS / CHECK_INTERVAL_MS + 5);
+    // Off the record means the foreground is never even looked at — not only
+    // that its pings are dropped.
+    expect(h.reads).toBe(readsBefore);
+    expect(h.pings()).toHaveLength(1);
+
+    // Same app and title as before the pause, yet it pings right away: that
+    // ping is what closes the gap on the server.
+    h.paused = false;
+    h.run(1);
+    expect(h.pings()).toHaveLength(2);
+    expect(h.status().healthy).toBe(true);
   });
 });
 
