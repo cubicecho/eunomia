@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -9,8 +9,8 @@ import {
   createUploader,
   currentPause,
   isPausedAt,
+  logRetentionDays,
   Outbox,
-  type OutboxStore,
   PAUSE_CHOICES,
   type PauseWindow,
   parsePauses,
@@ -36,6 +36,7 @@ import {
 } from './config.ts';
 import { type AgentRuntime, registerAgentIpc } from './ipc.ts';
 import { readLog, resetLog, startFileLog } from './log.ts';
+import { pingLogDir, pingLogStore } from './ping-log.ts';
 import { registerAgentScheme, serveAgentBundle } from './protocol.ts';
 import { TRAY_ICON_16, TRAY_ICON_32 } from './tray-icon.ts';
 import { agentWindow, openAgentWindow } from './window.ts';
@@ -86,14 +87,6 @@ function browserContext(win: ReturnType<typeof activeWindow>, app: string | null
   } catch {
     return null; // unsupported browser build, or a non-URL address bar value
   }
-}
-
-function fileStore(path: string): OutboxStore {
-  return {
-    read: () => (existsSync(path) ? readFileSync(path, 'utf8') : null),
-    append: (data) => appendFileSync(path, data),
-    write: (data) => writeFileSync(path, data),
-  };
 }
 
 let tray: Tray | undefined;
@@ -152,14 +145,14 @@ function loadPauses(path: string): PauseWindow[] {
  */
 const TRAY_REFRESH_MS = 30_000;
 
-// One agent per machine. A second instance would sample in parallel and share
-// outbox.jsonl, where the outbox's compacting rewrite silently erases
-// whatever the other instance queued in the meantime — so the second launch
-// surfaces the first one's window and exits. `--provision` is a one-shot CLI
-// that writes config.json and quits, so it stays allowed alongside the tray.
+// One agent per machine. A second instance would sample in parallel into the
+// same ping log, interleaving appends and racing the upload cursor — so the
+// second launch surfaces the first one's window and exits. `--provision` is a
+// one-shot CLI that writes config.json and quits, so it stays allowed
+// alongside the tray.
 // Pinned rather than inherited from package.json's name, which is now the
 // Expo app's. userData is derived from it, so leaving it to the default would
-// relocate an existing dev install's config.json, outbox and log — and the
+// relocate an existing dev install's config.json, ping log and log — and the
 // packaged builds set it through electron-builder's productName anyway.
 app.setName('eunomia-agent');
 
@@ -206,8 +199,12 @@ app.whenReady().then(async () => {
   }
 
   const logPath = startFileLog(dataDir);
-  const outbox = new Outbox(fileStore(join(dataDir, 'outbox.jsonl')));
   let config = loadConfig(dataDir);
+  // Config first: opening the log prunes it, and a longer configured retention
+  // must not lose to the default on the way in.
+  const outbox = new Outbox(pingLogStore(dataDir), {
+    retentionDays: logRetentionDays(config ?? {}),
+  });
   let sanitize = createSanitizer(config ?? {});
 
   // Off the record (@eunomia/agent pause.ts). Kept on disk so a pause "until
@@ -254,6 +251,7 @@ app.whenReady().then(async () => {
     writeAgentConfig(dataDir, next);
     config = next;
     sanitize = createSanitizer(next);
+    outbox.setRetentionDays(logRetentionDays(next));
     syncAutostart(next.autostart !== false);
     startUploads(next);
     refreshTrayMenu();
@@ -363,7 +361,7 @@ app.whenReady().then(async () => {
                 click: () => pauseFor(choice.ms),
               })),
             },
-        { label: `Outbox: ${join(dataDir, 'outbox.jsonl')}`, enabled: false },
+        { label: `Ping log: ${pingLogDir(dataDir)}`, enabled: false },
         ...(config
           ? [
               { label: 'Open Dashboard', click: () => void showDashboard() },
@@ -419,7 +417,7 @@ app.whenReady().then(async () => {
       version: agentVersion(),
       platform: platformName(),
       defaultDeviceName: hostname(),
-      outboxPath: join(dataDir, 'outbox.jsonl'),
+      pingLogPath: pingLogDir(dataDir),
       logPath,
       envConfigured: isEnvConfigured(),
     }),

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Outbox, type OutboxStore } from './outbox.ts';
+import { memoryLogStore } from './memory-store.ts';
+import { Outbox } from './outbox.ts';
 import { PING_INTERVAL_MS, type Ping } from './ping.ts';
 import { createSanitizer } from './privacy.ts';
 import {
@@ -9,19 +10,6 @@ import {
   type Sample,
   type SamplerStatus,
 } from './sampler.ts';
-
-function memoryStore(): OutboxStore {
-  let contents: string | null = null;
-  return {
-    read: () => contents,
-    append: (data) => {
-      contents = (contents ?? '') + data;
-    },
-    write: (data) => {
-      contents = data;
-    },
-  };
-}
 
 const sample = (over: Partial<Sample> = {}): Sample => ({
   app: 'firefox',
@@ -45,7 +33,7 @@ interface Harness {
 }
 
 function harness(options: { ignoreApps?: string[]; context?: string | null } = {}): Harness {
-  const outbox = new Outbox(memoryStore());
+  const outbox = new Outbox(memoryLogStore());
   const sanitize = createSanitizer({ ignoreApps: options.ignoreApps });
   let clock = 1_700_000_000_000;
   const state: Harness = {
@@ -191,7 +179,7 @@ describe('sampler health', () => {
 describe('sampler stalls', () => {
   it('reports a gap the timer swallowed', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const outbox = new Outbox(memoryStore());
+    const outbox = new Outbox(memoryLogStore());
     let clock = 0;
     const sampler = createSampler({
       outbox,
@@ -208,7 +196,7 @@ describe('sampler stalls', () => {
 
   it('summarizes each period, so the log can answer "was it tracking then?"', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const outbox = new Outbox(memoryStore());
+    const outbox = new Outbox(memoryLogStore());
     let clock = 0;
     const sampler = createSampler({
       outbox,

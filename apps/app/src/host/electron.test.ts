@@ -25,7 +25,7 @@ const info: HostInfo = {
   version: '0.1.0',
   platform: 'linux',
   defaultDeviceName: 'desk',
-  outboxPath: '/data/outbox',
+  pingLogPath: '/data/pings',
   logPath: '/data/agent.log',
   envConfigured: false,
 };

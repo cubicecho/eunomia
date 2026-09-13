@@ -28,7 +28,7 @@ export function createUnsupportedHost(): AgentHost {
     version: null,
     platform: 'linux',
     defaultDeviceName: 'this browser',
-    outboxPath: '',
+    pingLogPath: '',
     logPath: '',
     envConfigured: false,
     loadConfig: async () => null,

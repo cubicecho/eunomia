@@ -12,7 +12,7 @@ import {
   getOutbox,
   loadConfig,
   loadPauses,
-  outboxPath,
+  pingLogPath,
   writeConfig,
   writePauses,
 } from '../store.ts';
@@ -26,7 +26,7 @@ function pauseState(): PauseState {
 
 // The Android shell: the app IS the agent, so every call here is a local one.
 // Persistence is the document directory, mirroring the desktop agent's
-// userData layout — config.json, outbox.jsonl, sync-state.json, agent.log.
+// userData layout — config.json, pings/, sync-state.json, agent.log.
 
 export function createAndroidHost(): AgentHost {
   // Idempotent, and the first thing the foreground does: a released build has
@@ -50,7 +50,7 @@ export function createAndroidHost(): AgentHost {
     version: Application.nativeApplicationVersion,
     platform: 'android',
     defaultDeviceName: `${Application.applicationName ?? 'eunomia'} phone`,
-    outboxPath: outboxPath(),
+    pingLogPath: pingLogPath(),
     logPath: logPath(),
     // Nothing on a phone supplies the connection from an environment.
     envConfigured: false,

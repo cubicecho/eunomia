@@ -17,8 +17,9 @@ const configPath = (dataDir: string): string => join(dataDir, 'config.json');
 /**
  * Env vars win; otherwise config.json in userData:
  * {"serverUrl": ..., "apiKey": ..., "syncIntervalSeconds"?: ...,
- *  "ignoreApps"?: [regex...], "redactApps"?: [regex...], "autostart"?: bool,
- *  "deviceId"?: ..., "deviceName"?: ...}.
+ *  "ignoreApps"?: [regex...], "redactApps"?: [regex...],
+ *  "captureLevel"?: "app" | "context" | "title", "autostart"?: bool,
+ *  "logRetentionDays"?: number, "deviceId"?: ..., "deviceName"?: ...}.
  * EUNOMIA_SYNC_INTERVAL_SECONDS overrides the interval in either case.
  */
 export function loadConfig(dataDir: string): StoredConfig | null {
@@ -48,16 +49,20 @@ function envConfig(): AgentConfig | null {
 
 /**
  * Env vars supply the server connection, not the whole config: launch at login
- * is this machine's choice, made in the UI, so it still applies when they do.
+ * and how much ping log to keep are this machine's choices, so they still apply
+ * when they do.
  */
 function withLocalPrefs(config: AgentConfig, dataDir: string): StoredConfig {
   const raw = readRaw(dataDir);
   if (raw === null) return config;
   try {
-    const parsed = JSON.parse(raw) as { autostart?: unknown };
-    return typeof parsed.autostart === 'boolean'
-      ? { ...config, autostart: parsed.autostart }
-      : config;
+    const parsed = JSON.parse(raw) as { autostart?: unknown; logRetentionDays?: unknown };
+    const prefs: StoredConfig = { ...config };
+    if (typeof parsed.autostart === 'boolean') prefs.autostart = parsed.autostart;
+    if (typeof parsed.logRetentionDays === 'number') {
+      prefs.logRetentionDays = parsed.logRetentionDays;
+    }
+    return prefs;
   } catch {
     return config;
   }
