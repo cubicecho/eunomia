@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
-import { activities, summaries } from '../db/schema.ts';
+import { activities, devices, pings, summaries } from '../db/schema.ts';
 import { addSeconds } from './rollup.ts';
 
 /**
@@ -19,6 +19,13 @@ import { addSeconds } from './rollup.ts';
  * - Summaries. Their unique key starts with deviceId, so a row that already
  *   exists on the target for the same day/app/context/category collides. Those
  *   are added into the target's row and dropped; the rest re-point.
+ *
+ * The raw pings move too, so the target's log is both devices' streams
+ * interleaved. The derived rows are not rebuilt from it: the two histories
+ * were folded apart and stay that way unless a replay is asked for, or a ping
+ * lands behind the merged log's head and schedules one. The target's log is
+ * complete only from the later of the two pingLogFroms, and anything either
+ * had pending is still pending.
  *
  * Returns how many activities moved.
  */
@@ -53,6 +60,23 @@ export async function mergeDeviceHistory(
         row.seconds,
       );
       await tx.delete(summaries).where(eq(summaries.id, row.id));
+    }
+
+    // seq is a global identity, so re-pointed rows can't collide with the
+    // target's on the primary key.
+    await tx.update(pings).set({ deviceId: targetId }).where(eq(pings.deviceId, sourceId));
+    const [source] = await tx.select().from(devices).where(eq(devices.id, sourceId));
+    if (source) {
+      // greatest() and least() skip nulls, which is the right answer for both:
+      // a log complete since its first ping defers to the other side's bound,
+      // and nothing pending on one side leaves the other's pending as is.
+      await tx
+        .update(devices)
+        .set({
+          pingLogFrom: sql`greatest(${devices.pingLogFrom}, ${source.pingLogFrom?.toISOString() ?? null}::timestamptz)`,
+          replayFrom: sql`least(${devices.replayFrom}, ${source.replayFrom?.toISOString() ?? null}::timestamptz)`,
+        })
+        .where(eq(devices.id, targetId));
     }
 
     return moved.length;

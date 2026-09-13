@@ -71,9 +71,9 @@ const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
  * same reason — a local date can step backwards when the timezone changes.
  *
  * Delivery is at-least-once: the cursor is persisted after the server takes a
- * batch, so a crash in between re-sends it. That is a no-op server-side, since
- * foldPing accrues nothing for a ping at or before the device's last recorded
- * one.
+ * batch, so a crash in between re-sends it. That is a no-op server-side: the
+ * server's raw ping log drops a ping identical to one it already stored,
+ * before anything folds it.
  */
 export class Outbox {
   // No TS parameter properties: electron runs this file with strip-only

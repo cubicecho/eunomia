@@ -1,9 +1,7 @@
 import type { MutationResolvers, PingInput } from '@eunomia/gql/resolvers';
 import { eq } from 'drizzle-orm';
-import { type ContextRule, extractContext, loadContextRules } from '../activity/context.ts';
-import { type Activity, foldPing, lockDevice } from '../activity/fold.ts';
-import { loadMergeRules, type MergeRule, mergeEntry } from '../activity/merge-rules.ts';
-import { applyRules, type CategoryRule, loadRules } from '../activity/rules.ts';
+import { ingestPings } from '../activity/ingest.ts';
+import type { RawPing } from '../activity/ping-log.ts';
 import type { Db } from '../db/client.ts';
 import { devices } from '../db/schema.ts';
 import { badInput } from '../errors.ts';
@@ -90,76 +88,17 @@ async function touchLastSeen(db: Db, device: Device): Promise<void> {
 }
 
 /**
- * Folds a batch of pings into the device's activities, in order, inside one
- * transaction holding the device's fold lock.
- *
- * The lock is what makes a retried upload safe: a batch either lands whole or
- * not at all, and no other upload from the same device interleaves with it.
- * The rules — both kinds — are loaded once for the batch rather than once per
- * ping, which is the difference between 3 queries and 101 for a 50-ping flush.
- *
- * Returns the activities the batch touched, in ping order, with nulls for the
- * pings that touched nothing (idle, or no detectable app).
+ * The raw pings a batch stores: the agent's fields, with capturedAt parsed and
+ * clamped. Recording, folding and categorizing happen in ingestPings.
  */
-async function foldBatch(
-  db: Db,
-  device: Device,
-  pings: PingInput[],
-  capturedAts: Date[],
-): Promise<(Activity | null)[]> {
-  const [contextRules, categoryRules, mergeRules] = await Promise.all([
-    loadContextRules(db, device.userId),
-    loadRules(db, device.userId),
-    loadMergeRules(db, device.userId),
-  ]);
-  return db.transaction(async (tx) => {
-    await lockDevice(tx, device.id);
-    const touched: (Activity | null)[] = [];
-    for (const [i, ping] of pings.entries()) {
-      touched.push(
-        await foldOne(
-          tx,
-          device.id,
-          ping,
-          capturedAts[i]!,
-          contextRules,
-          categoryRules,
-          mergeRules,
-        ),
-      );
-    }
-    return touched;
-  });
-}
-
-async function foldOne(
-  tx: Db,
-  deviceId: string,
-  ping: PingInput,
-  capturedAt: Date,
-  contextRules: ContextRule[],
-  categoryRules: CategoryRule[],
-  mergeRules: MergeRule[],
-): Promise<Activity | null> {
-  const context =
-    ping.context ?? extractContext(contextRules, ping.app ?? null, ping.title ?? null);
-  // Merges apply to the FINAL fold key, so after context extraction and to
-  // both halves of it: the user merged what the dashboard showed them, which
-  // is the (app, context) pair, not the raw app the agent reported.
-  const entry = ping.app
-    ? mergeEntry(mergeRules, { app: ping.app, context })
-    : { app: null, context };
-  const activity = await foldPing(tx, deviceId, {
-    capturedAt,
-    app: entry.app,
+function toRawPings(pings: PingInput[], capturedAts: Date[]): RawPing[] {
+  return pings.map((ping, i) => ({
+    capturedAt: capturedAts[i]!,
+    app: ping.app ?? null,
     title: ping.title ?? null,
-    context: entry.context,
+    context: ping.context ?? null,
     idleSeconds: ping.idleSeconds,
-  });
-  if (!activity) return null;
-  // Lazy auto-categorization: every ping re-evaluates the touched row, so new
-  // rows, title churn, and rule changes all converge here.
-  return applyRules(tx, categoryRules, activity);
+  }));
 }
 
 export function pingFields(db: Db) {
@@ -169,13 +108,14 @@ export function pingFields(db: Db) {
       const device = await resolveDevice(db, ctx, args.deviceId);
       const [capturedAt] = parseCapturedAt([args]);
       await touchLastSeen(db, device);
-      const [activity] = await foldBatch(db, device, [args], [capturedAt!]);
+      const [activity] = await ingestPings(db, device, toRawPings([args], [capturedAt!]));
       return activity ?? null;
     },
     // The agents' upload path: one round trip, one transaction, one fold lock.
     // Returns how many pings accrued to an activity — the rest were idle or
     // had no detectable app, which is a legitimate whole batch and not a
-    // failure. All-or-nothing, so a retried batch can't double-count.
+    // failure. All-or-nothing, and a retried batch's pings are recognised as
+    // already logged, so a retry can't double-count.
     recordPings: async (_source, args, ctx) => {
       const device = await resolveDevice(db, ctx, args.deviceId);
       if (args.pings.length > MAX_BATCH) {
@@ -184,7 +124,7 @@ export function pingFields(db: Db) {
       const capturedAts = parseCapturedAt(args.pings);
       if (args.pings.length === 0) return 0;
       await touchLastSeen(db, device);
-      const touched = await foldBatch(db, device, args.pings, capturedAts);
+      const touched = await ingestPings(db, device, toRawPings(args.pings, capturedAts));
       return touched.filter((activity) => activity !== null).length;
     },
   } satisfies MutationResolvers;

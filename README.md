@@ -476,6 +476,15 @@ is per-activity detail: window titles, and the ability to re-categorize an
 individual old activity. Rows that haven't been rolled up yet are never
 deleted at any age.
 
+Every accepted ping is also kept raw, in the `pings` table, pruned on the
+same `ACTIVITY_RETENTION_DAYS`. Activities and summaries are derived from it:
+when an agent uploads pings older than ones already counted (a late flush of
+its queue), the server rebuilds that device's history from the log within a
+minute, and `replayDevice` rebuilds it on demand under the current rules.
+Budget roughly 250 bytes per ping with its index — at one ping every 10
+seconds, about 700 KB a day for a device used eight hours a day, so around
+65 MB per device at the default 90-day retention.
+
 `GET /healthz` answers `{"ok":true,"version":"…"}` after a `select 1` against
 Postgres, and `503` (with the error) when that fails — so it reports the
 outage that matters instead of just "the process is up". Compose uses it as

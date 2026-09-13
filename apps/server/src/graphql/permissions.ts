@@ -98,6 +98,10 @@ export const permissions = {
     renameDevice: authenticated,
     rotateDeviceKey: authenticated,
     mergeDevice: authenticated,
+    // Session-only: a rebuild rewrites a device's whole derived history and
+    // holds its fold lock while it does. Something a human asks for, not
+    // something a leaked key should be able to loop.
+    replayDevice: sessionAuthenticated,
     deleteDevice: authenticated,
     // Credentials are issued and withdrawn by a human at the dashboard, never
     // by something already holding a credential.

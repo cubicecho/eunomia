@@ -46,6 +46,7 @@ describe('graphql schema', () => {
       'registerDevice',
       'renameApiKey',
       'renameDevice',
+      'replayDevice',
       'requestMagicLink',
       'revokeApiKey',
       'rotateDeviceKey',
@@ -73,7 +74,9 @@ describe('graphql schema', () => {
       'id',
       'lastSeenAt',
       'name',
+      'pingLogFrom',
       'platform',
+      'replayFrom',
       'summaries',
       'userId',
     ]);
