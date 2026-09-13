@@ -1,11 +1,12 @@
-import type { StoredConfig } from '@eunomia/agent';
+import { type CaptureLevel, DEFAULT_CAPTURE_LEVEL, type StoredConfig } from '@eunomia/agent';
 import { useState } from 'react';
-import { Button, Switch, Text, TextInput, View } from 'react-native';
+import { Button, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import type { AgentHost } from './host/index.ts';
 import { Row, Screen, ui } from './ui.tsx';
 
-// Privacy rules — the ignoreApps/redactApps both agents read out of
-// config.json, edited here rather than in a text editor nobody has on a phone.
+// Privacy rules — the captureLevel and ignoreApps/redactApps both agents read
+// out of config.json, edited here rather than in a text editor nobody has on a
+// phone.
 // Patterns are case-insensitive regexes matched against the app identifier: the
 // Android package name (com.example.app), or the desktop executable (firefox),
 // never the label the launcher or the dashboard shows.
@@ -22,6 +23,26 @@ const toPatterns = (text: string): string[] =>
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
 
+const LEVELS: { level: CaptureLevel; label: string; detail: string }[] = [
+  {
+    level: 'title',
+    label: 'App, context and window title',
+    detail: 'Everything this device can read.',
+  },
+  {
+    level: 'context',
+    label: 'App and context',
+    detail:
+      'Window titles stay on this device. Only a context the agent reads itself is kept — the ' +
+      'browser site, on Windows and macOS — so contexts your rules pull out of titles are lost.',
+  },
+  {
+    level: 'app',
+    label: 'App only',
+    detail: 'Time per app, and nothing about what was open in it.',
+  },
+];
+
 interface Props {
   host: AgentHost;
   config: StoredConfig;
@@ -32,6 +53,7 @@ interface Props {
 export function PrivacyScreen({ host, config, onConfigChange, onBack }: Props) {
   const [ignore, setIgnore] = useState(() => toLines(config.ignoreApps));
   const [redact, setRedact] = useState(() => toLines(config.redactApps));
+  const [level, setLevel] = useState(config.captureLevel ?? DEFAULT_CAPTURE_LEVEL);
   // Absent means on — see sync.ts.
   const [appsOnly, setAppsOnly] = useState(config.launchableAppsOnly !== false);
   const [saved, setSaved] = useState(false);
@@ -47,6 +69,7 @@ export function PrivacyScreen({ host, config, onConfigChange, onBack }: Props) {
       ...config,
       ignoreApps: toPatterns(ignore),
       redactApps: toPatterns(redact),
+      captureLevel: level,
     };
     if (launchableApplies) next.launchableAppsOnly = appsOnly;
     setError('');
@@ -65,6 +88,33 @@ export function PrivacyScreen({ host, config, onConfigChange, onBack }: Props) {
       subtitle="Applied on this device, before anything is stored or uploaded."
       onBack={onBack}
     >
+      <Text style={ui.label}>Detail captured</Text>
+      {LEVELS.map((option) => {
+        const selected = option.level === level;
+        return (
+          <Pressable
+            key={option.level}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: selected }}
+            onPress={() => {
+              setLevel(option.level);
+              setSaved(false);
+            }}
+            style={({ pressed }) => [styles.option, pressed && ui.menuItemPressed]}
+          >
+            <Text style={[styles.optionLabel, selected && styles.selected]}>
+              {selected ? '● ' : '○ '}
+              {option.label}
+            </Text>
+            <Text style={ui.menuDetail}>{option.detail}</Text>
+          </Pressable>
+        );
+      })}
+      <Text style={ui.hint}>
+        Applies to every app from the next ping on. Pings already in the ping log keep the detail
+        they were recorded with, and rules that match on titles stop matching once none are sent.
+      </Text>
+
       {launchableApplies ? (
         <>
           <Row label="Only apps you can open">
@@ -128,3 +178,13 @@ export function PrivacyScreen({ host, config, onConfigChange, onBack }: Props) {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  option: {
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#ccc',
+  },
+  optionLabel: { fontSize: 16 },
+  selected: { color: '#4f6ef7', fontWeight: '600' },
+});

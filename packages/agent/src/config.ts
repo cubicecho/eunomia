@@ -1,4 +1,5 @@
 import type { AgentConfig } from './api.ts';
+import { type CaptureLevel, isCaptureLevel } from './privacy.ts';
 
 // The on-disk agent config, parsed and serialized. Pure data — no IO, no node,
 // no electron, no react-native. Every shell reads the same `config.json` shape
@@ -37,6 +38,8 @@ export interface StoredConfig extends AgentConfig {
   ignoreApps?: string[];
   /** Privacy: matching apps keep their time but lose title and context. */
   redactApps?: string[];
+  /** Privacy: how much of every ping is kept — see CaptureLevel. */
+  captureLevel?: CaptureLevel;
 }
 
 const isStringArray = (value: unknown): value is string[] =>
@@ -81,6 +84,9 @@ export function parseConfig(raw: unknown): StoredConfig | null {
   }
   if (isStringArray(parsed.ignoreApps)) config.ignoreApps = parsed.ignoreApps;
   if (isStringArray(parsed.redactApps)) config.redactApps = parsed.redactApps;
+  // An unrecognized level is dropped and so means full detail — the same way
+  // an invalid privacy pattern is skipped rather than applied.
+  if (isCaptureLevel(parsed.captureLevel)) config.captureLevel = parsed.captureLevel;
   return config;
 }
 
