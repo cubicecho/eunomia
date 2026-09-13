@@ -1,6 +1,7 @@
 import {
   createSanitizer,
   createUploader,
+  logRetentionDays,
   type Ping,
   synthesizePings,
   type UsageEvent,
@@ -10,7 +11,8 @@ import { getOutbox, loadConfig, loadSyncState, writeSyncState } from './store.ts
 
 // One sync pass: read the OS usage log since the last checkpoint, synthesize
 // the pings a live agent would have emitted (shared logic in @eunomia/agent),
-// persist them to the outbox, then try to drain the outbox to the server.
+// append them to the ping log, then try to drain the outbox (the log's upload
+// cursor) to the server.
 // Safe to run offline or unprovisioned — pings just accumulate locally.
 
 export interface SyncResult {
@@ -101,6 +103,8 @@ async function syncOnce(): Promise<SyncResult> {
   const state = loadSyncState();
   const config = loadConfig();
   const now = Date.now();
+  // Each pass re-reads config.json, so a retention edit applies on the next sync.
+  outbox.setRetentionDays(logRetentionDays(config ?? {}));
 
   const events = UsageEvents.queryEvents(state.checkpoint, now)
     .map(toUsageEvent)

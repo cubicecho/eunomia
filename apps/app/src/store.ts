@@ -1,17 +1,19 @@
 import {
   initialSynthState,
+  logRetentionDays,
   Outbox,
-  type OutboxStore,
+  type PingLogStore,
   parseConfigText,
   type StoredConfig,
   type SynthState,
   serializeConfig,
 } from '@eunomia/agent';
-import { File, Paths } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 
 // Document-directory persistence, mirroring the desktop agent's userData
-// layout: config.json (server + device API key), outbox.jsonl (crash-safe
-// pending pings), sync-state.json (checkpoint the synthesizer resumes from).
+// layout: config.json (server + device API key), pings/ (the append-only ping
+// log and its upload cursor), sync-state.json (checkpoint the synthesizer
+// resumes from).
 
 // The File is resolved per call rather than once at construction: this module
 // is bundled for the web and Electron targets too (the agent UI is shared),
@@ -60,7 +62,10 @@ export interface SyncState {
   synth: SynthState;
 }
 
-const OUTBOX_FILE = 'outbox.jsonl';
+/** Where older builds queued pings; migrated into the ping log on first open. */
+const LEGACY_OUTBOX_FILE = 'outbox.jsonl';
+const PING_LOG_DIR = 'pings';
+const LOG_SUFFIX = '.jsonl';
 
 const syncStateFile = jsonFile<SyncState>('sync-state.json');
 
@@ -77,24 +82,62 @@ export function writeSyncState(state: SyncState): void {
   syncStateFile.write(state);
 }
 
-/** Where the queued pings live — shown in the app the way the tray shows it. */
-export function outboxPath(): string {
-  return new File(Paths.document, OUTBOX_FILE).uri;
+/** The ping log's directory — shown in the app the way the tray shows it. */
+export function pingLogPath(): string {
+  return new Directory(Paths.document, PING_LOG_DIR).uri;
 }
 
-export function outboxStore(): OutboxStore {
-  const file = new File(Paths.document, OUTBOX_FILE);
+export function pingLogStore(): PingLogStore {
+  const dir = new Directory(Paths.document, PING_LOG_DIR);
+  const dayFile = (day: string) => new File(dir, `${day}${LOG_SUFFIX}`);
+  const cursorFile = new File(dir, 'cursor.json');
+  const legacyFile = new File(Paths.document, LEGACY_OUTBOX_FILE);
+  const ensureDir = () => {
+    if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
+  };
+  const readIfExists = (file: File) => (file.exists ? file.textSync() : null);
+
   return {
-    read: () => (file.exists ? file.textSync() : null),
-    append: (data) => file.write(data, { append: true }),
-    write: (data) => file.write(data),
+    days: () =>
+      dir.exists
+        ? dir
+            .list()
+            .filter((entry): entry is File => entry instanceof File)
+            .map((file) => file.name)
+            .filter((name) => name.endsWith(LOG_SUFFIX))
+            .map((name) => name.slice(0, -LOG_SUFFIX.length))
+        : [],
+    read: (day) => readIfExists(dayFile(day)),
+    append: (day, data) => {
+      ensureDir();
+      dayFile(day).write(data, { append: true });
+    },
+    remove: (day) => {
+      const file = dayFile(day);
+      if (file.exists) file.delete();
+    },
+    readCursor: () => readIfExists(cursorFile),
+    // Temp file moved over the real one: a crash mid-write leaves the old
+    // cursor whole rather than a torn one that sends the log back to the start.
+    writeCursor: (data) => {
+      ensureDir();
+      const temp = new File(dir, 'cursor.json.tmp');
+      temp.write(data);
+      temp.moveSync(cursorFile, { overwrite: true });
+    },
+    readLegacyOutbox: () => readIfExists(legacyFile),
+    removeLegacyOutbox: () => {
+      if (legacyFile.exists) legacyFile.delete();
+    },
   };
 }
 
 let outbox: Outbox | undefined;
 
-/** Lazy singleton so foreground and background syncs share one queue. */
+/** Lazy singleton so foreground and background syncs share one log and cursor. */
 export function getOutbox(): Outbox {
-  outbox ??= new Outbox(outboxStore());
+  // The configured retention from the first open: opening prunes, and a longer
+  // setting must not lose to the default on the way in.
+  outbox ??= new Outbox(pingLogStore(), { retentionDays: logRetentionDays(loadConfig() ?? {}) });
   return outbox;
 }

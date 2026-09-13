@@ -34,8 +34,10 @@ describe('parseConfig', () => {
       keepAlive: false,
       launchableAppsOnly: true,
       syncIntervalSeconds: 900,
+      logRetentionDays: 90,
       ignoreApps: ['keepass'],
       redactApps: ['firefox'],
+      captureLevel: 'context',
     };
     expect(parseConfig(full)).toEqual(full);
   });
@@ -47,8 +49,10 @@ describe('parseConfig', () => {
         deviceId: 7,
         autostart: 'yes',
         syncIntervalSeconds: '900',
+        logRetentionDays: '90',
         ignoreApps: ['ok', 3],
         redactApps: 'firefox',
+        captureLevel: 'everything',
       }),
     ).toEqual(connected);
   });

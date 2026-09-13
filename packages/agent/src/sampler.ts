@@ -152,7 +152,7 @@ export function createSampler(deps: SamplerDeps): Sampler {
         if (!changed && at - last.at < PING_INTERVAL_MS) return;
 
         // Sanitized before it exists anywhere: ignored and redacted data never
-        // reaches the outbox file, let alone the server.
+        // reaches the ping log, let alone the server.
         const ping: Ping | null = deps.sanitize()({
           capturedAt: new Date(at).toISOString(),
           app: sample.app,

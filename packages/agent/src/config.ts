@@ -1,4 +1,5 @@
 import type { AgentConfig } from './api.ts';
+import { type CaptureLevel, isCaptureLevel } from './privacy.ts';
 
 // The on-disk agent config, parsed and serialized. Pure data — no IO, no node,
 // no electron, no react-native. Every shell reads the same `config.json` shape
@@ -28,10 +29,17 @@ export interface StoredConfig extends AgentConfig {
    * calls a foreground activity. Defaults to on.
    */
   launchableAppsOnly?: boolean;
+  /**
+   * Days of ping log kept on the device (see Outbox). Past it the oldest day
+   * files are deleted, sent or not. Default DEFAULT_LOG_RETENTION_DAYS.
+   */
+  logRetentionDays?: number;
   /** Privacy: pings from a matching app are dropped entirely. */
   ignoreApps?: string[];
   /** Privacy: matching apps keep their time but lose title and context. */
   redactApps?: string[];
+  /** Privacy: how much of every ping is kept — see CaptureLevel. */
+  captureLevel?: CaptureLevel;
 }
 
 const isStringArray = (value: unknown): value is string[] =>
@@ -71,8 +79,14 @@ export function parseConfig(raw: unknown): StoredConfig | null {
   if (typeof parsed.syncIntervalSeconds === 'number') {
     config.syncIntervalSeconds = parsed.syncIntervalSeconds;
   }
+  if (typeof parsed.logRetentionDays === 'number') {
+    config.logRetentionDays = parsed.logRetentionDays;
+  }
   if (isStringArray(parsed.ignoreApps)) config.ignoreApps = parsed.ignoreApps;
   if (isStringArray(parsed.redactApps)) config.redactApps = parsed.redactApps;
+  // An unrecognized level is dropped and so means full detail — the same way
+  // an invalid privacy pattern is skipped rather than applied.
+  if (isCaptureLevel(parsed.captureLevel)) config.captureLevel = parsed.captureLevel;
   return config;
 }
 
