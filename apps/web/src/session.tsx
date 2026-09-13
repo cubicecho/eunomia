@@ -21,7 +21,14 @@ export interface Session {
 
 const SessionContext = createContext<Session>({
   expire: () => {},
-  me: { id: '', timeZone: null, effectiveTimeZone: browserTimeZone() },
+  me: {
+    id: '',
+    email: '',
+    timeZone: null,
+    effectiveTimeZone: browserTimeZone(),
+    retentionDays: null,
+    effectiveRetentionDays: null,
+  },
   setMe: () => {},
 });
 

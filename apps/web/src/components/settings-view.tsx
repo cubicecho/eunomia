@@ -1,8 +1,12 @@
 import { Globe } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { setTimeZone } from '@/api';
 import { ExportCard } from '@/components/export-card';
 import { ImportCard } from '@/components/import-card';
+import { DeleteAccountCard } from '@/components/privacy/delete-account-card';
+import { DeleteRangeCard } from '@/components/privacy/delete-range-card';
+import { PurgeAppCard } from '@/components/privacy/purge-app-card';
+import { RetentionCard } from '@/components/privacy/retention-card';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,7 +17,10 @@ import { browserTimeZone } from '@/lib/format';
 import { useSession } from '@/session';
 
 // What the server keeps about the user rather than their data — the time zone
-// their days split in — and the ways to take the data itself away and bring it back.
+// their days split in — the ways to take the data itself away and bring it
+// back, and the ways to get rid of it: how long it's kept, a range, an app, or
+// the whole account. Every one of those deletes goes through a confirmation
+// dialog, and the server takes them from a signed-in session only.
 
 /**
  * Every zone this browser can format dates in — the suggestions for the input.
@@ -34,6 +41,7 @@ export function SettingsView() {
   // Prefilled with this browser's zone until the user has chosen one: the
   // likeliest answer, one click from saved.
   const [draft, setDraft] = useState(me.timeZone ?? browser);
+  const exportRef = useRef<HTMLDivElement>(null);
   useEffect(() => setDraft(me.timeZone ?? browser), [me.timeZone, browser]);
 
   const trimmed = draft.trim();
@@ -113,8 +121,35 @@ export function SettingsView() {
         </CardContent>
       </Card>
       <StatusLine status={action.status} />
-      <ExportCard />
+      <div ref={exportRef} className="scroll-mt-6">
+        <ExportCard />
+      </div>
       <ImportCard />
+      <section className="flex flex-col gap-4" aria-labelledby="data-privacy">
+        <div className="flex flex-col gap-1 pt-4">
+          <h2 id="data-privacy" className="text-lg font-semibold tracking-tight">
+            Data &amp; privacy
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            Deleting here is permanent: there is no undo and no backup to restore from.{' '}
+            <button
+              type="button"
+              className="text-foreground underline underline-offset-4"
+              onClick={() => exportRef.current?.scrollIntoView({ behavior: 'smooth' })}
+            >
+              Export
+            </button>{' '}
+            anything you might want first. To keep something from being recorded at all, pause the
+            agent (its tray menu or status screen) or add the app to its ignored apps.
+          </p>
+        </div>
+        <RetentionCard />
+        <DeleteRangeCard />
+        <PurgeAppCard />
+        <DeleteAccountCard
+          onExport={() => exportRef.current?.scrollIntoView({ behavior: 'smooth' })}
+        />
+      </section>
     </div>
   );
 }

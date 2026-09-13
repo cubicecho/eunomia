@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { addDays, dayIn, daysInRange, rangeOfLastDays, shortDay } from '@/lib/format';
+import {
+  addDays,
+  dayIn,
+  daysInRange,
+  instantIn,
+  localIn,
+  rangeOfLastDays,
+  shortDay,
+} from '@/lib/format';
 
 describe('dayIn', () => {
   it("is the day in the user's zone, whatever the browser's is", () => {
@@ -36,5 +44,31 @@ describe('calendar arithmetic', () => {
   it('labels a date by the date, not by an instant', () => {
     expect(shortDay('2026-08-10')).toMatch(/10/);
     expect(shortDay('garbage')).toBe('garbage');
+  });
+});
+
+describe('instantIn / localIn', () => {
+  it("reads a wall-clock time in the user's zone, not the browser's", () => {
+    expect(instantIn('2026-08-11T09:30', 'Asia/Tokyo').toISOString()).toBe(
+      '2026-08-11T00:30:00.000Z',
+    );
+    expect(instantIn('2026-08-11', 'America/Chicago').toISOString()).toBe(
+      '2026-08-11T05:00:00.000Z',
+    );
+    expect(localIn(new Date('2026-08-11T00:30:00Z'), 'Asia/Tokyo')).toBe('2026-08-11T09:30');
+    expect(Number.isNaN(instantIn('yesterday', 'UTC').getTime())).toBe(true);
+  });
+
+  it('lands on the right side of a DST change', () => {
+    // US clocks go back at 02:00 on 2026-11-01: midnight is still CDT (-5),
+    // noon is CST (-6).
+    expect(instantIn('2026-11-01', 'America/Chicago').toISOString()).toBe(
+      '2026-11-01T05:00:00.000Z',
+    );
+    expect(instantIn('2026-11-01T12:00', 'America/Chicago').toISOString()).toBe(
+      '2026-11-01T18:00:00.000Z',
+    );
+    const round = new Date('2026-03-08T15:00:00Z');
+    expect(instantIn(localIn(round, 'America/Chicago'), 'America/Chicago')).toEqual(round);
   });
 });
