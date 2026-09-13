@@ -14,6 +14,7 @@ describe('graphql schema', () => {
     const schema = createSchema(db as never, stubAuthGateway());
 
     expect(Object.keys(schema.getQueryType()?.getFields() ?? {}).sort()).toEqual([
+      'accountExport',
       'activities',
       'apiKeys',
       'appSummary',

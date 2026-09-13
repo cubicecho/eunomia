@@ -83,7 +83,9 @@ surfaces provably the same API rather than two that are meant to agree.
 **Reads only.** Mutations would become tools just as happily, but this schema's
 mutations are the login flow, device registration and ingestion — an agent that
 could call them would be minting credentials, not reading data. Drop
-`includeMutations: false` in `apps/server/src/mcp.ts` if you want them.
+`includeMutations: false` in `apps/server/src/mcp.ts` if you want them. One
+read is left out too: `accountExport`, a file download that would only flood an
+agent's context (and is session-only anyway).
 
 **It authenticates exactly like `/graphql`**, through the same function: an
 API key in `x-api-key`, or a session in `Authorization: Bearer`. An anonymous
@@ -411,6 +413,43 @@ which.
 The **Merge entries** tab drives all of this — every recorded entry with its
 total, and a merge on each.
 
+### Exporting your data
+
+The dashboard's **Settings** tab downloads your account as files, in three
+formats:
+
+- **Everything** — `eunomia-export-<date>.jsonl.gz`: gzipped JSON Lines, a
+  `{"format":"eunomia-export","version":1,…}` header, then one record per line
+  tagged with `type`: `profile` (with the zone your days split in), `device`,
+  `category`, `categoryRule`, `contextRule`, `mergeRule`, `summary`,
+  `activity`, `focusSegment`, `ping`, in that order, and a closing
+  `{"type":"end","counts":{…}}` (missing means the file was cut short). It
+  never contains API keys, sessions or any other credential — the export
+  doesn't read those tables at all. Always the whole account.
+- **ActivityWatch buckets** — the raw ping log in a date range, as
+  aw-server's export JSON: an `aw-watcher-window_<device>` and an
+  `aw-watcher-afk_<device>` bucket per device, for ActivityWatch's
+  **Import** page. Events use the same 30-second gap and 2-minute idle rules
+  the server folds time with. ActivityWatch refuses to import a bucket whose
+  id it already has, so a device named like the ActivityWatch host's own
+  hostname won't import alongside that host's buckets.
+- **Daily totals (CSV)** — `day,device,category,app,context,seconds` for a
+  date range, days in your zone, uncategorized time with an empty category.
+
+The same files come from GraphQL, one chunk per call — call
+`accountExport(format:, from:, to:)`, append `data`, and call again with
+`cursor: next` until `next` is null:
+
+```graphql
+query { accountExport(format: SUMMARIES_CSV, from: "2026-08-01", to: "2026-09-01") { data rows next } }
+```
+
+It is session-only: an API key can't export, so a leaked one can't walk off
+with every window title you've ever had (and so it isn't an
+[MCP](#mcp-for-ai-agents) tool either). The chunks are not a snapshot — rows
+written while an export runs may or may not be in it. There is no import yet;
+for a server-level backup see [Backing up](#backing-up-and-starting-over).
+
 ## Self-hosting
 
 ```bash
@@ -508,7 +547,9 @@ the `app` service's healthcheck; point any external monitor at it too.
 ### Backing up and starting over
 
 All state lives in the `pgdata` volume — the database is the only thing worth
-backing up (agents keep their own ping log and config locally).
+backing up (agents keep their own ping log and config locally). A dump is every
+account at once, restorable only into this server; to take one user's data
+elsewhere, [export it](#exporting-your-data) instead.
 
 ```bash
 # back up: a single compressed SQL dump

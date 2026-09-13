@@ -26,6 +26,17 @@ const deviceFilter = (column: AnyPgColumn, deviceId: string | null | undefined) 
 const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
+ * Whether `value` is a real 'YYYY-MM-DD' date. Round-tripped because Date is
+ * lenient: it reads 02-31 as March 3rd, where Postgres would refuse the cast
+ * and fail the request instead.
+ */
+export function isCalendarDay(value: string): boolean {
+  if (!CALENDAR_DAY.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+/**
  * Whole-day window [from, to) as calendar dates in the CALLER's time zone
  * (their own, or the server's when they never set one — rollup.ts ownerZone),
  * which is the zone rollup buckets their summaries.day into. A bare
@@ -42,12 +53,7 @@ const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
 function parseRange(args: { from: string; to: string }): { from: SQL; to: SQL } {
   const bound = (value: string): SQL => {
     if (CALENDAR_DAY.test(value)) {
-      // Round-tripped because Date is lenient: it reads 02-31 as March 3rd,
-      // where Postgres would refuse the cast and fail the request instead.
-      const date = new Date(`${value}T00:00:00Z`);
-      if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-        throw badInput('Invalid date range');
-      }
+      if (!isCalendarDay(value)) throw badInput('Invalid date range');
       return sql`${value}::date`;
     }
     if (Number.isNaN(new Date(value).getTime())) throw badInput('Invalid date range');
@@ -57,7 +63,7 @@ function parseRange(args: { from: string; to: string }): { from: SQL; to: SQL } 
 }
 
 /** The window over raw activity rows — the not-yet-rolled-up half. */
-const liveDayBounds = (from: SQL, to: SQL) => [
+export const liveDayBounds = (from: SQL, to: SQL) => [
   // A local date at midnight, placed in the owner's zone: the instant their
   // day starts.
   sql`${activities.startedAt} >= ${from}::timestamp at time zone ${ownerZone}`,
@@ -65,13 +71,16 @@ const liveDayBounds = (from: SQL, to: SQL) => [
 ];
 
 /** The same window over rolled rows, which only remember their day string. */
-const summaryDayBounds = (from: SQL, to: SQL) => [
+export const summaryDayBounds = (from: SQL, to: SQL) => [
   sql`${summaries.day} >= to_char(${from}, 'YYYY-MM-DD')`,
   sql`${summaries.day} < to_char(${to}, 'YYYY-MM-DD')`,
 ];
 
 /** Merges rolled and live aggregate rows sharing a key, summing seconds. */
-function mergeSummaries<T extends { seconds: number }>(rows: T[], keyOf: (row: T) => string): T[] {
+export function mergeSummaries<T extends { seconds: number }>(
+  rows: T[],
+  keyOf: (row: T) => string,
+): T[] {
   const merged = new Map<string, T>();
   for (const row of rows) {
     const existing = merged.get(keyOf(row));

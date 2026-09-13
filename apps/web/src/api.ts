@@ -5,6 +5,7 @@
 // views branch on.
 
 import {
+  type AccountExportQueryVariables,
   type ApiKeysQuery,
   type AppSummaryQuery,
   type CategoriesQuery,
@@ -22,6 +23,7 @@ import {
   type RecentActivitiesQuery,
   type Requester,
 } from '@eunomia/gql/web';
+import type { DateRange } from '@/lib/format';
 
 const TOKEN_KEY = 'eunomia.token';
 
@@ -125,6 +127,33 @@ export const fetchMe = (): Promise<Me | null> => sdk.Me().then((d) => d.me ?? nu
  */
 export const setTimeZone = (timeZone: string | null): Promise<Me> =>
   sdk.SetTimeZone({ timeZone }).then((d) => d.setTimeZone);
+
+/** Which file `exportFile` writes: the whole-account bundle, ActivityWatch buckets, or daily CSV. */
+export type ExportFormat = AccountExportQueryVariables['format'];
+
+/**
+ * Yields an export file a chunk at a time, following the server's cursor until
+ * it says the file is done. A generator rather than one big string so the
+ * caller can write each piece out as it arrives and count progress.
+ *
+ * `range` only for the formats that take one (not BUNDLE).
+ */
+export async function* exportFile(
+  format: ExportFormat,
+  range: DateRange | null = null,
+): AsyncGenerator<{ data: string; rows: number }> {
+  let cursor: string | null = null;
+  do {
+    const { accountExport: chunk } = await sdk.AccountExport({
+      format,
+      from: range?.from,
+      to: range?.to,
+      cursor,
+    });
+    yield { data: chunk.data, rows: chunk.rows };
+    cursor = chunk.next ?? null;
+  } while (cursor !== null);
+}
 
 /** deviceId null = every device the user owns, folded together. */
 export const fetchSummary = (

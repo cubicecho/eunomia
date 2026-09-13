@@ -332,4 +332,48 @@ describe('authorization scoping', () => {
     });
     expect(badFrom.errors?.[0]?.message).toBe('Invalid from');
   });
+
+  it('lets only a signed-in user export, and only their own account', async () => {
+    const exportAs = (contextValue: Context, variables: Record<string, unknown>) =>
+      graphql({
+        schema,
+        source: `query ($format: ExportFormat!, $from: String, $to: String, $cursor: String) {
+          accountExport(format: $format, from: $from, to: $to, cursor: $cursor) { data rows next }
+        }`,
+        variableValues: variables,
+        contextValue,
+      });
+
+    const anonymous = await exportAs(asUser(null), { format: 'BUNDLE' });
+    expect(anonymous.errors?.[0]?.message).toBe('Not authenticated');
+    // A key authenticates as its owner, but can't walk out with the history —
+    // neither an integration key nor a device's own.
+    for (const viaKey of [
+      { ...asUser('user-1'), keyId: 'key-1' },
+      { ...asUser('user-1'), keyId: 'key-1', deviceId: 'device-1' },
+    ] as Context[]) {
+      for (const format of ['BUNDLE', 'ACTIVITYWATCH', 'SUMMARIES_CSV']) {
+        const refused = await exportAs(viaKey, { format });
+        expect(refused.errors?.[0]?.message).toBe('Not authenticated');
+      }
+    }
+
+    const mine = await exportAs(asUser('user-1'), { format: 'BUNDLE' });
+    expect(mine.errors).toBeUndefined();
+    const chunk = (mine.data as any).accountExport;
+    expect(chunk.next).toBeNull();
+    expect(chunk.data).toContain('"id":"act-1"');
+    expect(chunk.data).not.toContain('act-theirs');
+    expect(chunk.data).not.toContain('user-2');
+    expect(chunk.data).not.toContain('Games');
+
+    for (const variables of [
+      { format: 'BUNDLE', cursor: 'garbage' },
+      { format: 'BUNDLE', from: '2026-08-01' },
+      { format: 'SUMMARIES_CSV', from: 'yesterday' },
+    ]) {
+      const result = await exportAs(asUser('user-1'), variables);
+      expect(result.errors?.[0]?.extensions?.code).toBe('BAD_USER_INPUT');
+    }
+  });
 });

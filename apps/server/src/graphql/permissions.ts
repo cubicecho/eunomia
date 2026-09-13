@@ -81,6 +81,10 @@ export const permissions = {
     // Listing is session-only for the same reason issuing is: a leaked key
     // should not be able to enumerate its siblings.
     apiKeys: sessionAuthenticated,
+    // Session-only: it hands over every window title ever recorded, a chunk
+    // at a time, in a loop. A key is issued to one app to do one job; one that
+    // leaked should not be able to walk out with the whole history.
+    accountExport: sessionAuthenticated,
     // Public by design: returns the caller or null.
     me: accept,
   },

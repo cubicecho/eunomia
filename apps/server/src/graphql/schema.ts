@@ -17,6 +17,7 @@ import { categoryFields } from './category-fields.ts';
 import type { Context } from './context.ts';
 import { deviceFields } from './device-fields.ts';
 import { buildEntities, type Entities, type Fields } from './entities.ts';
+import { exportFields } from './export-fields.ts';
 import { mergeFields } from './merge-fields.ts';
 import { permissions, type Resolvers } from './permissions.ts';
 import { pingFields } from './ping-fields.ts';
@@ -107,6 +108,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
       ...summaryFields(db),
       ...apiKeyQueryFields(db),
       ...userQueryFields(db),
+      ...exportFields(db),
     },
     Mutation: {
       ...authFields(auth),
