@@ -36,6 +36,13 @@ export const user = pgTable('user', {
   // Null follows the server. It can only shorten: the operator's setting is
   // what the disk was sized for, and a user can't opt out of it.
   retentionDays: integer('retention_days'),
+  // Ours as well: the dashboard's getting-started checklist. When the user put
+  // it away, and when they ticked the one step the server can't see done —
+  // privacy lists, which live in each agent's own config file and never reach
+  // the server. Timestamps rather than booleans for the same price, so "when"
+  // is there if anything ever wants it; null is not yet.
+  onboardingDismissedAt: timestamp('onboarding_dismissed_at'),
+  privacyReviewedAt: timestamp('privacy_reviewed_at'),
 });
 
 export const session = pgTable('session', {
@@ -141,6 +148,10 @@ export const devices = pgTable('devices', {
   replayFrom: timestamp('replay_from', { withTimezone: true }),
 });
 
+/** The kinds a category can be, in the order the dashboard lists them. */
+export const CATEGORY_KINDS = ['focus', 'work', 'neutral', 'personal', 'distracting'] as const;
+export type CategoryKind = (typeof CATEGORY_KINDS)[number];
+
 // User-defined buckets activities get assigned to ("Work", "Gaming", ...).
 // Per-user, not global: two users' "Work" mean different things.
 export const categories = pgTable(
@@ -153,6 +164,11 @@ export const categories = pgTable(
     name: text('name').notNull(),
     // Optional display color for dashboards (any CSS color string).
     color: text('color'),
+    // What sort of time the category holds, for the dashboard's time-by-kind
+    // breakdown: deep work, other work, neither, personal time, or time the
+    // user would rather spend less of. Neutral until someone says otherwise —
+    // which includes every category that existed before kinds did.
+    kind: text('kind', { enum: CATEGORY_KINDS }).notNull().default('neutral'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => [uniqueIndex('categories_user_name_idx').on(t.userId, t.name)],
@@ -181,8 +197,21 @@ export const categoryRules = pgTable(
     // Lower runs first; ties broken by creation time.
     priority: integer('priority').notNull().default(0),
     createdAt: timestamp('created_at').notNull().defaultNow(),
+    // Provenance, for rules a starter rule pack wrote: which of the pack's rules
+    // this is ('development/apps'), and the pack version that last wrote its
+    // patterns. Null for every rule a person wrote. The rule is an ordinary rule
+    // either way — editing it keeps the tag, and reinstalling the same version
+    // leaves the edit alone. See src/activity/rule-packs.ts.
+    pack: text('pack'),
+    packVersion: integer('pack_version'),
   },
-  (t) => [index('category_rules_user_idx').on(t.userId, t.priority)],
+  (t) => [
+    index('category_rules_user_idx').on(t.userId, t.priority),
+    // One rule per pack slot per user: installing twice, or twice at once, can
+    // never write a slot's rule twice. Rules a person wrote (pack NULL) are
+    // distinct under the default NULLS DISTINCT and never collide.
+    uniqueIndex('category_rules_user_pack_idx').on(t.userId, t.pack),
+  ],
 );
 
 // Context extraction: per-user, priority-ordered rules that pull a sub-app

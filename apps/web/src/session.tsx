@@ -28,6 +28,8 @@ const SessionContext = createContext<Session>({
     effectiveTimeZone: browserTimeZone(),
     retentionDays: null,
     effectiveRetentionDays: null,
+    onboardingDismissed: false,
+    privacyReviewed: false,
   },
   setMe: () => {},
 });

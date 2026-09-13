@@ -78,6 +78,7 @@ export const permissions = {
     categorySummary: authenticated,
     appSummary: authenticated,
     deviceSummary: authenticated,
+    rulePacks: authenticated,
     // Listing is session-only for the same reason issuing is: a leaked key
     // should not be able to enumerate its siblings.
     apiKeys: sessionAuthenticated,
@@ -109,6 +110,9 @@ export const permissions = {
     // than someone else reading the history is its owner losing it. The
     // dashboard makes the person confirm each one as well.
     setRetention: sessionAuthenticated,
+    // Harmless, but a dashboard preference all the same: nothing a recording
+    // or reading key has any business changing.
+    setOnboarding: sessionAuthenticated,
     deleteRange: sessionAuthenticated,
     purgeApp: sessionAuthenticated,
     deleteAccount: sessionAuthenticated,
@@ -137,6 +141,7 @@ export const permissions = {
     updateCategoryRule: authenticated,
     deleteCategoryRule: authenticated,
     applyCategoryRules: authenticated,
+    installRulePack: authenticated,
     createContextRule: authenticated,
     updateContextRule: authenticated,
     deleteContextRule: authenticated,

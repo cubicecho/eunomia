@@ -4,14 +4,16 @@ import {
   fetchCategoryRules,
   fetchContextRules,
   fetchRecentActivities,
+  fetchRulePacks,
 } from '@/api';
 import { CategoriesCard } from '@/components/rules/categories-card';
 import { CategoryRulesCard } from '@/components/rules/category-rules-card';
 import { ContextRulesCard } from '@/components/rules/context-rules-card';
+import { RulePacksCard } from '@/components/rules/rule-packs-card';
 import { StatusLine } from '@/components/status-line';
 import { useAction, useQuery } from '@/hooks/use-query';
 
-// Loads everything the three cards below need in one round trip and owns the
+// Loads everything the cards below need in one round trip and owns the
 // reload they share: editing a category changes what the rule forms can pick,
 // and applying rules changes what the tables say, so they reload together.
 
@@ -22,6 +24,7 @@ export function RulesView() {
         fetchCategories(),
         fetchCategoryRules(),
         fetchContextRules(),
+        fetchRulePacks(),
         // The corpus the rule forms preview against. A failure here costs the
         // preview, not the whole view — rules are still editable without it.
         fetchRecentActivities().catch((): ActivitySample[] => []),
@@ -32,11 +35,12 @@ export function RulesView() {
 
   if (error) return <p className="text-destructive text-sm">{error}</p>;
   if (!data) return null;
-  const [categories, categoryRules, contextRules, samples] = data;
+  const [categories, categoryRules, contextRules, packs, samples] = data;
   const run = (mutation: () => Promise<unknown>) => action.run(mutation, { onDone: reload });
 
   return (
     <div className="flex flex-col gap-6">
+      <RulePacksCard packs={packs} reload={reload} />
       <CategoriesCard categories={categories} run={run} reload={reload} />
       <CategoryRulesCard
         categories={categories}

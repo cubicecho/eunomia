@@ -21,11 +21,13 @@ import {
   getSdk,
   type ImportChunkMutation,
   type ImportChunkMutationVariables,
+  type InstallRulePackMutation,
   type MeQuery,
   type MergeRulesQuery,
   type PurgeAppMutation,
   type RecentActivitiesQuery,
   type Requester,
+  type RulePacksQuery,
 } from '@eunomia/gql/web';
 import type { DateRange } from '@/lib/format';
 
@@ -86,8 +88,11 @@ export type AppSummaryRow = AppSummaryQuery['appSummary'][number];
 /** A recent activity, as the rule forms' live preview sees it. */
 export type ActivitySample = RecentActivitiesQuery['activities'][number];
 export type Category = CategoriesQuery['categories'][number];
+export type CategoryKind = Category['kind'];
 export type CategoryRule = CategoryRulesQuery['categoryRules'][number];
 export type ContextRule = ContextRulesQuery['contextRules'][number];
+export type RulePack = RulePacksQuery['rulePacks'][number];
+export type RulePackInstall = InstallRulePackMutation['installRulePack'];
 /** One “this entry IS that one” rule, as the merge view lists it. */
 export type MergeRule = MergeRulesQuery['mergeRules'][number];
 export type Device = DevicesQuery['devices'][number];
@@ -138,6 +143,15 @@ export const setTimeZone = (timeZone: string | null): Promise<Me> =>
  */
 export const setRetention = (days: number | null): Promise<Me> =>
   sdk.SetRetention({ days }).then((d) => d.setRetention);
+
+/**
+ * The getting-started checklist's two stored flags; an omitted one is left as
+ * it is. Returns the updated user, for the session to follow.
+ */
+export const setOnboarding = (flags: {
+  dismissed?: boolean;
+  privacyReviewed?: boolean;
+}): Promise<Me> => sdk.SetOnboarding(flags).then((d) => d.setOnboarding);
 
 export type RangeDeletion = DeleteRangeMutation['deleteRange'];
 export type AppPurge = PurgeAppMutation['purgeApp'];
@@ -244,12 +258,19 @@ export const fetchMergeRules = (): Promise<MergeRule[]> =>
 
 export const fetchDevices = (): Promise<Device[]> => sdk.Devices().then((d) => d.devices);
 
-export const createCategory = (name: string, color: string | null): Promise<unknown> =>
-  sdk.CreateCategory({ name, color });
+export const createCategory = (
+  name: string,
+  color: string | null,
+  kind: CategoryKind,
+): Promise<unknown> => sdk.CreateCategory({ name, color, kind });
 
 /** A whole replacement, like updateCategoryRule: a null color clears it. */
-export const updateCategory = (id: string, name: string, color: string | null): Promise<unknown> =>
-  sdk.UpdateCategory({ id, name, color });
+export const updateCategory = (
+  id: string,
+  name: string,
+  color: string | null,
+  kind: CategoryKind,
+): Promise<unknown> => sdk.UpdateCategory({ id, name, color, kind });
 
 export const deleteCategory = (id: string): Promise<unknown> => sdk.DeleteCategory({ id });
 
@@ -288,6 +309,15 @@ export const assignEntry = (
 /** Re-runs category rules over past activities; resolves to the number changed. */
 export const applyCategoryRules = (): Promise<number> =>
   sdk.ApplyCategoryRules().then((d) => d.applyCategoryRules);
+
+export const fetchRulePacks = (): Promise<RulePack[]> => sdk.RulePacks().then((d) => d.rulePacks);
+
+/**
+ * Installs (or brings up to date) a starter rule pack, then sweeps every rule
+ * over past activity. Installing again never duplicates a rule.
+ */
+export const installRulePack = (id: string): Promise<RulePackInstall> =>
+  sdk.InstallRulePack({ id }).then((d) => d.installRulePack);
 
 /**
  * Merges one entry into another and rewrites the history it covers, so the

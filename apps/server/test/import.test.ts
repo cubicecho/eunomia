@@ -682,6 +682,29 @@ describe('imports', () => {
       expect(original).toBeDefined();
     });
 
+    it('restores category kinds, and reads bundles written before kinds', async () => {
+      await db.update(categories).set({ kind: 'focus' }).where(eq(categories.id, 'user-1-work'));
+      await db.update(categories).set({ kind: 'distracting' }).where(eq(categories.id, 'mail'));
+      const lines = (await bundle()).map((line) => {
+        const record = JSON.parse(line);
+        if (record.type !== 'category') return line;
+        expect(record.kind).toBeDefined();
+        // Mail as an older server wrote it, with no kind at all.
+        if (record.id === 'mail') delete record.kind;
+        return JSON.stringify(record);
+      });
+      const result = await imported('user-3', 'BUNDLE', lines, 50);
+      expect(result.skipped).toBe(0);
+      const restored = await db
+        .select({ name: categories.name, kind: categories.kind })
+        .from(categories)
+        .where(eq(categories.userId, 'user-3'));
+      expect(restored.sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+        { name: 'Mail', kind: 'neutral' },
+        { name: 'Work', kind: 'focus' },
+      ]);
+    });
+
     it('restores the same way however it is chunked', async () => {
       const lines = await bundle();
       await imported('user-3', 'BUNDLE', lines, 1000);

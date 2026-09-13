@@ -94,6 +94,7 @@ describe('parsePattern', () => {
     expect(describePattern('^Code$')).toBe('is “Code”');
     expect(describePattern('docs\\.rs')).toBe('contains “docs.rs”');
     expect(describePattern('^(Code|Alacritty)$')).toBe('is one of Code, Alacritty');
+    expect(describePattern('^(a|b|c|d|e|f)$')).toBe('is one of a, b, c, d and 2 more');
     expect(describePattern('^v?[0-9]+')).toBe('^v?[0-9]+');
   });
 });

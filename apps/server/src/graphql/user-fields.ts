@@ -1,5 +1,5 @@
 import type { MutationResolvers, QueryResolvers } from '@eunomia/gql/resolvers';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import {
   deleteAccount,
   deleteRange,
@@ -15,8 +15,9 @@ import { badInput, notFound, unauthenticated } from '../errors.ts';
 import { requireOwned, requireUser } from './guards.ts';
 
 // The caller's own account: who they are, the settings the server keeps for
-// them — the time zone their days split in, and how long their raw history is
-// kept — and deleting what they no longer want kept.
+// them — the time zone their days split in, how long their raw history is
+// kept, where they are in the getting-started checklist — and deleting what
+// they no longer want kept.
 
 /** `Me` for a user, or undefined when the row is gone. */
 async function loadMe(db: Db, userId: string) {
@@ -24,8 +25,22 @@ async function loadMe(db: Db, userId: string) {
   // Read per request rather than captured at boot: the server has already
   // refused to start on a bad value (startRollupTimer).
   const retention = await loadUserRetention(db, userId, retentionDays());
-  const [account] = await db.select({ email: user.email }).from(user).where(eq(user.id, userId));
-  return zone && retention && account ? { ...zone, ...retention, ...account } : undefined;
+  const [account] = await db
+    .select({
+      email: user.email,
+      onboardingDismissedAt: user.onboardingDismissedAt,
+      privacyReviewedAt: user.privacyReviewedAt,
+    })
+    .from(user)
+    .where(eq(user.id, userId));
+  if (!zone || !retention || !account) return undefined;
+  return {
+    ...zone,
+    ...retention,
+    email: account.email,
+    onboardingDismissed: account.onboardingDismissedAt !== null,
+    privacyReviewed: account.privacyReviewedAt !== null,
+  };
 }
 
 /** An ISO timestamp argument as a Date, or a thrown BAD_USER_INPUT. */
@@ -57,6 +72,25 @@ export function userFields(db: Db) {
     setTimeZone: async (_source, args, ctx) => {
       const userId = requireUser(ctx);
       await setUserTimeZone(db, userId, args.timeZone ?? null);
+      return meOrGone(userId);
+    },
+    setOnboarding: async (_source, args, ctx) => {
+      const userId = requireUser(ctx);
+      // Each flag is left as it is when omitted, so the dashboard can tick a
+      // step without knowing whether the checklist has been dismissed, and
+      // the other way round. Setting a flag that is already set keeps the
+      // time it was first set.
+      const stamp = (column: typeof user.onboardingDismissedAt, on: boolean) =>
+        on ? sql<Date>`coalesce(${column}, now())` : null;
+      const set = {
+        ...(args.dismissed != null && {
+          onboardingDismissedAt: stamp(user.onboardingDismissedAt, args.dismissed),
+        }),
+        ...(args.privacyReviewed != null && {
+          privacyReviewedAt: stamp(user.privacyReviewedAt, args.privacyReviewed),
+        }),
+      };
+      if (Object.keys(set).length > 0) await db.update(user).set(set).where(eq(user.id, userId));
       return meOrGone(userId);
     },
     setRetention: async (_source, args, ctx) => {

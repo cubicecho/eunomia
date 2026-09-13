@@ -28,6 +28,8 @@ query Me {
     effectiveTimeZone
     retentionDays
     effectiveRetentionDays
+    onboardingDismissed
+    privacyReviewed
   }
 }
 
@@ -39,6 +41,23 @@ mutation SetTimeZone($timeZone: String) {
     effectiveTimeZone
     retentionDays
     effectiveRetentionDays
+    onboardingDismissed
+    privacyReviewed
+  }
+}
+
+# The dashboard's getting-started checklist. Session-only on the server; an
+# omitted flag is left as it is.
+mutation SetOnboarding($dismissed: Boolean, $privacyReviewed: Boolean) {
+  setOnboarding(dismissed: $dismissed, privacyReviewed: $privacyReviewed) {
+    id
+    email
+    timeZone
+    effectiveTimeZone
+    retentionDays
+    effectiveRetentionDays
+    onboardingDismissed
+    privacyReviewed
   }
 }
 
@@ -52,6 +71,8 @@ mutation SetRetention($days: Int) {
     effectiveTimeZone
     retentionDays
     effectiveRetentionDays
+    onboardingDismissed
+    privacyReviewed
   }
 }
 
@@ -114,6 +135,7 @@ query CategorySummary($from: String!, $to: String!, $deviceId: String) {
     categoryId
     name
     color
+    kind
     seconds
   }
 }
@@ -158,6 +180,7 @@ query Categories {
     id
     name
     color
+    kind
   }
 }
 
@@ -169,6 +192,7 @@ query CategoryRules {
     titlePattern
     contextPattern
     priority
+    pack
   }
 }
 
@@ -233,15 +257,16 @@ mutation RevokeApiKey($id: String!) {
   revokeApiKey(id: $id)
 }
 
-mutation CreateCategory($name: String!, $color: String) {
-  createCategory(name: $name, color: $color) {
+mutation CreateCategory($name: String!, $color: String, $kind: CategoriesKindEnum) {
+  createCategory(name: $name, color: $color, kind: $kind) {
     id
   }
 }
 
-# A whole replacement: a null color clears it back to a palette slot.
-mutation UpdateCategory($id: String!, $name: String!, $color: String) {
-  updateCategory(id: $id, name: $name, color: $color) {
+# A whole replacement: a null color clears it back to a palette slot, and a
+# null kind makes the category neutral.
+mutation UpdateCategory($id: String!, $name: String!, $color: String, $kind: CategoriesKindEnum) {
+  updateCategory(id: $id, name: $name, color: $color, kind: $kind) {
     id
   }
 }
@@ -333,6 +358,34 @@ mutation AssignEntry(
 
 mutation ApplyCategoryRules {
   applyCategoryRules
+}
+
+# Starter rule packs: the catalogue, with what the caller already has. The rules
+# an install writes come back through CategoryRules like any other.
+query RulePacks {
+  rulePacks {
+    id
+    name
+    description
+    version
+    categoryName
+    categoryKind
+    apps
+    packages
+    sites
+    installedVersion
+  }
+}
+
+# Idempotent; also sweeps every rule over past activity, so `categorized` is
+# the same count applyCategoryRules reports.
+mutation InstallRulePack($id: String!) {
+  installRulePack(id: $id) {
+    categoryId
+    added
+    updated
+    categorized
+  }
 }
 
 mutation RenameDevice($id: String!, $name: String!) {

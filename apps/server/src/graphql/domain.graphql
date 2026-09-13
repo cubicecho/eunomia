@@ -25,6 +25,12 @@ extend type Query {
   apiKeys: [ApiKey!]!
 
   """
+  The starter rule packs this server ships, and which of them the caller has
+  installed (see `installRulePack`).
+  """
+  rulePacks: [RulePack!]!
+
+  """
   Time per category per day — the answer to "what did I spend last week on?".
 
   Each aggregate below stitches the precomputed `summaries` rows together with
@@ -103,6 +109,10 @@ type Mutation {
   # Days of raw pings and activities to keep, fewer than the server keeps; null
   # follows the server. Applied at the next prune. Session-only.
   setRetention(days: Int): Me!
+  # The dashboard's getting-started checklist: put it away (or bring it back),
+  # and tick (or untick) the privacy-lists step, which the server has no way to
+  # see done. An omitted argument leaves that flag as it is. Session-only.
+  setOnboarding(dismissed: Boolean, privacyReviewed: Boolean): Me!
 
   # Deletion. Session-only (see permissions.ts); none of them can be undone.
   """
@@ -154,9 +164,13 @@ type Mutation {
   recordPings(deviceId: String, pings: [PingInput!]!): Int!
 
   # Categories, and the two mutations that move time between them by hand.
-  createCategory(name: String!, color: String): Categories!
-  "A whole replacement, like updateCategoryRule: a null color clears it."
-  updateCategory(id: String!, name: String!, color: String): Categories!
+  "`kind` defaults to neutral."
+  createCategory(name: String!, color: String, kind: CategoriesKindEnum): Categories!
+  """
+  A whole replacement, like updateCategoryRule: a null color clears it, and a
+  null or omitted kind makes the category neutral.
+  """
+  updateCategory(id: String!, name: String!, color: String, kind: CategoriesKindEnum): Categories!
   deleteCategory(id: String!): Boolean!
   assignActivity(activityId: String!, categoryId: String): Activities!
   """
@@ -198,6 +212,17 @@ type Mutation {
   ): CategoryRules!
   deleteCategoryRule(id: String!): Boolean!
   applyCategoryRules: Int!
+  """
+  Installs a starter rule pack: creates its category (or reuses the caller's
+  category of that name) and writes its rules as ordinary category rules, then
+  applies every rule to past activity like `applyCategoryRules`.
+
+  Idempotent. Installing again never duplicates a rule: a rule already written
+  by this version of the pack is left as it is, edits included, a rule an older
+  version wrote is updated to this version's lists, and a pack rule that was
+  deleted is written again.
+  """
+  installRulePack(id: String!): RulePackInstall!
   createContextRule(titlePattern: String!, appPattern: String, priority: Int): ContextRules!
   updateContextRule(
     id: String!
@@ -262,6 +287,10 @@ type Me {
   retentionDays: Int
   "Days of raw pings and activities actually kept: the shorter of `retentionDays` and the server's, or null for forever. Summaries are kept regardless."
   effectiveRetentionDays: Int
+  "Whether the getting-started checklist was put away with `setOnboarding`."
+  onboardingDismissed: Boolean!
+  "Whether the checklist's privacy-lists step was ticked with `setOnboarding` — the lists themselves live in each agent's config, out of the server's sight."
+  privacyReviewed: Boolean!
 }
 
 # Session payload for signUp/signIn: the raw token goes back as
@@ -356,6 +385,39 @@ input PingInput {
   idleSeconds: Int!
 }
 
+"""
+A curated, versioned set of exact-match category rules for well-known apps and
+sites. The lists are what the rules match, as the agents report them: desktop
+executable names and Android launcher labels (`apps`), Android package names
+(`packages`), and browser hostnames (`sites`).
+"""
+type RulePack {
+  id: String!
+  name: String!
+  description: String!
+  version: Int!
+  "The category the rules fill, created on install unless the caller has one of this name."
+  categoryName: String!
+  "The kind a category the install creates gets. A reused category keeps its own."
+  categoryKind: CategoriesKindEnum!
+  apps: [String!]!
+  packages: [String!]!
+  sites: [String!]!
+  "The newest version of this pack whose rules the caller still has, or null when none."
+  installedVersion: Int
+}
+
+type RulePackInstall {
+  pack: RulePack!
+  categoryId: String!
+  "Rules written that weren't there before."
+  added: Int!
+  "Rules rewritten from an older version of the pack."
+  updated: Int!
+  "Activities the follow-up sweep moved to a different category."
+  categorized: Int!
+}
+
 # Active seconds per category per day, days in the caller's zone
 # (`me.effectiveTimeZone`). A null category is uncategorized time.
 type CategoryDaySummary {
@@ -363,6 +425,8 @@ type CategoryDaySummary {
   categoryId: String
   name: String
   color: String
+  "The category's kind; null for uncategorized time."
+  kind: CategoriesKindEnum
   seconds: Float!
 }
 

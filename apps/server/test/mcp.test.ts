@@ -89,6 +89,7 @@ describe('mcp over http', () => {
       'focus_segments',
       'me',
       'merge_rules',
+      'rule_packs',
     ]);
     // The dangerous half: signIn and registerDevice are mutations, and an agent
     // that could call them would be minting credentials, not reading data.

@@ -3,16 +3,20 @@ import { fetchAppSummary, fetchDeviceSummary, fetchSummary } from '@/api';
 import { CategoryChart } from '@/components/dashboard/category-chart';
 import { DayChart } from '@/components/dashboard/day-chart';
 import { DevicePicker } from '@/components/dashboard/device-picker';
+import { KindBreakdown } from '@/components/dashboard/kind-breakdown';
+import { OnboardingChecklist, type View } from '@/components/dashboard/onboarding-checklist';
 import { RangePicker } from '@/components/dashboard/range-picker';
 import { DashboardSkeleton } from '@/components/dashboard/skeleton';
 import { StatTiles } from '@/components/dashboard/stat-tiles';
 import { TopApps } from '@/components/dashboard/top-apps';
+import { WeekTrend } from '@/components/dashboard/week-trend';
 import { useQuery } from '@/hooks/use-query';
 import { rangeOfLastDays } from '@/lib/format';
+import { kindTotals } from '@/lib/kinds';
 import { categoryTotals, dayRows, sumSeconds, topApps } from '@/lib/summary';
 import { useTimeZone } from '@/session';
 
-export function DashboardView() {
+export function DashboardView({ onNavigate }: { onNavigate(view: View): void }) {
   const timeZone = useTimeZone();
   const [range, setRange] = useState(() => rangeOfLastDays(7, timeZone));
   /** null = every device folded together, which is the default view. */
@@ -38,6 +42,8 @@ export function DashboardView() {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Above the filters: it is about the account, not the range. */}
+      <OnboardingChecklist onNavigate={onNavigate} />
       <div className="flex flex-col gap-2">
         <RangePicker range={range} timeZone={timeZone} onChange={setRange} />
         {/* Its own failure is not worth an error line — the charts below still
@@ -63,6 +69,12 @@ export function DashboardView() {
           <div className="grid gap-6 lg:grid-cols-2">
             <CategoryChart categories={categories} />
             <TopApps apps={apps} />
+          </div>
+          {/* Time by kind follows the range; the weekly comparison does not —
+              it is always this week against last, so it fetches its own. */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            <KindBreakdown kinds={kindTotals(summary)} />
+            <WeekTrend timeZone={timeZone} deviceId={deviceId} />
           </div>
         </div>
       )}

@@ -1,9 +1,16 @@
 import { Pencil } from 'lucide-react';
 import { useState } from 'react';
-import { type Category, createCategory, deleteCategory, updateCategory } from '@/api';
+import {
+  type Category,
+  type CategoryKind,
+  createCategory,
+  deleteCategory,
+  updateCategory,
+} from '@/api';
 import { ConfirmDelete } from '@/components/confirm-delete';
 import { EmptyState } from '@/components/empty-state';
 import { ColorPicker } from '@/components/rules/color-picker';
+import { KindHints, KindPicker } from '@/components/rules/kind-picker';
 import { Swatch } from '@/components/rules/swatch';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
@@ -21,6 +28,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { type Run, useAction } from '@/hooks/use-query';
+import { DEFAULT_KIND, kindInfo } from '@/lib/kinds';
 import { CHART_COLORS, categoryColor } from '@/lib/palette';
 
 interface Props {
@@ -33,13 +41,16 @@ interface Props {
 export function CategoriesCard({ categories, run, reload }: Props) {
   const [name, setName] = useState('');
   const [color, setColor] = useState<string>(CHART_COLORS[0]);
+  const [kind, setKind] = useState<CategoryKind>(DEFAULT_KIND);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Categories</CardTitle>
         <CardDescription>
-          Deleting a category keeps its activities — they go back to uncategorized.
+          A category’s kind — focus, work, neutral, personal or distracting — is what the
+          dashboard’s time-by-kind and weekly trends add up. Deleting a category keeps its
+          activities — they go back to uncategorized.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -56,6 +67,9 @@ export function CategoriesCard({ categories, run, reload }: Props) {
                 >
                   <Swatch color={categoryColor(category.id, category.color)} />
                   <span className="grow text-sm">{category.name}</span>
+                  <span className="text-muted-foreground text-xs">
+                    {kindInfo(category.kind).label}
+                  </span>
                   <EditCategory category={category} onSaved={reload} />
                   <ConfirmDelete
                     name={category.name}
@@ -71,8 +85,9 @@ export function CategoriesCard({ categories, run, reload }: Props) {
           onSubmit={(event) => {
             event.preventDefault();
             if (!name.trim()) return;
-            run(() => createCategory(name.trim(), color));
+            run(() => createCategory(name.trim(), color, kind));
             setName('');
+            setKind(DEFAULT_KIND);
           }}
         >
           <Input
@@ -83,6 +98,7 @@ export function CategoriesCard({ categories, run, reload }: Props) {
             required
           />
           <ColorPicker value={color} onChange={setColor} />
+          <KindPicker value={kind} onChange={setKind} />
           <Button type="submit" size="sm">
             Add
           </Button>
@@ -93,7 +109,7 @@ export function CategoriesCard({ categories, run, reload }: Props) {
 }
 
 /**
- * Rename and recolor in one dialog. Rules, activities and summaries all point at
+ * Rename, recolor and re-kind in one dialog. Rules, activities and summaries all point at
  * the category's id, so neither edit moves any time — the new name and color
  * simply show up wherever the old ones did.
  *
@@ -104,10 +120,11 @@ function EditCategory({ category, onSaved }: { category: Category; onSaved(): vo
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(category.name);
   const [color, setColor] = useState<string | null>(category.color);
+  const [kind, setKind] = useState<CategoryKind>(category.kind);
   const action = useAction();
 
   const trimmed = name.trim();
-  const changed = trimmed !== category.name || color !== category.color;
+  const changed = trimmed !== category.name || color !== category.color || kind !== category.kind;
 
   return (
     <Dialog
@@ -118,6 +135,7 @@ function EditCategory({ category, onSaved }: { category: Category; onSaved(): vo
         if (next) {
           setName(category.name);
           setColor(category.color);
+          setKind(category.kind);
         }
         setOpen(next);
       }}
@@ -145,7 +163,7 @@ function EditCategory({ category, onSaved }: { category: Category; onSaved(): vo
           onSubmit={(event) => {
             event.preventDefault();
             if (!trimmed || !changed) return;
-            action.run(() => updateCategory(category.id, trimmed, color), {
+            action.run(() => updateCategory(category.id, trimmed, color, kind), {
               onDone: () => {
                 setOpen(false);
                 onSaved();
@@ -165,6 +183,11 @@ function EditCategory({ category, onSaved }: { category: Category; onSaved(): vo
           <div className="flex flex-col gap-1.5">
             <Label>Color</Label>
             <ColorPicker value={color} onChange={setColor} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={`category-kind-${category.id}`}>Kind</Label>
+            <KindPicker id={`category-kind-${category.id}`} value={kind} onChange={setKind} />
+            <KindHints />
           </div>
           <StatusLine status={action.status} />
           <DialogFooter>

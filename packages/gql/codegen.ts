@@ -93,6 +93,11 @@ const config: CodegenConfig = {
         },
         // graphql-scalars' DateTime hands resolvers Date objects.
         scalars: { DateTime: 'Date' },
+        // Enums as string unions, like the client SDKs: a resolver hands back
+        // a Drizzle text-enum column ('focus' | 'work' | …) where one appears
+        // in a hand-written type (CategoryDaySummary.kind), and a TS enum
+        // would refuse the very same strings.
+        enumsAsTypes: true,
         useTypeImports: true,
         // verbatimModuleSyntax: the emitted imports must carry the extension.
         emitLegacyCommonJSImports: false,
