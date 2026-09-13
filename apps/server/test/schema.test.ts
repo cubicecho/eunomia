@@ -42,6 +42,7 @@ describe('graphql schema', () => {
       'deleteContextRule',
       'deleteDevice',
       'deleteMergeRule',
+      'importChunk',
       'mergeDevice',
       'recordPing',
       'recordPings',

@@ -132,5 +132,9 @@ export const permissions = {
     createMergeRule: authenticated,
     deleteMergeRule: authenticated,
     applyMergeRules: authenticated,
+    // Session-only: it writes months of history, creates devices and rules,
+    // and can re-bucket the account's days — something a person starts from
+    // the dashboard with a file in hand, not something a key should loop.
+    importChunk: sessionAuthenticated,
   },
 } satisfies SchemaPermissions;

@@ -65,6 +65,9 @@ describe('activitywatch conversion', () => {
         // worth of lead-in is credited on the far side of it.
         [100, 'code', 'b', 0],
         [110, 'code', null, 0],
+        // Past the close threshold the fold credits nothing, so no lead-in.
+        [1100, 'code', 'c', 0],
+        [1110, 'code', 'c', 0],
       ]),
     ).toEqual([
       { from: 0, to: 10, data: { app: 'code', title: 'a' } },
@@ -72,6 +75,7 @@ describe('activitywatch conversion', () => {
       { from: 30, to: 40, data: { app: 'code', title: 'b' } },
       { from: 70, to: 100, data: { app: 'code', title: 'b' } },
       { from: 100, to: 110, data: { app: 'code', title: '' } },
+      { from: 1100, to: 1110, data: { app: 'code', title: 'c' } },
     ]);
   });
 

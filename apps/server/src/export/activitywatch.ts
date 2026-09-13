@@ -1,6 +1,10 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { ACCRUE_CAP_SECONDS, IDLE_THRESHOLD_SECONDS } from '../activity/fold.ts';
+import {
+  ACCRUE_CAP_SECONDS,
+  CLOSE_AFTER_SECONDS,
+  IDLE_THRESHOLD_SECONDS,
+} from '../activity/fold.ts';
 import { ownerZone } from '../activity/rollup.ts';
 import { devices, pings, user } from '../db/schema.ts';
 import type { ExportWriter } from './chunk.ts';
@@ -52,6 +56,7 @@ export interface PingSample {
 }
 
 const CAP_MS = ACCRUE_CAP_SECONDS * 1000;
+const CLOSE_MS = CLOSE_AFTER_SECONDS * 1000;
 
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high);
 
@@ -66,8 +71,12 @@ export function pushPing(pass: Pass, state: ConverterState, ping: PingSample): S
   const { prevAt, pending } = state;
   // Whether the previous ping's span runs straight into this one's.
   const contiguous = prevAt !== null && ping.at - prevAt <= CAP_MS;
-  // Where this ping's credited time starts.
-  const leadIn = prevAt === null ? ping.at : Math.max(prevAt, ping.at - CAP_MS);
+  // Where this ping's credited time starts. After a silence long enough to
+  // close every activity the fold credits nothing at all (fold.ts), so neither
+  // does the event — which is also what lets an import of this file fold back
+  // into the same seconds (import/activitywatch.ts).
+  const leadIn =
+    prevAt === null || ping.at - prevAt > CLOSE_MS ? ping.at : Math.max(prevAt, ping.at - CAP_MS);
   state.prevAt = ping.at;
 
   if (pass === 'window') {

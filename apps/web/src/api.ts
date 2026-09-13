@@ -18,6 +18,8 @@ import {
   type DeviceSummaryQuery,
   type DevicesQuery,
   getSdk,
+  type ImportChunkMutation,
+  type ImportChunkMutationVariables,
   type MeQuery,
   type MergeRulesQuery,
   type RecentActivitiesQuery,
@@ -154,6 +156,15 @@ export async function* exportFile(
     cursor = chunk.next ?? null;
   } while (cursor !== null);
 }
+
+/** Where an import comes from, and what one call of it reported. */
+export type ImportSource = ImportChunkMutationVariables['source'];
+export type ImportTarget = NonNullable<ImportChunkMutationVariables['target']>;
+export type ImportChunk = ImportChunkMutation['importChunk'];
+
+/** Sends the next records of an import (see lib/import.ts, which drives the calls). */
+export const importChunk = (variables: ImportChunkMutationVariables): Promise<ImportChunk> =>
+  sdk.ImportChunk(variables).then((d) => d.importChunk);
 
 /** deviceId null = every device the user owns, folded together. */
 export const fetchSummary = (

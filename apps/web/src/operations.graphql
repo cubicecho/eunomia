@@ -46,6 +46,26 @@ query AccountExport($format: ExportFormat!, $from: String, $to: String, $cursor:
   }
 }
 
+# One chunk of records of an import; called in a loop, passing `next` back as
+# `cursor`, until it is null (see lib/import.ts).
+mutation ImportChunk(
+  $source: ImportSource!
+  $records: [String!]!
+  $cursor: String
+  $target: ImportTarget
+  $done: Boolean
+) {
+  importChunk(source: $source, records: $records, cursor: $cursor, target: $target, done: $done) {
+    next
+    accepted
+    skipped
+    pings
+    restart
+    deviceIds
+    warnings
+  }
+}
+
 # deviceId is optional throughout: omitted, the aggregates fold every device
 # the user owns together, which is the default view.
 query CategorySummary($from: String!, $to: String!, $deviceId: String) {

@@ -447,8 +447,58 @@ query { accountExport(format: SUMMARIES_CSV, from: "2026-08-01", to: "2026-09-01
 It is session-only: an API key can't export, so a leaked one can't walk off
 with every window title you've ever had (and so it isn't an
 [MCP](#mcp-for-ai-agents) tool either). The chunks are not a snapshot — rows
-written while an export runs may or may not be in it. There is no import yet;
-for a server-level backup see [Backing up](#backing-up-and-starting-over).
+written while an export runs may or may not be in it. For a server-level
+backup see [Backing up](#backing-up-and-starting-over).
+
+### Importing history
+
+The **Import** card under **Settings** reads a file in the browser and sends
+it on in chunks. Everything lands in the signed-in account. It accepts three
+kinds of file:
+
+- **Eunomia export (everything)** restores a bundle from the section above:
+  - Your time zone is restored only if you haven't chosen one.
+  - Categories are matched to yours by name. A rule identical to one you have
+    is skipped, and so is a merge for an entry you already merge.
+  - Every device comes back as a **new** device with no key. Pair an agent
+    with one, or merge it into the device you use now.
+  - The ping log goes through the same ingestion as an agent upload, so
+    activities and focus segments are rebuilt by your rules, not copied.
+  - Daily totals are restored only for days before a device's log begins,
+    such as pruned days, so no day is counted twice.
+  - Restoring the same bundle twice duplicates its devices.
+- **ActivityWatch** reads aw-server's export JSON:
+  - Pick one machine. Its window, AFK and aw-watcher-web buckets become pings
+    on a device you pick or a new one.
+  - An aw-watcher-web page's hostname becomes the context.
+  - Time the AFK watcher marked afk isn't counted.
+  - The result folds like live data, to within the 30-second gap and 2-minute
+    idle rules. ActivityWatch buckets exported from here import back to the
+    same totals.
+  - When the import lands before a device's existing history, that device is
+    replayed.
+  - Pings from before a device's pruned history are left out, with a warning.
+    Import into a new device to keep them.
+- **RescueTime** reads its activity report, as CSV or API JSON:
+  - RescueTime only has totals per app per period, not moments, so the report
+    becomes **daily totals** on the chosen device. Those days have no timeline,
+    focus or sessions.
+  - Your own category rules apply, not RescueTime's categories.
+  - The same file imported twice counts twice.
+  - A later time zone change or `applyCategoryRules` doesn't reach those
+    totals.
+
+Over GraphQL it is `importChunk(source:, records:, cursor:, target:, done:)`,
+called once per chunk:
+
+- Each record is one line of the file, or one event, for ActivityWatch.
+- Pass the returned `next` back as `cursor`, and `done: true` on the last
+  chunk.
+- `restart: true` means a bundle wants its file sent again from the top.
+
+See `apps/web/src/lib/import.ts` for the client loop. Each call is at most
+5,000 records and 8 MiB, and is its own transaction. Like export, import
+accepts only a signed-in session, never an API key.
 
 ## Self-hosting
 
