@@ -144,6 +144,15 @@ export const setTimeZone = (timeZone: string | null): Promise<Me> =>
 export const setRetention = (days: number | null): Promise<Me> =>
   sdk.SetRetention({ days }).then((d) => d.setRetention);
 
+/**
+ * The getting-started checklist's two stored flags; an omitted one is left as
+ * it is. Returns the updated user, for the session to follow.
+ */
+export const setOnboarding = (flags: {
+  dismissed?: boolean;
+  privacyReviewed?: boolean;
+}): Promise<Me> => sdk.SetOnboarding(flags).then((d) => d.setOnboarding);
+
 export type RangeDeletion = DeleteRangeMutation['deleteRange'];
 export type AppPurge = PurgeAppMutation['purgeApp'];
 

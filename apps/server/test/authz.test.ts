@@ -249,6 +249,57 @@ describe('authorization scoping', () => {
     expect((keyed.data as any).me.id).toBe('user-1');
   });
 
+  it('keeps the getting-started checklist per user, set only from a session', async () => {
+    const set = (variables: Record<string, boolean | null>, contextValue: Context) =>
+      graphql({
+        schema,
+        source: `mutation ($dismissed: Boolean, $privacyReviewed: Boolean) {
+          setOnboarding(dismissed: $dismissed, privacyReviewed: $privacyReviewed) {
+            id onboardingDismissed privacyReviewed
+          }
+        }`,
+        variableValues: variables,
+        contextValue,
+      });
+    const flags = async (userId: string) =>
+      (await data('{ me { onboardingDismissed privacyReviewed } }', userId)).me;
+    const stamps = async () =>
+      (
+        await db
+          .select({ dismissed: user.onboardingDismissedAt, reviewed: user.privacyReviewedAt })
+          .from(user)
+          .where(eq(user.id, 'user-1'))
+      )[0];
+
+    expect(await flags('user-1')).toEqual({ onboardingDismissed: false, privacyReviewed: false });
+    expect((await set({ dismissed: true }, asUser(null))).errors?.[0]?.message).toBe(
+      'Not authenticated',
+    );
+    const viaKey = { ...asUser('user-1'), keyId: 'key-1' } as Context;
+    expect((await set({ dismissed: true }, viaKey)).errors?.[0]?.message).toBe('Not authenticated');
+
+    // One flag at a time: the omitted one stays as it was.
+    const ticked = await set({ privacyReviewed: true }, asUser('user-1'));
+    expect((ticked.data as any).setOnboarding).toEqual({
+      id: 'user-1',
+      onboardingDismissed: false,
+      privacyReviewed: true,
+    });
+    const firstTick = (await stamps())?.reviewed;
+    expect(firstTick).toBeInstanceOf(Date);
+
+    await set({ dismissed: true }, asUser('user-1'));
+    expect(await flags('user-1')).toEqual({ onboardingDismissed: true, privacyReviewed: true });
+    // Ticking again keeps the first time; the other user is untouched.
+    await set({ privacyReviewed: true }, asUser('user-1'));
+    expect((await stamps())?.reviewed).toEqual(firstTick);
+    expect(await flags('user-2')).toEqual({ onboardingDismissed: false, privacyReviewed: false });
+
+    // And both can be undone.
+    await set({ dismissed: false, privacyReviewed: false }, asUser('user-1'));
+    expect(await flags('user-1')).toEqual({ onboardingDismissed: false, privacyReviewed: false });
+  });
+
   it('lets only a signed-in user set their own time zone', async () => {
     const set = (timeZone: string | null, contextValue: Context) =>
       graphql({

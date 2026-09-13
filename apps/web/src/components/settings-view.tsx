@@ -1,6 +1,6 @@
 import { Globe } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { setTimeZone } from '@/api';
+import { setOnboarding, setTimeZone } from '@/api';
 import { ExportCard } from '@/components/export-card';
 import { ImportCard } from '@/components/import-card';
 import { DeleteAccountCard } from '@/components/privacy/delete-account-card';
@@ -120,6 +120,30 @@ export function SettingsView() {
           </p>
         </CardContent>
       </Card>
+      {me.onboardingDismissed && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Getting started</CardTitle>
+            <CardDescription>
+              The dashboard's getting-started checklist is put away. Its steps are still worked out
+              from your data, so bringing it back shows where things stand now.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="outline"
+              disabled={action.pending}
+              onClick={() =>
+                action.run(async () => setMe(await setOnboarding({ dismissed: false })), {
+                  success: 'The checklist is back on the dashboard.',
+                })
+              }
+            >
+              Show it again
+            </Button>
+          </CardContent>
+        </Card>
+      )}
       <StatusLine status={action.status} />
       <div ref={exportRef} className="scroll-mt-6">
         <ExportCard />

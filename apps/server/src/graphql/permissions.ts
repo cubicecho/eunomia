@@ -110,6 +110,9 @@ export const permissions = {
     // than someone else reading the history is its owner losing it. The
     // dashboard makes the person confirm each one as well.
     setRetention: sessionAuthenticated,
+    // Harmless, but a dashboard preference all the same: nothing a recording
+    // or reading key has any business changing.
+    setOnboarding: sessionAuthenticated,
     deleteRange: sessionAuthenticated,
     purgeApp: sessionAuthenticated,
     deleteAccount: sessionAuthenticated,

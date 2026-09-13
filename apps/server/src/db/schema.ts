@@ -36,6 +36,13 @@ export const user = pgTable('user', {
   // Null follows the server. It can only shorten: the operator's setting is
   // what the disk was sized for, and a user can't opt out of it.
   retentionDays: integer('retention_days'),
+  // Ours as well: the dashboard's getting-started checklist. When the user put
+  // it away, and when they ticked the one step the server can't see done —
+  // privacy lists, which live in each agent's own config file and never reach
+  // the server. Timestamps rather than booleans for the same price, so "when"
+  // is there if anything ever wants it; null is not yet.
+  onboardingDismissedAt: timestamp('onboarding_dismissed_at'),
+  privacyReviewedAt: timestamp('privacy_reviewed_at'),
 });
 
 export const session = pgTable('session', {

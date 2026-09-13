@@ -1073,6 +1073,16 @@ type Me {
   id: String!
 
   """
+  Whether the getting-started checklist was put away with `setOnboarding`.
+  """
+  onboardingDismissed: Boolean!
+
+  """
+  Whether the checklist's privacy-lists step was ticked with `setOnboarding` — the lists themselves live in each agent's config, out of the server's sight.
+  """
+  privacyReviewed: Boolean!
+
+  """
   Days of raw pings and activities chosen with `setRetention`, or null to follow the server's.
   """
   retentionDays: Int
@@ -1241,6 +1251,7 @@ type Mutation {
   revokeApiKey(id: String!): Boolean!
   rotateDeviceKey(id: String!): DeviceRegistration!
   sessionFromDeviceKey: AuthSession!
+  setOnboarding(dismissed: Boolean, privacyReviewed: Boolean): Me!
   setRetention(days: Int): Me!
   setTimeZone(timeZone: String): Me!
   signIn(email: String!, password: String!): AuthSession!

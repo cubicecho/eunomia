@@ -109,6 +109,10 @@ type Mutation {
   # Days of raw pings and activities to keep, fewer than the server keeps; null
   # follows the server. Applied at the next prune. Session-only.
   setRetention(days: Int): Me!
+  # The dashboard's getting-started checklist: put it away (or bring it back),
+  # and tick (or untick) the privacy-lists step, which the server has no way to
+  # see done. An omitted argument leaves that flag as it is. Session-only.
+  setOnboarding(dismissed: Boolean, privacyReviewed: Boolean): Me!
 
   # Deletion. Session-only (see permissions.ts); none of them can be undone.
   """
@@ -283,6 +287,10 @@ type Me {
   retentionDays: Int
   "Days of raw pings and activities actually kept: the shorter of `retentionDays` and the server's, or null for forever. Summaries are kept regardless."
   effectiveRetentionDays: Int
+  "Whether the getting-started checklist was put away with `setOnboarding`."
+  onboardingDismissed: Boolean!
+  "Whether the checklist's privacy-lists step was ticked with `setOnboarding` — the lists themselves live in each agent's config, out of the server's sight."
+  privacyReviewed: Boolean!
 }
 
 # Session payload for signUp/signIn: the raw token goes back as

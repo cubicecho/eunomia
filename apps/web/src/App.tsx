@@ -41,6 +41,9 @@ const VIEWS = [
 
 export function App() {
   const [screen, setScreen] = useState<Screen>({ kind: 'booting' });
+  // Controlled so the dashboard's getting-started checklist can send the user
+  // to the tab that finishes a step.
+  const [view, setView] = useState<string>('dashboard');
 
   // Emailed magic links land here as /?token=…; consume it, then clean the URL
   // so a reload doesn't retry the spent token.
@@ -95,7 +98,7 @@ export function App() {
   return (
     <SessionProvider value={{ expire, me: screen.me, setMe }}>
       <div className="mx-auto flex min-h-svh w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
-        <Tabs defaultValue="dashboard" className="gap-6">
+        <Tabs value={view} onValueChange={setView} className="gap-6">
           <header className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
               <ClockMark className="size-6 shrink-0" />
@@ -121,7 +124,7 @@ export function App() {
           </header>
 
           <TabsContent value="dashboard">
-            <DashboardView />
+            <DashboardView onNavigate={setView} />
           </TabsContent>
           <TabsContent value="review">
             <ReviewView />

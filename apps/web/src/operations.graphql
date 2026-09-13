@@ -28,6 +28,8 @@ query Me {
     effectiveTimeZone
     retentionDays
     effectiveRetentionDays
+    onboardingDismissed
+    privacyReviewed
   }
 }
 
@@ -39,6 +41,23 @@ mutation SetTimeZone($timeZone: String) {
     effectiveTimeZone
     retentionDays
     effectiveRetentionDays
+    onboardingDismissed
+    privacyReviewed
+  }
+}
+
+# The dashboard's getting-started checklist. Session-only on the server; an
+# omitted flag is left as it is.
+mutation SetOnboarding($dismissed: Boolean, $privacyReviewed: Boolean) {
+  setOnboarding(dismissed: $dismissed, privacyReviewed: $privacyReviewed) {
+    id
+    email
+    timeZone
+    effectiveTimeZone
+    retentionDays
+    effectiveRetentionDays
+    onboardingDismissed
+    privacyReviewed
   }
 }
 
@@ -52,6 +71,8 @@ mutation SetRetention($days: Int) {
     effectiveTimeZone
     retentionDays
     effectiveRetentionDays
+    onboardingDismissed
+    privacyReviewed
   }
 }
 
