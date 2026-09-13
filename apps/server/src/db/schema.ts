@@ -299,6 +299,60 @@ export const activities = pgTable(
   ],
 );
 
+// Focus order: the stretches of time the fold credited to one activity without
+// a break, in the order they happened. Activities say how long each (app,
+// context) was used, but they overlap — two open rows accrue in turn for as
+// long as the user alternates — so they can't say what came after what. A
+// segment can: the device's segments never overlap, and read by startedAt they
+// are its timeline.
+//
+// One row per focus change, not per ping. A ping extends the activity's latest
+// segment when it continues it exactly, and otherwise starts a new one. A
+// segment is exactly the interval the fold accrued, so its span agrees with
+// activeSeconds:
+//
+// - It starts where the ping's accrual starts: the device's previous ping (or
+//   ACCRUE_CAP_SECONDS back, when the gap was longer). So it can begin a little
+//   before its activity's startedAt, which is the first ping itself.
+// - A gap longer than ACCRUE_CAP_SECONDS ends it, because the fold stops
+//   crediting there. A silence past CLOSE_AFTER_SECONDS closes the activity,
+//   which ends it too.
+// - Idle walks it back: when the fold takes the idle ramp back out of an
+//   activity, that activity's segments are cut at the moment input stopped,
+//   and any that started after it are deleted.
+//
+// Written by the fold (src/activity/focus.ts), so live ingestion and replay
+// write the same rows. References the activity rather than copying its app,
+// context and category: those change after the fact (merge rules, manual
+// assignment, rule sweeps), and a copy would go stale. Like activity ids,
+// segment ids change on replay.
+export const focusSegments = pgTable(
+  'focus_segments',
+  {
+    id: text('id').primaryKey(),
+    // Denormalized from the activity: every read is "this user's devices over
+    // a time range", and that is an index on this table rather than a join.
+    deviceId: text('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    // Cascades, which is how segments are pruned: they go with their activity
+    // under ACTIVITY_RETENTION_DAYS, and with it when replay rebuilds.
+    activityId: text('activity_id')
+      .notNull()
+      .references(() => activities.id, { onDelete: 'cascade' }),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    // Equal to startedAt for a focus that accrued nothing: the first ping after
+    // a silence, before a second one extends it.
+    endedAt: timestamp('ended_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index('focus_segments_device_started_idx').on(t.deviceId, t.startedAt),
+    // The fold's lookups: an activity's latest segment, and its segments
+    // an idle walk-back cuts.
+    index('focus_segments_activity_started_idx').on(t.activityId, t.startedAt),
+  ],
+);
+
 // Precomputed aggregates: active seconds per (device, UTC day of start, app,
 // context, category), folded from closed activities by the rollup job so
 // dashboards read a few summary rows instead of every raw activity. Raw rows
@@ -374,6 +428,7 @@ const r = createRelationsHelper({
   user,
   devices,
   activities,
+  focusSegments,
   categories,
   categoryRules,
   contextRules,
@@ -386,6 +441,7 @@ export const relations = buildRelations(
     user,
     devices,
     activities,
+    focusSegments,
     categories,
     categoryRules,
     contextRules,
@@ -411,6 +467,10 @@ export const relations = buildRelations(
     activities: {
       device: r.one.devices({ from: r.activities.deviceId, to: r.devices.id }),
       category: r.one.categories({ from: r.activities.categoryId, to: r.categories.id }),
+    },
+    focusSegments: {
+      device: r.one.devices({ from: r.focusSegments.deviceId, to: r.devices.id }),
+      activity: r.one.activities({ from: r.focusSegments.activityId, to: r.activities.id }),
     },
     categories: {
       user: r.one.user({ from: r.categories.userId, to: r.user.id }),
@@ -439,3 +499,4 @@ export type Device = typeof devices.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Summary = typeof summaries.$inferSelect;
 export type StoredPing = typeof pings.$inferSelect;
+export type FocusSegment = typeof focusSegments.$inferSelect;

@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
 import { activities, type Device, devices } from '../db/schema.ts';
+import { recordFocus } from './focus.ts';
 
 /**
  * A stateless report from an agent: "this is what the device looks like right
@@ -78,6 +79,14 @@ export interface FoldStep {
   insert: Activity | null;
   /** The activity the ping touched — the update, the insert, or an unchanged match. */
   touched: Activity | null;
+  /**
+   * The interval the ping credited to an activity — `from` is where the accrual
+   * starts, and it ends at the ping. Set whenever the ping focused an activity
+   * and moved it forward, even by 0 seconds. What focus segments are cut from.
+   */
+  accrued: { activity: Activity; from: Date } | null;
+  /** An idle walk-back: `activity` stopped being used at `to`. */
+  walkedBack: { activity: Activity; to: Date } | null;
 }
 
 /**
@@ -98,7 +107,7 @@ export interface FoldStep {
  */
 export function foldStep(open: Activity[], deviceId: string, ping: Ping): FoldStep {
   const now = ping.capturedAt;
-  const none = { update: null, insert: null, touched: null };
+  const none = { update: null, insert: null, touched: null, accrued: null, walkedBack: null };
 
   const close = open.filter(
     (a) => (now.getTime() - a.lastActiveAt.getTime()) / 1000 > CLOSE_AFTER_SECONDS,
@@ -124,7 +133,7 @@ export function foldStep(open: Activity[], deviceId: string, ping: Ping): FoldSt
         lastActiveAt:
           idleStart.getTime() > focused.startedAt.getTime() ? idleStart : focused.startedAt,
       };
-      return { close, ...none, update };
+      return { close, ...none, update, walkedBack: { activity: update, to: idleStart } };
     }
     return { close, ...none };
   }
@@ -139,8 +148,14 @@ export function foldStep(open: Activity[], deviceId: string, ping: Ping): FoldSt
     return { close, ...none, touched: match ?? null };
   }
 
-  const delta =
-    lastSeenMs > 0 ? Math.min((now.getTime() - lastSeenMs) / 1000, ACCRUE_CAP_SECONDS) : 0;
+  // Where the accrual starts: the last ping, at most ACCRUE_CAP_SECONDS back.
+  // Kept as an instant rather than derived back from delta, so a focus segment
+  // ending at the last ping meets the next one's start exactly.
+  const from =
+    lastSeenMs > 0
+      ? new Date(Math.max(lastSeenMs, now.getTime() - ACCRUE_CAP_SECONDS * 1000))
+      : now;
+  const delta = (now.getTime() - from.getTime()) / 1000;
 
   if (match) {
     const update = {
@@ -149,7 +164,7 @@ export function foldStep(open: Activity[], deviceId: string, ping: Ping): FoldSt
       lastActiveAt: now,
       title: ping.title ?? match.title,
     };
-    return { close, insert: null, update, touched: update };
+    return { close, ...none, update, touched: update, accrued: { activity: update, from } };
   }
 
   const insert: Activity = {
@@ -166,12 +181,12 @@ export function foldStep(open: Activity[], deviceId: string, ping: Ping): FoldSt
     categorySource: null,
     rolledUp: false,
   };
-  return { close, update: null, insert, touched: insert };
+  return { close, ...none, insert, touched: insert, accrued: { activity: insert, from } };
 }
 
 /**
  * Folds one ping into the device's open activities in the database — see
- * foldStep for the rules. Returns the activity the ping touched, or null
+ * foldStep for the rules — and moves its focus segments on with it (focus.ts). Returns the activity the ping touched, or null
  * (idle, or no detectable app).
  *
  * Read-modify-write throughout, so callers must hold the device's fold lock
@@ -201,6 +216,7 @@ export async function foldPing(db: Db, deviceId: string, ping: Ping): Promise<Ac
       );
   }
 
+  let result = step.touched;
   if (step.update) {
     const [updated] = await db
       .update(activities)
@@ -211,11 +227,13 @@ export async function foldPing(db: Db, deviceId: string, ping: Ping): Promise<Ac
       })
       .where(eq(activities.id, step.update.id))
       .returning();
-    return step.touched ? updated! : null;
+    result = step.touched ? updated! : null;
   }
   if (step.insert) {
     const [inserted] = await db.insert(activities).values(step.insert).returning();
-    return inserted!;
+    result = inserted!;
   }
-  return step.touched;
+  // After the activity rows: a new segment references the activity it covers.
+  await recordFocus(db, step);
+  return result;
 }

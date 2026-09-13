@@ -6,6 +6,7 @@ import {
   type categoryRules,
   type contextRules,
   devices,
+  type focusSegments,
   type mergeRules,
   type summaries,
 } from '../db/schema.ts';
@@ -48,8 +49,9 @@ export const rowScopes: ScopeConfig<Context> = {
   categoryRules: (ctx, table: typeof categoryRules) => eq(table.userId, requireUser(ctx)),
   contextRules: (ctx, table: typeof contextRules) => eq(table.userId, requireUser(ctx)),
   mergeRules: (ctx, table: typeof mergeRules) => eq(table.userId, requireUser(ctx)),
-  // Activities and summaries carry no userId of their own — ownership runs
-  // through the owning device, so their fence is a subquery.
+  // Activities, focus segments and summaries carry no userId of their own —
+  // ownership runs through the owning device, so their fence is a subquery.
   activities: (ctx, table: typeof activities) => inArray(table.deviceId, ownDeviceIds(ctx)),
+  focusSegments: (ctx, table: typeof focusSegments) => inArray(table.deviceId, ownDeviceIds(ctx)),
   summaries: (ctx, table: typeof summaries) => inArray(table.deviceId, ownDeviceIds(ctx)),
 };

@@ -70,6 +70,7 @@ export const permissions = {
     '*': deny,
     devices: authenticated,
     activities: authenticated,
+    focusSegments: authenticated,
     categories: authenticated,
     categoryRules: authenticated,
     contextRules: authenticated,

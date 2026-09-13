@@ -47,6 +47,7 @@ function listQueries(entities: Entities) {
   return {
     devices: entities.queries.devices!,
     activities: entities.queries.activities!,
+    focusSegments: entities.queries.focusSegments!,
     categories: entities.queries.categories!,
     categoryRules: entities.queries.categoryRules!,
     contextRules: entities.queries.contextRules!,

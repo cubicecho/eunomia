@@ -730,6 +730,56 @@ input FloatFilter {
   notInArray: [Float!]
 }
 
+type FocusSegments {
+  activity(where: ActivitiesFilters): Activities
+  activityId: String!
+
+  """
+  Opaque cursor of this row's position in the query's ordering. Pass it as `after` to resume from here. Only set on rows returned by a list query.
+  """
+  cursor: String
+  device(where: DevicesFilters): Devices
+  deviceId: String!
+  endedAt: DateTime!
+  id: String!
+  startedAt: DateTime!
+}
+
+input FocusSegmentsFilters {
+  """Every branch matches"""
+  AND: [FocusSegmentsFilters!]
+
+  """Negates the nested filters"""
+  NOT: FocusSegmentsFilters
+
+  """At least one branch matches; ANDed with any sibling fields"""
+  OR: [FocusSegmentsFilters!]
+
+  """Matches rows whose activity matches these filters"""
+  activity: ActivitiesFilters
+  activityId: StringFilter
+
+  """Matches rows whose device matches these filters"""
+  device: DevicesFilters
+  deviceId: StringFilter
+  endedAt: DateTimeFilter
+  id: StringFilter
+  startedAt: DateTimeFilter
+}
+
+input FocusSegmentsOrderBy {
+  """Order by columns of the related activity row"""
+  activity: ActivitiesOrderBy
+  activityId: InnerOrder
+
+  """Order by columns of the related device row"""
+  device: DevicesOrderBy
+  deviceId: InnerOrder
+  endedAt: InnerOrder
+  id: InnerOrder
+  startedAt: InnerOrder
+}
+
 input InnerOrder {
   direction: OrderDirection!
 
@@ -1013,6 +1063,16 @@ type Query {
     orderBy: DevicesOrderBy
     where: DevicesFilters
   ): [Devices!]!
+  focusSegments(
+    """
+    Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
+    """
+    after: String
+    limit: Int
+    offset: Int
+    orderBy: FocusSegmentsOrderBy
+    where: FocusSegmentsFilters
+  ): [FocusSegments!]!
 
   """The caller's user id, or null when the request is anonymous."""
   me: String

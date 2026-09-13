@@ -48,7 +48,13 @@ export function buildEntities(db: Db): Entities {
     limits: { maxLimit: 1000 },
     // Activities have no natural order in the table. "Recent" is the only
     // reading anyone wants, so a request that names no order gets it.
-    defaults: { activities: { orderBy: { startedAt: 'desc' } } },
+    // Focus segments are the opposite: the order things happened in is the
+    // whole point of them, so they read oldest first — narrow by startedAt to
+    // the window wanted.
+    defaults: {
+      activities: { orderBy: { startedAt: 'desc' } },
+      focusSegments: { orderBy: { startedAt: 'asc' } },
+    },
     onError,
   });
   return entities as unknown as Entities;
