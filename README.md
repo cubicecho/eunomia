@@ -3,6 +3,8 @@
 Multiplatform activity tracker: a desktop tray agent that records which
 application is in use and sends it to a self-hosted, multi-user server.
 
+Site: <https://cubicecho.github.io/eunomia/>
+
 Research and architecture decisions: [.agents/research.md](.agents/research.md).
 
 > **Status:** working MVP. GraphQL-only API (auth included — no REST routes),

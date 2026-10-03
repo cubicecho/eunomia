@@ -1,0 +1,55 @@
+---
+layout: base.njk
+---
+<section class="hero project-hero">
+  <h1>{{ site.name }}</h1>
+  <p>{{ site.tagline }}</p>
+  <p class="cta">
+    <a class="button" href="#start">Get started</a>
+    <a class="button secondary" href="{{ site.repo }}" rel="noopener">GitHub ↗</a>
+  </p>
+</section>
+
+<section class="section">
+  <h2>What it does</h2>
+  <p class="section-intro">
+    Agents on your machines record which application has focus and send it to
+    a server you run. The dashboard turns that into time per app, per category
+    and per day, without the data leaving your hardware.
+  </p>
+
+  <ul class="card-grid">
+    <li>
+      <article class="card">
+        <h3>Desktop and Android agents</h3>
+        <p>A tray agent samples the focused window, and the Android app reads the system usage log, so no live sampling service is needed.</p>
+      </article>
+    </li>
+    <li>
+      <article class="card">
+        <h3>Contexts and categories</h3>
+        <p>Time splits by the site in the browser or the project that is open, and regex rules sort it into categories.</p>
+      </article>
+    </li>
+    <li>
+      <article class="card">
+        <h3>Your server, your data</h3>
+        <p>Privacy filters run on the device before anything is queued, and the server exposes GraphQL, read-only MCP tools and a full export.</p>
+      </article>
+    </li>
+  </ul>
+</section>
+
+<section class="section" id="start">
+  <h2>Get started</h2>
+  <div class="prose">
+    <pre class="code"><code>git clone https://github.com/cubicecho/eunomia &amp;&amp; cd eunomia
+echo "BETTER_AUTH_SECRET=$(openssl rand -base64 32)" &gt; .env
+docker compose up --build   # dashboard at http://localhost:4000</code></pre>
+  </div>
+
+  <p class="readme-link">
+    Full documentation lives in the project README:
+    <a href="{{ site.repo }}#readme" rel="noopener">{{ site.repo }}</a>
+  </p>
+</section>

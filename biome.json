@@ -17,7 +17,8 @@
       "!packages/gql/src",
       "!apps/app/electron/tray-icon.ts",
       "!apps/app/dist-web",
-      "!apps/server/drizzle"
+      "!apps/server/drizzle",
+      "!site"
     ]
   },
   "assist": {
