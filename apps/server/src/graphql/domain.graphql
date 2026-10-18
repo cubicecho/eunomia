@@ -14,6 +14,10 @@
 extend type Query {
   "The caller, or null when the request is anonymous."
   me: Me
+  # How sign-in through an OIDC provider is set up. Public, so the sign-in page
+  # can show the provider's button, and so a brand-new instance can offer to
+  # set it up before anyone has an account.
+  ssoSetup: SsoSetup!
 
   """
   The caller's integration keys — the ones issued from the dashboard for other
@@ -100,6 +104,22 @@ type Mutation {
   verifyMagicLink(token: String!): AuthSession!
   signOut: Boolean!
   sessionFromDeviceKey: AuthSession!
+  # The last leg of an OIDC sign-in: the one-time token the callback put on the
+  # dashboard's URL (`/?sso=`), for a session. Single use, and only for a few
+  # minutes; BAD_USER_INPUT once spent or expired. An agent that started the
+  # sign-in with a `code_challenge` (to get the token back in the app rather
+  # than the dashboard) must send the verifier behind it.
+  verifyOneTimeToken(token: String!, codeVerifier: String): AuthSession!
+  # Pairs the instance with the provider a setup URL names
+  # (`<issuer>#setup=<token>&name=<name>`), registering eunomia there through
+  # Dynamic Client Registration. The admin, or anyone while the instance has no
+  # accounts. BAD_USER_INPUT or RATE_LIMITED with `extensions.reason` when the
+  # provider would not pair; FORBIDDEN for anyone else, or when OIDC_ISSUER
+  # names the provider; CONFLICT when one is paired already.
+  pairSso(setupUrl: String!): SsoSetup!
+  # Deletes eunomia's client at the paired provider and stops offering it.
+  # Accounts stay. Same rule as pairSso.
+  unpairSso: SsoSetup!
 
   # Account. The caller's time zone: an IANA name, or null to follow the
   # server's. Moves the days of every activity still kept onto the new zone's
@@ -291,6 +311,33 @@ type Me {
   onboardingDismissed: Boolean!
   "Whether the checklist's privacy-lists step was ticked with `setOnboarding` — the lists themselves live in each agent's config, out of the server's sight."
   privacyReviewed: Boolean!
+  "Whether this account runs the instance: it may pair an OIDC provider. The first account is."
+  isAdmin: Boolean!
+}
+
+"Where the instance's OIDC provider comes from."
+enum SsoSource {
+  "OIDC_ISSUER in the server's environment. Read-only from the dashboard."
+  ENV
+  "Paired from a setup URL."
+  PAIRED
+  "There is none."
+  NONE
+}
+
+"How sign-in through an OIDC provider is set up, and whether the caller may change it."
+type SsoSetup {
+  source: SsoSource!
+  "What the sign-in button calls the provider; null when there is none."
+  name: String
+  "Where the sign-in button sends the browser; null when there is no provider."
+  signInUrl: String
+  "The provider's issuer URL. Only for a caller who may pair."
+  issuer: String
+  "Whether the caller may pair a provider, or disconnect the paired one."
+  canPair: Boolean!
+  "The redirect URI to register with a provider by hand, for an OIDC_ISSUER setup."
+  redirectUri: String!
 }
 
 # Session payload for signUp/signIn: the raw token goes back as

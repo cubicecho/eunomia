@@ -20,6 +20,22 @@ mutation VerifyMagicLink($token: String!) {
   }
 }
 
+# Whether the server signs in through an OIDC provider, and where to start.
+query SsoSetup {
+  ssoSetup {
+    name
+    signInUrl
+  }
+}
+
+# The token an OIDC sign-in handed back to the agent, with the verifier behind
+# the challenge the agent started it with.
+mutation VerifyOneTimeToken($token: String!, $codeVerifier: String) {
+  verifyOneTimeToken(token: $token, codeVerifier: $codeVerifier) {
+    token
+  }
+}
+
 mutation RegisterDevice($name: String!, $platform: String!) {
   registerDevice(name: $name, platform: $platform) {
     device {

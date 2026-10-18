@@ -98,6 +98,29 @@ export async function verifyMagicLink(serverUrl: string, tokenOrLink: string): P
   return result.token;
 }
 
+/** The server's OIDC provider: what to call it and where sign-in starts. Null when it has none. */
+export async function fetchSsoProvider(
+  serverUrl: string,
+): Promise<{ name: string; signInUrl: string } | null> {
+  const { ssoSetup } = await createSdk(serverUrl).SsoSetup();
+  return ssoSetup.name && ssoSetup.signInUrl
+    ? { name: ssoSetup.name, signInUrl: ssoSetup.signInUrl }
+    : null;
+}
+
+/** Trades the token an OIDC sign-in handed back, and the verifier it is bound to, for a session. */
+export async function verifyOneTimeToken(
+  serverUrl: string,
+  token: string,
+  codeVerifier: string,
+): Promise<string> {
+  const { verifyOneTimeToken: result } = await createSdk(serverUrl).VerifyOneTimeToken({
+    token,
+    codeVerifier,
+  });
+  return result.token;
+}
+
 export async function registerDevice(
   serverUrl: string,
   sessionToken: string,

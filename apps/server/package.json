@@ -41,6 +41,7 @@
     "@types/pg": "^8.15.0",
     "@vantreeseba/graphql-mocks": "^3.0.0",
     "drizzle-kit": "1.0.0-rc.2-e38a2ba",
+    "jose": "^6.2.10",
     "tsx": "^4.19.0",
     "typescript": "^5.9.2",
     "vitest": "^3.0.0"

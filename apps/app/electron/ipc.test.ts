@@ -42,6 +42,7 @@ function stubRuntime() {
     pauseState: vi.fn(() => ({ paused: false, until: null })),
     pause: vi.fn((ms: number | null) => ({ paused: true, until: ms === null ? null : 1000 + ms })),
     resume: vi.fn(() => ({ paused: false, until: null })),
+    ssoSignIn: vi.fn(async () => ({ token: 'ott', codeVerifier: 'v' })),
   } satisfies AgentRuntime & Record<string, unknown>;
 }
 
@@ -124,5 +125,16 @@ describe('registerAgentIpc', () => {
       provisioned: true,
       uploadError: 'offline',
     });
+  });
+
+  it('opens only a web address for SSO sign-in', async () => {
+    expect(await handlerFor('ssoSignIn')(fromAgent, 'https://e.example/sso/oidc')).toEqual({
+      token: 'ott',
+      codeVerifier: 'v',
+    });
+    for (const bad of ['file:///etc/passwd', 'javascript:alert(1)', 42, undefined]) {
+      expect(() => handlerFor('ssoSignIn')(fromAgent, bad)).toThrow(/http\(s\)/);
+    }
+    expect(runtime.ssoSignIn).toHaveBeenCalledTimes(1);
   });
 });

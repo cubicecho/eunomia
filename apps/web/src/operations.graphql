@@ -18,6 +18,39 @@ mutation SignOut {
   signOut
 }
 
+# Sign-in through an OIDC provider: whether the sign-in page offers one, and
+# whether this caller may pair (or disconnect) it.
+query SsoSetup {
+  ssoSetup {
+    source
+    name
+    signInUrl
+    issuer
+    canPair
+    redirectUri
+  }
+}
+
+# The last leg of an OIDC sign-in: the callback lands on /?sso=<token>.
+mutation VerifyOneTimeToken($token: String!) {
+  verifyOneTimeToken(token: $token) {
+    token
+  }
+}
+
+mutation PairSso($setupUrl: String!) {
+  pairSso(setupUrl: $setupUrl) {
+    source
+    name
+  }
+}
+
+mutation UnpairSso {
+  unpairSso {
+    source
+  }
+}
+
 # Who is signed in, and the zone their days split in — every date the
 # dashboard sends is a calendar day in effectiveTimeZone.
 query Me {
@@ -30,6 +63,7 @@ query Me {
     effectiveRetentionDays
     onboardingDismissed
     privacyReviewed
+    isAdmin
   }
 }
 
@@ -43,6 +77,7 @@ mutation SetTimeZone($timeZone: String) {
     effectiveRetentionDays
     onboardingDismissed
     privacyReviewed
+    isAdmin
   }
 }
 
@@ -58,6 +93,7 @@ mutation SetOnboarding($dismissed: Boolean, $privacyReviewed: Boolean) {
     effectiveRetentionDays
     onboardingDismissed
     privacyReviewed
+    isAdmin
   }
 }
 
@@ -73,6 +109,7 @@ mutation SetRetention($days: Int) {
     effectiveRetentionDays
     onboardingDismissed
     privacyReviewed
+    isAdmin
   }
 }
 

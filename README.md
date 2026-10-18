@@ -121,8 +121,9 @@ cp .env.example .env
 npm run db:migrate -w @eunomia/server   # apply committed migrations
 npm run dev:server                      # http://localhost:4000/graphql
 
-# desktop agent — on first run it opens a setup window (server URL + email,
-# magic-link sign-in, registers this machine), then lives in the tray. That
+# desktop agent — on first run it opens a setup window (server URL, then a
+# magic-link or single sign-on sign-in, registers this machine), then lives in
+# the tray. That
 # window is the Expo app rendered by react-native-web, so `dev:desktop` runs
 # `expo export --platform web` first; re-run it after editing the UI, or point
 # EUNOMIA_DEV_SERVER at `npm run web -w @eunomia/app` to skip the export.
@@ -143,7 +144,8 @@ npm run dev:web                         # http://localhost:5173
 # mobile agent (Android) — needs a dev build (native module), not Expo Go:
 #   cd apps/app && npx expo run:android
 # then grant "Usage access" from the in-app prompt. Set up mirrors desktop:
-# server URL + email magic link. Syncs on foreground + ~15 min in background.
+# server URL, then magic link or single sign-on. Syncs on foreground + ~15 min
+# in background.
 npm run dev:mobile
 
 # checks
@@ -327,6 +329,51 @@ Set `UNSAFE_LOCAL_NETWORK=true` on the server to skip the inbox round-trip:
 dashboard and the desktop setup window log straight in from just an email
 address. **Anyone who can reach the server can sign in as any email** — only
 use it on a trusted local network.
+
+### Single sign-on (OIDC)
+
+The dashboard can also sign people in through an OpenID Connect provider —
+[heautou](https://github.com/cubicecho/heautou), Keycloak, Authentik, anything
+that speaks OIDC. Accounts are matched by email address, so someone who already
+signed in by magic link lands in the same account. `ALLOWED_EMAILS` and
+`DISABLE_SIGNUP` apply exactly as they do to magic links.
+
+There are two ways to set it up:
+
+- **Pair it from the dashboard.** If the provider supports Dynamic Client
+  Registration (heautou does), its admin makes a setup URL for eunomia, which
+  looks like `https://id.example.com/oidc#setup=…&name=heautou`. Paste it into
+  **Settings → Single sign-on**, or, on a new server with no accounts yet,
+  under **Set up single sign-on** on the sign-in page. eunomia registers itself
+  with the provider, and the "Sign in with …" button appears without a
+  restart. **Disconnect** deletes the client at the provider again.
+- **Set it in the environment.** `OIDC_ISSUER` and `OIDC_CLIENT_ID` (plus
+  `OIDC_CLIENT_SECRET`, `OIDC_CLIENT_AUTH`, `OIDC_NAME` — see `.env.example`).
+  Register the redirect URI the server prints at boot,
+  `<BETTER_AUTH_URL>/api/auth/callback/oidc`, with the provider. A provider set
+  here wins over a paired one and can't be changed from the dashboard.
+
+Only the server's admin may pair or disconnect a provider. The admin is the
+first account created (on an existing server, the oldest account); if that
+account is deleted, the next-oldest takes over. While a server has no accounts
+at all, anyone who can reach it may pair, so whoever installs it can set
+sign-in up before signing in.
+
+The sign-in itself never puts a session in a cookie or a URL: the provider's
+callback ends with a one-time token on `/?sso=…`, which the dashboard swaps for
+its usual bearer session.
+
+The desktop and Android agents offer **Sign in with …** on their setup screen
+too, once the server URL they're given has a provider. The sign-in runs in the
+system browser, and the result comes back to the agent: on desktop to a port
+it opens on `127.0.0.1` for that one sign-in, on Android to the app's
+`eunomia://` link. Either could in principle be caught by something else on
+the same device, so the agent starts the sign-in with a challenge
+(`code_challenge`, as in PKCE) and the server only accepts the returned token
+together with the secret behind it. The server sends a sign-in back only to
+those two kinds of address. The Android build gained two native modules for
+this (`expo-web-browser`, `expo-crypto`) and an app link scheme, so it needs a
+new APK. An over-the-air update can't deliver it.
 
 ### API keys (for other apps)
 

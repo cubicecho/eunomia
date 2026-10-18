@@ -1073,6 +1073,11 @@ type Me {
   id: String!
 
   """
+  Whether this account runs the instance: it may pair an OIDC provider. The first account is.
+  """
+  isAdmin: Boolean!
+
+  """
   Whether the getting-started checklist was put away with `setOnboarding`.
   """
   onboardingDismissed: Boolean!
@@ -1234,6 +1239,7 @@ type Mutation {
   """
   installRulePack(id: String!): RulePackInstall!
   mergeDevice(id: String!, intoId: String!): Devices!
+  pairSso(setupUrl: String!): SsoSetup!
 
   """
   Deletes an app — or, with `context`, one context of it — from every device:
@@ -1257,6 +1263,7 @@ type Mutation {
   signIn(email: String!, password: String!): AuthSession!
   signOut: Boolean!
   signUp(email: String!, name: String!, password: String!): AuthSession!
+  unpairSso: SsoSetup!
 
   """
   A whole replacement, like updateCategoryRule: a null color clears it, and a
@@ -1266,6 +1273,7 @@ type Mutation {
   updateCategoryRule(appPattern: String, categoryId: String!, contextPattern: String, id: String!, priority: Int, titlePattern: String): CategoryRules!
   updateContextRule(appPattern: String, id: String!, priority: Int, titlePattern: String!): ContextRules!
   verifyMagicLink(token: String!): AuthSession!
+  verifyOneTimeToken(codeVerifier: String, token: String!): AuthSession!
 }
 
 """Order by direction"""
@@ -1465,6 +1473,7 @@ type Query {
   installed (see `installRulePack`).
   """
   rulePacks: [RulePack!]!
+  ssoSetup: SsoSetup!
 }
 
 """What `deleteRange` removed."""
@@ -1530,6 +1539,43 @@ type RulePackInstall {
 
   """Rules rewritten from an older version of the pack."""
   updated: Int!
+}
+
+"""
+How sign-in through an OIDC provider is set up, and whether the caller may change it.
+"""
+type SsoSetup {
+  """Whether the caller may pair a provider, or disconnect the paired one."""
+  canPair: Boolean!
+
+  """The provider's issuer URL. Only for a caller who may pair."""
+  issuer: String
+
+  """What the sign-in button calls the provider; null when there is none."""
+  name: String
+
+  """
+  The redirect URI to register with a provider by hand, for an OIDC_ISSUER setup.
+  """
+  redirectUri: String!
+
+  """
+  Where the sign-in button sends the browser; null when there is no provider.
+  """
+  signInUrl: String
+  source: SsoSource!
+}
+
+"""Where the instance's OIDC provider comes from."""
+enum SsoSource {
+  """OIDC_ISSUER in the server's environment. Read-only from the dashboard."""
+  ENV
+
+  """There is none."""
+  NONE
+
+  """Paired from a setup URL."""
+  PAIRED
 }
 
 input StringFilter {

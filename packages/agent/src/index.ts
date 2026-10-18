@@ -5,6 +5,7 @@ export {
   createRequester,
   createSdk,
   extractMagicToken,
+  fetchSsoProvider,
   registerDevice,
   renameDevice,
   requestMagicLink,
@@ -12,6 +13,7 @@ export {
   sessionFromDeviceKey,
   signOut,
   verifyMagicLink,
+  verifyOneTimeToken,
 } from './api.ts';
 export {
   parseConfig,
@@ -71,6 +73,14 @@ export {
   type SamplerDeps,
   type SamplerStatus,
 } from './sampler.ts';
+export {
+  ANDROID_SSO_RETURN,
+  base64Url,
+  type SsoCredential,
+  ssoErrorMessage,
+  ssoStartUrl,
+  ssoTokenFrom,
+} from './sso.ts';
 export {
   initialSynthState,
   SYNTH_INTERVAL_MS,

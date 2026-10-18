@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createAuth, createAuthGateway, verifyApiKey } from '../src/auth.ts';
+import { fixedAuthHost } from '../src/auth-host.ts';
 import { activities, devices, focusSegments, pings, summaries, user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
@@ -21,7 +22,7 @@ describe('device management', () => {
       secret: 'test-secret-test-secret-test-secret',
       baseURL: 'http://localhost:4000',
     });
-    schema = createSchema(db as never, createAuthGateway(auth, db as never));
+    schema = createSchema(db as never, createAuthGateway(fixedAuthHost(auth), db as never));
     await db.insert(user).values([
       { id: 'user-1', name: 'u1', email: 'u1@example.com' },
       { id: 'user-2', name: 'u2', email: 'u2@example.com' },

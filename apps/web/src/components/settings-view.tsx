@@ -7,6 +7,7 @@ import { DeleteAccountCard } from '@/components/privacy/delete-account-card';
 import { DeleteRangeCard } from '@/components/privacy/delete-range-card';
 import { PurgeAppCard } from '@/components/privacy/purge-app-card';
 import { RetentionCard } from '@/components/privacy/retention-card';
+import { SsoCard } from '@/components/sso-card';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -145,6 +146,7 @@ export function SettingsView() {
         </Card>
       )}
       <StatusLine status={action.status} />
+      {me.isAdmin && <SsoCard />}
       <div ref={exportRef} className="scroll-mt-6">
         <ExportCard />
       </div>

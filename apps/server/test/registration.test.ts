@@ -1,6 +1,7 @@
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Auth, createAuth, createAuthGateway } from '../src/auth.ts';
+import { fixedAuthHost } from '../src/auth-host.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 import type { RegistrationPolicy } from '../src/registration.ts';
@@ -34,7 +35,10 @@ describe('registration policy', () => {
     }) as Context;
 
   const makeSchema = (registration: RegistrationPolicy) =>
-    createSchema(db as never, createAuthGateway(auth, db as never, { registration }));
+    createSchema(
+      db as never,
+      createAuthGateway(fixedAuthHost(auth), db as never, { registration }),
+    );
 
   const run = (schema: ReturnType<typeof createSchema>, source: string, variables = {}) =>
     graphql({ schema, source, variableValues: variables, contextValue: anonymous() });

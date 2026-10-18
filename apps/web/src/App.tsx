@@ -7,6 +7,7 @@ import {
   signOut,
   UNAUTHENTICATED,
   verifyMagicLink,
+  verifyOneTimeToken,
 } from '@/api';
 import { ApiKeysView } from '@/components/api-keys-view';
 import { ClockMark } from '@/components/clock-mark';
@@ -29,6 +30,17 @@ type Screen =
 
 const EXPIRED = 'session expired — sign in again';
 
+/**
+ * What an OIDC sign-in that came back as `/?error=` is told. Our own codes
+ * first (oidc/http.ts on the server); anything else is better-auth's, and all
+ * of those mean the same thing to the person: it didn't work, try again.
+ */
+function ssoErrorMessage(code: string): string {
+  if (code === 'sso_off') return 'Single sign-on is no longer set up on this server.';
+  if (code === 'not_allowed') return 'That account is not allowed on this server.';
+  return "Signing in with your provider didn't work — try again.";
+}
+
 const VIEWS = [
   { value: 'dashboard', label: 'Dashboard' },
   { value: 'review', label: 'Review' },
@@ -45,16 +57,34 @@ export function App() {
   // to the tab that finishes a step.
   const [view, setView] = useState<string>('dashboard');
 
-  // Emailed magic links land here as /?token=…; consume it, then clean the URL
-  // so a reload doesn't retry the spent token.
+  // Emailed magic links land here as /?token=…, and an OIDC sign-in as
+  // /?sso=… (or /?error=… when it failed); consume it, then clean the URL so a
+  // reload doesn't retry the spent token.
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const magicToken = params.get('token');
+    const ssoToken = params.get('sso');
+    const ssoError = params.get('error');
+    if (magicToken || ssoToken || ssoError) history.replaceState(null, '', location.pathname);
+    if (ssoError) {
+      setScreen({ kind: 'signin', message: ssoErrorMessage(ssoError) });
+      return;
+    }
+    if (ssoToken) {
+      verifyOneTimeToken(ssoToken).then(
+        () => setScreen({ kind: 'signed-in', me: null }),
+        () =>
+          setScreen({
+            kind: 'signin',
+            message: 'That sign-in expired before it finished — sign in again.',
+          }),
+      );
+      return;
+    }
     if (!magicToken) {
       setScreen(getToken() ? { kind: 'signed-in', me: null } : { kind: 'signin' });
       return;
     }
-    history.replaceState(null, '', location.pathname);
     verifyMagicLink(magicToken).then(
       () => setScreen({ kind: 'signed-in', me: null }),
       () =>

@@ -11,6 +11,8 @@ export function stubAuthGateway(overrides: Partial<AuthGateway> = {}): AuthGatew
     requestMagicLink: async () => ({ token: null }),
     verifyMagicLink: async () => ({ token: 't', userId: 'u' }),
     signOut: async () => true,
+    verifyOneTimeToken: async () => ({ token: 't', userId: 'u' }),
+    reloadSso: async () => {},
     ...overrides,
   };
 }

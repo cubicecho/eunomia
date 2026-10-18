@@ -413,6 +413,7 @@ app.whenReady().then(async () => {
         updates: false,
         externalDashboard: true,
         pause: true,
+        sso: true,
       },
       version: agentVersion(),
       platform: platformName(),
@@ -439,6 +440,15 @@ app.whenReady().then(async () => {
     pauseState,
     pause: pauseFor,
     resume: resumeNow,
+    ssoSignIn: async (signInUrl) => {
+      const { signInWithBrowser } = await import('./sso.ts');
+      try {
+        return await signInWithBrowser(signInUrl, (url) => shell.openExternal(url));
+      } finally {
+        // The browser took focus; bring the setup window back for the result.
+        await openAgentWindow();
+      }
+    },
   };
   registerAgentIpc(runtime, agentWindow);
   serveAgentBundle();

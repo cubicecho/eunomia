@@ -40,6 +40,14 @@ export function authFields(auth: AuthGateway) {
       return { ok: true, token };
     },
     verifyMagicLink: (_source, args) => auth.verifyMagicLink(args.token),
+    verifyOneTimeToken: (_source, args) => {
+      // A token is random and lives three minutes, so guessing one is hopeless;
+      // the overall budget is only there to keep the attempt cheap to refuse.
+      if (!allLogins.allow('*')) {
+        throw rateLimited('Too many sign-in attempts; try again in a few minutes');
+      }
+      return auth.verifyOneTimeToken(args.token, args.codeVerifier);
+    },
     signOut: (_source, _args, ctx) => auth.signOut(ctx.headers),
     sessionFromDeviceKey: (_source, _args, ctx) => {
       if (!ctx.deviceId || !ctx.userId) throw unauthenticated();

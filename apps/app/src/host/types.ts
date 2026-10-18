@@ -1,4 +1,4 @@
-import type { StoredConfig } from '@eunomia/agent';
+import type { SsoCredential, StoredConfig } from '@eunomia/agent';
 
 // The seam between the shared agent UI and the shell running it.
 //
@@ -49,6 +49,12 @@ export interface HostCapabilities {
    * nothing, has no button that pretends otherwise.
    */
   pause: boolean;
+  /**
+   * The agent can sign in through the server's OIDC provider in the system
+   * browser and get the answer back: a loopback port on desktop, the app's
+   * `eunomia://` scheme on Android. Off in a plain browser.
+   */
+  sso: boolean;
 }
 
 /** Whether recording is paused right now, read back from the shell. */
@@ -155,4 +161,10 @@ export interface AgentHost extends HostInfo {
   /** Pauses for `ms` from now, or until resumed when null. */
   pause?(ms: number | null): Promise<PauseState>;
   resume?(): Promise<PauseState>;
+  /**
+   * Signs in through the server's OIDC provider in the system browser, starting
+   * at `signInUrl` (the server's ssoSetup.signInUrl), and resolves to what it
+   * handed back. Rejects with a message to show when it didn't work.
+   */
+  ssoSignIn?(signInUrl: string): Promise<SsoCredential>;
 }

@@ -1,4 +1,4 @@
-import type { StoredConfig } from '@eunomia/agent';
+import type { SsoCredential, StoredConfig } from '@eunomia/agent';
 import type { HostInfo, PauseState, SyncSummary } from './types.ts';
 
 // The contract between the Electron main process and the renderer that shows
@@ -21,6 +21,7 @@ export interface AgentBridge {
   pauseState(): Promise<PauseState>;
   pause(ms: number | null): Promise<PauseState>;
   resume(): Promise<PauseState>;
+  ssoSignIn(signInUrl: string): Promise<SsoCredential>;
 }
 
 /** Every method name, in one place: the preload iterates it. */
@@ -38,6 +39,7 @@ export const BRIDGE_METHODS = [
   'pauseState',
   'pause',
   'resume',
+  'ssoSignIn',
 ] as const satisfies readonly (keyof AgentBridge)[];
 
 declare global {

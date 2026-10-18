@@ -2,12 +2,15 @@ import { createServer } from 'node:http';
 import { startReplayTimer } from './activity/replay.ts';
 import { startRollupTimer } from './activity/rollup.ts';
 import { createApp, createContextFactory } from './app.ts';
-import { createAuth, createAuthGateway } from './auth.ts';
+import { createAuthGateway } from './auth.ts';
+import { createAuthHost } from './auth-host.ts';
 import { createDb } from './db/client.ts';
 import { SECRET_HELP, secretProblem, secretWarning } from './env.ts';
 import { createSchema } from './graphql/schema.ts';
 import { checkHealth, VERSION } from './health.ts';
 import { createMcpHandler } from './mcp.ts';
+import { oidcEnvProblem, oidcRedirectUri } from './oidc/config.ts';
+import { createSsoHandler } from './oidc/http.ts';
 import { registrationPolicyFromEnv } from './registration.ts';
 import { createStaticHandler } from './static.ts';
 
@@ -32,12 +35,32 @@ if (problem) console.warn(`[auth] ${problem} (allowed by UNSAFE_LOCAL_NETWORK)`)
 const warning = secretWarning(secret);
 if (warning) console.warn(`[auth] ${warning}`);
 
+// Half an OIDC setup leaves the sign-in page without its button and no clue
+// why, and a typo in the issuer would only show at the first sign-in.
+const oidcProblem = oidcEnvProblem();
+if (oidcProblem) {
+  console.error(`[auth] refusing to start: ${oidcProblem}.`);
+  process.exit(1);
+}
+
 const db = createDb();
 
 // Who may hold an account here: ALLOWED_EMAILS / DISABLE_SIGNUP. Both default
 // to off, which leaves registration open — fine on a LAN, not on the internet.
 const registration = registrationPolicyFromEnv();
-const auth = createAuth(db, { disableSignUp: registration.disableSignUp });
+// The provider may be a pairing, which lives in the database — migrations
+// have run by now (`npm start` runs them first).
+const authHost = await createAuthHost(db, {
+  disableSignUp: registration.disableSignUp,
+  allowedEmails: registration.allowedEmails,
+});
+const oidc = authHost.oidc();
+if (oidc) {
+  // The redirect URI is the one thing an operator has to copy into the provider, exactly.
+  console.log(
+    `[auth] sign-in with ${oidc.name} (${oidc.issuer}); redirect URI ${oidcRedirectUri()}`,
+  );
+}
 if (registration.allowedEmails.length > 0) {
   console.log(`[auth] accounts limited to ${registration.allowedEmails.join(', ')}`);
 }
@@ -54,7 +77,7 @@ startRollupTimer(db);
 // Rebuild devices whose uploads brought pings older than ones already folded.
 startReplayTimer(db);
 
-const gateway = createAuthGateway(auth, db, {
+const gateway = createAuthGateway(authHost, db, {
   exposeMagicLinkToken: unsafeLocalNetwork,
   registration,
 });
@@ -63,8 +86,9 @@ const gateway = createAuthGateway(auth, db, {
 // transports, and the permissions live in the schema, so one instance is what
 // keeps that true rather than merely intended.
 const schema = createSchema(db, gateway);
-const yoga = createApp(db, auth, gateway, schema);
-const mcp = createMcpHandler(schema, createContextFactory(db, auth));
+const yoga = createApp(db, authHost, gateway, schema);
+const mcp = createMcpHandler(schema, createContextFactory(db, authHost));
+const sso = createSsoHandler(authHost, { allowedEmails: registration.allowedEmails });
 
 // WEB_DIST points at the built dashboard (set in the container image); the
 // server then serves it on every non-/graphql path, so one origin hosts both
@@ -91,6 +115,8 @@ const server = createServer((req, res) => {
     void mcp(req, res);
     return;
   }
+  // Before the static handler too: the browser legs of an OIDC sign-in.
+  if (sso(req, res)) return;
   if (serveStatic && path !== yoga.graphqlEndpoint) {
     serveStatic(req, res);
     return;
