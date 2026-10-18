@@ -12,6 +12,7 @@ import {
   verification,
 } from '../db/schema.ts';
 import { badInput } from '../errors.ts';
+import { ensureAdmin } from '../oidc/settings.ts';
 import { loadFoldRules, resolvePing } from './ingest.ts';
 import { findSeam, replayDevice } from './replay.ts';
 import { dayOf, dropEmptySummaries, ownerJoin, unrollActivities } from './rollup.ts';
@@ -389,7 +390,7 @@ export async function purgeApp(
  * as it goes.
  */
 export async function deleteAccount(db: Db, userId: string, email: string): Promise<boolean> {
-  return db.transaction(async (tx) => {
+  const deleted = await db.transaction(async (tx) => {
     await lockDevices(tx, userId);
     const [current] = await tx.select({ email: user.email }).from(user).where(eq(user.id, userId));
     if (!current) return false;
@@ -426,6 +427,10 @@ export async function deleteAccount(db: Db, userId: string, email: string): Prom
     await tx.delete(user).where(eq(user.id, userId));
     return true;
   });
+  // The admin deleting themselves would leave nobody who may change how people
+  // sign in; the oldest account left takes it over.
+  if (deleted) await ensureAdmin(db);
+  return deleted;
 }
 
 const escapeLike = (text: string) => text.replace(/[\\%_]/g, (char) => `\\${char}`);

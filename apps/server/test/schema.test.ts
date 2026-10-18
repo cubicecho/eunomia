@@ -28,6 +28,7 @@ describe('graphql schema', () => {
       'me',
       'mergeRules',
       'rulePacks',
+      'ssoSetup',
     ]);
     expect(Object.keys(schema.getMutationType()?.getFields() ?? {}).sort()).toEqual([
       'applyCategoryRules',
@@ -49,6 +50,7 @@ describe('graphql schema', () => {
       'importChunk',
       'installRulePack',
       'mergeDevice',
+      'pairSso',
       'purgeApp',
       'recordPing',
       'recordPings',
@@ -66,10 +68,12 @@ describe('graphql schema', () => {
       'signIn',
       'signOut',
       'signUp',
+      'unpairSso',
       'updateCategory',
       'updateCategoryRule',
       'updateContextRule',
       'verifyMagicLink',
+      'verifyOneTimeToken',
     ]);
   });
 

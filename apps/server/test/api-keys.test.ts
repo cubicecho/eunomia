@@ -1,6 +1,7 @@
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createAuth, createAuthGateway, verifyApiKey } from '../src/auth.ts';
+import { fixedAuthHost } from '../src/auth-host.ts';
 import { user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
@@ -56,7 +57,7 @@ describe('integration keys', () => {
       secret: 'test-secret-test-secret-test-secret',
       baseURL: 'http://localhost:4000',
     });
-    schema = createSchema(db as never, createAuthGateway(auth, db as never));
+    schema = createSchema(db as never, createAuthGateway(fixedAuthHost(auth), db as never));
     await db.insert(user).values([
       { id: 'user-1', name: 'u', email: 'u@example.com' },
       { id: 'user-2', name: 'v', email: 'v@example.com' },

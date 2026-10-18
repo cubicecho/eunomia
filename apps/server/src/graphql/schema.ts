@@ -24,6 +24,7 @@ import { permissions, type Resolvers } from './permissions.ts';
 import { pingFields } from './ping-fields.ts';
 import { ruleFields } from './rule-fields.ts';
 import { rulePackFields, rulePackQueryFields } from './rule-pack-fields.ts';
+import { ssoFields, ssoQueryFields } from './sso-fields.ts';
 import { summaryFields } from './summaries.ts';
 import { userFields, userQueryFields } from './user-fields.ts';
 
@@ -112,9 +113,11 @@ export function createSchema(db: Db, auth: AuthGateway) {
       ...userQueryFields(db),
       ...exportFields(db),
       ...rulePackQueryFields(db),
+      ...ssoQueryFields(db),
     },
     Mutation: {
       ...authFields(auth),
+      ...ssoFields(db, auth),
       ...deviceFields(db, auth),
       ...apiKeyFields(db, auth),
       ...categoryFields(db),

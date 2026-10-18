@@ -2,6 +2,7 @@
   "expo": {
     "name": "eunomia",
     "slug": "eunomia-mobile",
+    "scheme": "eunomia",
     "version": "0.1.0",
     "runtimeVersion": {
       "policy": "fingerprint"
@@ -37,7 +38,8 @@
     "plugins": [
       "expo-background-task",
       "./plugins/with-cleartext-traffic",
-      "./plugins/with-package-visibility"
+      "./plugins/with-package-visibility",
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {

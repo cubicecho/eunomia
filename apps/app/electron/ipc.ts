@@ -1,4 +1,4 @@
-import type { StoredConfig } from '@eunomia/agent';
+import type { SsoCredential, StoredConfig } from '@eunomia/agent';
 import { type BrowserWindow, ipcMain, shell } from 'electron';
 import { type AgentBridge, BRIDGE_METHODS } from '../src/host/bridge.ts';
 import type { PauseState } from '../src/host/types.ts';
@@ -29,6 +29,8 @@ export interface AgentRuntime {
   pauseState(): PauseState;
   pause(ms: number | null): PauseState;
   resume(): PauseState;
+  /** Signs in through the server's OIDC provider in the system browser (electron/sso.ts). */
+  ssoSignIn(signInUrl: string): Promise<SsoCredential>;
 }
 
 export function registerAgentIpc(runtime: AgentRuntime, owner: () => BrowserWindow | undefined) {
@@ -73,6 +75,13 @@ export function registerAgentIpc(runtime: AgentRuntime, owner: () => BrowserWind
     return runtime.pause(ms);
   });
   handle('resume', () => runtime.resume());
+  handle('ssoSignIn', (signInUrl: unknown) => {
+    // This ends in shell.openExternal, so only a web address gets that far.
+    if (typeof signInUrl !== 'string' || !/^https?:\/\//.test(signInUrl)) {
+      throw new Error('ssoSignIn takes the http(s) sign-in address the server gave');
+    }
+    return runtime.ssoSignIn(signInUrl);
+  });
 
   const missing = BRIDGE_METHODS.filter((name) => !registered.has(name));
   if (missing.length > 0) {

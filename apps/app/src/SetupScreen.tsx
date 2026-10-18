@@ -1,16 +1,20 @@
 import {
+  fetchSsoProvider,
   normalizeServerUrl,
   provisionDevice,
   requestMagicLink,
+  type SsoCredential,
   type StoredConfig,
 } from '@eunomia/agent';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Text, TextInput, View } from 'react-native';
 import type { AgentHost } from './host/index.ts';
 import { Screen, ui } from './ui.tsx';
 
-// Onboarding, on every shell: server URL + email + device name, magic-link
-// sign-in, then provisionDevice hands back a device key the host writes to its
+// Onboarding, on every shell: server URL + device name, then a magic-link
+// sign-in (email) or — when the server has an OIDC provider and this shell can
+// run a browser sign-in — "Sign in with …" in the system browser. Then
+// provisionDevice hands back a device key the host writes to its
 // config.json and syncing starts. One flow, shared with the `--provision` CLI
 // — down to re-keying an existing device rather than registering a twin.
 //
@@ -32,6 +36,9 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** How long typing in the server URL settles before asking it about SSO. */
+const SSO_LOOKUP_DELAY_MS = 600;
+
 export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
   const reconfigure = current !== null;
   const [serverUrl, setServerUrl] = useState(current?.serverUrl ?? 'http://localhost:4000');
@@ -41,15 +48,40 @@ export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
   const [stage, setStage] = useState<'details' | 'link'>('details');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [sso, setSso] = useState<{ name: string; signInUrl: string } | null>(null);
 
-  const finish = async (tokenOrLink: string): Promise<void> => {
+  // Whether the server as typed signs in through an OIDC provider. Any failure
+  // (a half-typed URL, an older server without the field) just means no button.
+  const canSso = host.capabilities.sso && host.ssoSignIn !== undefined;
+  useEffect(() => {
+    setSso(null);
+    const url = serverUrl.trim();
+    if (!canSso || !/^https?:\/\/./.test(url)) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      fetchSsoProvider(normalizeServerUrl(url)).then(
+        (provider) => {
+          if (!cancelled) setSso(provider);
+        },
+        () => {},
+      );
+    }, SSO_LOOKUP_DELAY_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [serverUrl, canSso]);
+
+  const finish = async (
+    signIn: { tokenOrLink: string } | { sso: SsoCredential },
+  ): Promise<void> => {
     // Whatever is on disk decides register-or-re-key; privacy rules and the
     // sync interval on it are the user's and carry across a reconnect.
     const existing = current ?? (await host.loadConfig());
     const name = deviceName.trim();
     const provisioned = await provisionDevice({
       serverUrl,
-      tokenOrLink,
+      ...signIn,
       name,
       platform: host.platform,
       existing,
@@ -75,8 +107,21 @@ export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
         normalizeServerUrl(serverUrl),
         email.trim().toLowerCase(),
       );
-      if (token) await finish(token);
+      if (token) await finish({ tokenOrLink: token });
       else setStage('link');
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const signInWithSso = async (): Promise<void> => {
+    if (!sso || !host.ssoSignIn) return;
+    setBusy(true);
+    setError('');
+    try {
+      await finish({ sso: await host.ssoSignIn(sso.signInUrl) });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -88,7 +133,7 @@ export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
     setBusy(true);
     setError('');
     try {
-      await finish(pastedLink.trim());
+      await finish({ tokenOrLink: pastedLink.trim() });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -126,6 +171,20 @@ export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
             autoCorrect={false}
             keyboardType="url"
           />
+          <Text style={ui.label}>Device name</Text>
+          <TextInput style={ui.input} value={deviceName} onChangeText={setDeviceName} />
+          {sso ? (
+            <>
+              <View style={ui.button}>
+                <Button
+                  title={busy ? 'Waiting for the browser…' : `Sign in with ${sso.name}`}
+                  onPress={() => void signInWithSso()}
+                  disabled={busy || !deviceName.trim()}
+                />
+              </View>
+              <Text style={ui.sub}>Or get a sign-in link by email:</Text>
+            </>
+          ) : null}
           <Text style={ui.label}>Email</Text>
           <TextInput
             style={ui.input}
@@ -136,8 +195,6 @@ export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
             autoCorrect={false}
             keyboardType="email-address"
           />
-          <Text style={ui.label}>Device name</Text>
-          <TextInput style={ui.input} value={deviceName} onChangeText={setDeviceName} />
           <View style={ui.button}>
             <Button
               title={

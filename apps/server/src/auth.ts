@@ -2,12 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { apiKey } from '@better-auth/api-key';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { bearer, magicLink } from 'better-auth/plugins';
+import { bearer, genericOAuth, magicLink, oneTimeToken } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
+import type { AuthHost } from './auth-host.ts';
 import type { Db } from './db/client.ts';
 import { account, apikey, session, user, verification } from './db/schema.ts';
 import { type MagicLinkMessage, sendMagicLinkEmail } from './email.ts';
-import { forbidden } from './errors.ts';
+import { badInput, forbidden } from './errors.ts';
+import { appUrl, OIDC_PROVIDER_ID, type OidcConfig, serverUrl } from './oidc/config.ts';
+import { releaseChallenge, verifierMatches } from './oidc/handoff.ts';
+import { claimFirstAdmin } from './oidc/settings.ts';
 import { emailAllowed, OPEN_REGISTRATION, type RegistrationPolicy } from './registration.ts';
 
 export interface AuthOptions {
@@ -23,7 +27,18 @@ export interface AuthOptions {
    * that makes a token minted before the policy changed useless.
    */
   disableSignUp?: boolean | undefined;
+  /**
+   * ALLOWED_EMAILS. The gateway checks it before every password and magic-link
+   * sign-in; this is the backstop for the one path the gateway never sees, an
+   * OIDC callback creating an account.
+   */
+  allowedEmails?: string[] | undefined;
+  /** The OIDC provider to offer, or null for none (see auth-host.ts, which picks it). */
+  oidc?: OidcConfig | null | undefined;
 }
+
+/** How long the token an OIDC callback hands the dashboard lasts: just the hop to `/?sso=`. */
+const ONE_TIME_TOKEN_MINUTES = 3;
 
 // One-slot mailboxes for UNSAFE_LOCAL_NETWORK mode: signInMagicLink awaits
 // sendMagicLink inline, so the gateway registers a captureId, the callback
@@ -31,6 +46,8 @@ export interface AuthOptions {
 const tokenCaptures = new Map<string, string>();
 
 export function createAuth(db: Db, options: AuthOptions = {}) {
+  const oidc = options.oidc ?? null;
+  const dashboard = options.appUrl ?? appUrl();
   return betterAuth({
     // The rc drizzle instance is keyed by relations, not tables, so the
     // adapter can't discover models from db._.fullSchema — map them explicitly.
@@ -39,7 +56,31 @@ export function createAuth(db: Db, options: AuthOptions = {}) {
       schema: { user, session, account, verification, apikey },
     }),
     secret: options.secret ?? process.env.BETTER_AUTH_SECRET,
-    baseURL: options.baseURL ?? process.env.BETTER_AUTH_URL,
+    // The OIDC callback is served here (oidc/http.ts), and the redirect URI
+    // registered with the provider is built from the same URL.
+    baseURL: options.baseURL ?? serverUrl(),
+    // So an OIDC sign-in may finish on the dashboard when it is another origin
+    // (the vite dev server).
+    trustedOrigins: [new URL(dashboard).origin],
+    databaseHooks: {
+      user: {
+        create: {
+          // Every way an account is made goes through here, so this is where
+          // ALLOWED_EMAILS stops an OIDC sign-in from creating one.
+          before: async (candidate) =>
+            emailAllowed(candidate.email, options.allowedEmails ?? []) ? undefined : false,
+          // And where the first account becomes the admin.
+          after: async (created) => claimFirstAdmin(db, created.id),
+        },
+      },
+    },
+    // An address the operator's own provider vouches for signs in to the
+    // account that has it, even one made by a magic link (which proves the
+    // address too) before OIDC was set up.
+    ...(oidc ? { account: { accountLinking: { requireLocalEmailVerified: false } } } : {}),
+    // Where an OIDC callback goes when it can't tell where the sign-in came
+    // from: the dashboard, which says so, not better-auth's own error page.
+    onAPIError: { errorURL: `${dashboard}/` },
     emailAndPassword: {
       enabled: true,
       disableSignUp: options.disableSignUp ?? false,
@@ -67,19 +108,63 @@ export function createAuth(db: Db, options: AuthOptions = {}) {
           }
           // The server serves the dashboard itself in deployments, so its own
           // URL is the right default; APP_URL only matters when the dashboard
-          // lives elsewhere (e.g. the vite dev server on :3000).
-          const appUrl =
-            options.appUrl ??
-            (process.env.APP_URL || process.env.BETTER_AUTH_URL || 'http://localhost:4000');
-          const url = `${appUrl}/?token=${encodeURIComponent(token)}`;
+          // lives elsewhere (e.g. the vite dev server on :3000). See appUrl().
+          const url = `${dashboard}/?token=${encodeURIComponent(token)}`;
           await (options.sendMagicLink ?? sendMagicLinkEmail)({ email, url, token });
         },
       }),
+      // How an OIDC sign-in reaches the dashboard: the callback mints one of
+      // these, and the dashboard spends it with verifyOneTimeToken. The session
+      // never rides in a URL or a cookie.
+      oneTimeToken({
+        expiresIn: ONE_TIME_TOKEN_MINUTES,
+        storeToken: 'hashed',
+        disableClientRequest: true,
+        disableSetSessionCookie: true,
+      }),
+      ...(oidc ? [oidcPlugin(oidc, options.disableSignUp ?? false)] : []),
     ],
   });
 }
 
 export type Auth = ReturnType<typeof createAuth>;
+
+/**
+ * The provider, through better-auth's generic OAuth plugin: endpoints, keys
+ * and issuer come from the discovery document, the id token is checked against
+ * them, and better-auth's own sign-in and callback endpoints run the flow
+ * (state, PKCE, nonce).
+ */
+function oidcPlugin(oidc: OidcConfig, disableSignUp: boolean) {
+  return genericOAuth({
+    config: [
+      {
+        providerId: OIDC_PROVIDER_ID,
+        discoveryUrl: `${oidc.issuer}/.well-known/openid-configuration`,
+        requireIdTokenVerification: true,
+        clientId: oidc.clientId,
+        clientSecret: oidc.clientSecret,
+        tokenEndpointAuth: { method: oidc.clientSecret ? oidc.clientAuth : 'none' },
+        pkce: true,
+        scopes: ['openid', 'profile', 'email'],
+        // DISABLE_SIGNUP: an address with no account here is refused, the same
+        // as it is for a magic link.
+        disableSignUp,
+        // A provider may release only a username, or no name at all.
+        mapProfileToUser: (profile) => ({
+          name:
+            stringClaim(profile.name) ??
+            stringClaim(profile.preferred_username) ??
+            stringClaim(profile.email)?.split('@')[0] ??
+            '',
+        }),
+      },
+    ],
+  });
+}
+
+const stringClaim = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() !== '' ? value : undefined;
 
 /**
  * What an `x-api-key` resolves to. `deviceId` is set only for a device key — an
@@ -208,6 +293,14 @@ export interface AuthGateway {
   verifyMagicLink(token: string): Promise<AuthSession>;
   /** Revokes the session carried by the request headers. False if there wasn't one. */
   signOut(headers: Headers): Promise<boolean>;
+  /**
+   * The last leg of an OIDC sign-in: the one-time token the callback put on
+   * the dashboard's URL, for a session. Spent, expired and made-up tokens are
+   * all BAD_USER_INPUT — the sign-in has to be started again.
+   */
+  verifyOneTimeToken(token: string, codeVerifier?: string | null): Promise<AuthSession>;
+  /** Rebuilds the auth instance after the OIDC provider changed (a pairing, or its removal). */
+  reloadSso(): Promise<void>;
 }
 
 export interface AuthGatewayOptions {
@@ -222,7 +315,7 @@ export interface AuthGatewayOptions {
 }
 
 export function createAuthGateway(
-  auth: Auth,
+  host: AuthHost,
   db: Db,
   gatewayOptions: AuthGatewayOptions = {},
 ): AuthGateway {
@@ -249,12 +342,12 @@ export function createAuthGateway(
   };
 
   return {
-    mintDeviceKey: (input) => mintDeviceKey(auth, input),
+    mintDeviceKey: (input) => mintDeviceKey(host.current(), input),
 
-    mintUserKey: (input) => mintUserKey(auth, input),
+    mintUserKey: (input) => mintUserKey(host.current(), input),
 
     async sessionForDevice(userId) {
-      const ctx = await auth.$context;
+      const ctx = await host.current().$context;
       // overrideAll: createSession spreads its default expiresAt *after* the
       // override, so a plain override can't shorten the session.
       const session = await ctx.internalAdapter.createSession(
@@ -275,13 +368,13 @@ export function createAuthGateway(
       if (policy.disableSignUp && !(await hasAccount(email))) return { token: null };
 
       if (!gatewayOptions.exposeMagicLinkToken) {
-        await auth.api.signInMagicLink({ body: { email }, headers: new Headers() });
+        await host.current().api.signInMagicLink({ body: { email }, headers: new Headers() });
         return { token: null };
       }
       const captureId = randomUUID();
       tokenCaptures.set(captureId, '');
       try {
-        await auth.api.signInMagicLink({
+        await host.current().api.signInMagicLink({
           body: { email, metadata: { captureId } },
           headers: new Headers(),
         });
@@ -293,14 +386,16 @@ export function createAuthGateway(
     },
 
     async verifyMagicLink(token) {
-      const result = await auth.api.magicLinkVerify({ query: { token }, headers: new Headers() });
+      const result = await host
+        .current()
+        .api.magicLinkVerify({ query: { token }, headers: new Headers() });
       return { token: result.token, userId: result.user.id };
     },
 
     async signUp(input) {
       assertAllowed(input.email);
       if (policy.disableSignUp) throw forbidden('This server is not accepting new accounts');
-      const result = await auth.api.signUpEmail({ body: input });
+      const result = await host.current().api.signUpEmail({ body: input });
       // autoSignIn is on by default; a null token would mean it was disabled.
       if (!result.token) throw new Error('Sign-up did not open a session');
       return { token: result.token, userId: result.user.id };
@@ -310,17 +405,36 @@ export function createAuthGateway(
       // Also checked here: an allowlist narrowed after the fact should lock out
       // accounts it no longer covers, not just block new ones.
       assertAllowed(input.email);
-      const result = await auth.api.signInEmail({ body: input });
+      const result = await host.current().api.signInEmail({ body: input });
       return { token: result.token, userId: result.user.id };
     },
 
     async signOut(headers) {
       // The endpoint reports success even with no session (it just clears
       // cookies), so check for a live one to give the caller a truthful bool.
-      const session = await auth.api.getSession({ headers });
+      const session = await host.current().api.getSession({ headers });
       if (!session) return false;
-      await auth.api.signOut({ headers });
+      await host.current().api.signOut({ headers });
       return true;
     },
+
+    async verifyOneTimeToken(token, codeVerifier) {
+      // An agent's sign-in is bound to the verifier it kept (oidc/handoff.ts).
+      // Checked first, so a wrong guess doesn't spend the real agent's token.
+      if (!verifierMatches(token, codeVerifier)) {
+        throw badInput('Invalid or expired sign-in. Sign in again.');
+      }
+      releaseChallenge(token);
+      try {
+        const result = await host
+          .current()
+          .api.verifyOneTimeToken({ body: { token }, headers: new Headers() });
+        return { token: result.session.token, userId: result.user.id };
+      } catch {
+        throw badInput('Invalid or expired sign-in. Sign in again.');
+      }
+    },
+
+    reloadSso: () => host.rebuild(),
   };
 }

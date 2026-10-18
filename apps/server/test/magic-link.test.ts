@@ -1,6 +1,7 @@
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAuth, createAuthGateway } from '../src/auth.ts';
+import { fixedAuthHost } from '../src/auth-host.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
@@ -34,7 +35,10 @@ describe('magic-link auth', () => {
     }) as Context;
 
   const makeSchema = (exposeMagicLinkToken: boolean) =>
-    createSchema(db as never, createAuthGateway(auth, db as never, { exposeMagicLinkToken }));
+    createSchema(
+      db as never,
+      createAuthGateway(fixedAuthHost(auth), db as never, { exposeMagicLinkToken }),
+    );
 
   const request = (schema: ReturnType<typeof createSchema>) =>
     graphql({

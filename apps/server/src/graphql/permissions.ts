@@ -88,6 +88,8 @@ export const permissions = {
     accountExport: sessionAuthenticated,
     // Public by design: returns the caller or null.
     me: accept,
+    // Public: the sign-in page reads it to show the provider's button.
+    ssoSetup: accept,
   },
   Mutation: {
     '*': deny,
@@ -100,6 +102,13 @@ export const permissions = {
     signOut: accept,
     // Desktop dashboard hand-off: only a device key may trade itself for a session.
     sessionFromDeviceKey: deviceAuthenticated,
+    // Public: the last leg of an OIDC sign-in, made before there is a session.
+    verifyOneTimeToken: accept,
+    // Public at this layer because a brand-new instance (no accounts yet) may
+    // be paired by whoever installs it. Past that the resolver allows only the
+    // admin's session (sso-fields.ts) — the rule lives with the state it reads.
+    pairSso: accept,
+    unpairSso: accept,
     // Session-only: it rewrites which day past time falls on and holds every
     // one of the user's device locks while it does — a preference a human
     // sets at the dashboard, not something a key should be able to flip.

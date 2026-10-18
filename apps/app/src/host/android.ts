@@ -1,5 +1,17 @@
-import { currentPause, pause, resume, type StoredConfig } from '@eunomia/agent';
+import {
+  ANDROID_SSO_RETURN,
+  base64Url,
+  currentPause,
+  pause,
+  resume,
+  type SsoCredential,
+  type StoredConfig,
+  ssoStartUrl,
+  ssoTokenFrom,
+} from '@eunomia/agent';
 import * as Application from 'expo-application';
+import * as Crypto from 'expo-crypto';
+import * as WebBrowser from 'expo-web-browser';
 import UsageEvents from '../../modules/usage-events';
 import {
   applyBackgroundSync,
@@ -18,6 +30,29 @@ import {
 } from '../store.ts';
 import { performSync } from '../sync.ts';
 import type { AgentHost, PauseState } from './types.ts';
+
+/**
+ * Signs in through the server's OIDC provider in a Custom Tab, which comes
+ * back to the app on its `eunomia://` scheme (app.json). Another app could
+ * register that scheme too, so the sign-in is bound to a verifier only this
+ * process holds — see packages/agent/src/sso.ts.
+ */
+async function ssoSignIn(signInUrl: string): Promise<SsoCredential> {
+  if (!/^https?:\/\//.test(signInUrl)) {
+    throw new Error('The server gave a sign-in address that is not a web page.');
+  }
+  const codeVerifier = base64Url(await Crypto.getRandomBytesAsync(32));
+  const digest = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, codeVerifier, {
+    encoding: Crypto.CryptoEncoding.BASE64,
+  });
+  const challenge = digest.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const result = await WebBrowser.openAuthSessionAsync(
+    ssoStartUrl(signInUrl, ANDROID_SSO_RETURN, challenge),
+    ANDROID_SSO_RETURN,
+  );
+  if (result.type !== 'success') throw new Error('Sign-in cancelled.');
+  return { token: ssoTokenFrom(result.url), codeVerifier };
+}
 
 function pauseState(): PauseState {
   const current = currentPause(loadPauses(), Date.now());
@@ -46,6 +81,7 @@ export function createAndroidHost(): AgentHost {
       updates: true,
       externalDashboard: false,
       pause: true,
+      sso: true,
     },
     version: Application.nativeApplicationVersion,
     platform: 'android',
@@ -91,5 +127,6 @@ export function createAndroidHost(): AgentHost {
       writePauses(resume(loadPauses(), Date.now()));
       return pauseState();
     },
+    ssoSignIn,
   };
 }

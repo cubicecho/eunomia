@@ -28,6 +28,7 @@ import {
   type RecentActivitiesQuery,
   type Requester,
   type RulePacksQuery,
+  type SsoSetupQuery,
 } from '@eunomia/gql/web';
 import type { DateRange } from '@/lib/format';
 
@@ -120,6 +121,27 @@ export const verifyMagicLink = async (token: string): Promise<void> => {
   const data = await sdk.VerifyMagicLink({ token });
   setToken(data.verifyMagicLink.token);
 };
+
+/** How OIDC sign-in is set up: the sign-in page's button, and whether this caller may pair one. */
+export type SsoSetup = SsoSetupQuery['ssoSetup'];
+
+export const fetchSsoSetup = (): Promise<SsoSetup> => sdk.SsoSetup().then((d) => d.ssoSetup);
+
+/** Spends the one-time token an OIDC sign-in landed with, for a session. */
+export const verifyOneTimeToken = async (token: string): Promise<void> => {
+  const data = await sdk.VerifyOneTimeToken({ token });
+  setToken(data.verifyOneTimeToken.token);
+};
+
+/**
+ * Registers this server with the provider a setup URL names. The server says
+ * why when it can't (an expired URL, a provider that refused) — the message is
+ * meant to be shown as it is.
+ */
+export const pairSso = (setupUrl: string): Promise<unknown> => sdk.PairSso({ setupUrl });
+
+/** Deletes this server's client at the paired provider and stops offering it. */
+export const unpairSso = (): Promise<unknown> => sdk.UnpairSso();
 
 export const signOut = async (): Promise<void> => {
   await sdk.SignOut().catch(() => {});

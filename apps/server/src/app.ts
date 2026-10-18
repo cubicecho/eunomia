@@ -1,6 +1,7 @@
 import type { GraphQLSchema } from 'graphql';
 import { createYoga } from 'graphql-yoga';
-import { type Auth, type AuthGateway, verifyApiKey } from './auth.ts';
+import { type AuthGateway, verifyApiKey } from './auth.ts';
+import type { AuthHost } from './auth-host.ts';
 import type { Db } from './db/client.ts';
 import type { Context } from './graphql/context.ts';
 import { createSchema } from './graphql/schema.ts';
@@ -12,8 +13,11 @@ import { createSchema } from './graphql/schema.ts';
  * over a different transport, and "the MCP endpoint authenticates like GraphQL"
  * has to be a shared function rather than a claim two copies both make.
  */
-export function createContextFactory(db: Db, auth: Auth) {
+export function createContextFactory(db: Db, host: AuthHost) {
   return async (headers: Headers): Promise<Context> => {
+    // Asked per request: pairing an OIDC provider swaps the instance while the
+    // server runs (auth-host.ts).
+    const auth = host.current();
     const apiKey = headers.get('x-api-key');
     if (apiKey) {
       const creds = await verifyApiKey(auth, apiKey);
@@ -46,11 +50,11 @@ export function createContextFactory(db: Db, auth: Auth) {
  */
 export function createApp(
   db: Db,
-  auth: Auth,
+  host: AuthHost,
   gateway: AuthGateway,
   schema: GraphQLSchema = createSchema(db, gateway),
 ) {
-  const contextFor = createContextFactory(db, auth);
+  const contextFor = createContextFactory(db, host);
   return createYoga<Record<string, never>, Context>({
     schema,
     context: ({ request }) => contextFor(request.headers),

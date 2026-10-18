@@ -30,6 +30,7 @@ async function loadMe(db: Db, userId: string) {
       email: user.email,
       onboardingDismissedAt: user.onboardingDismissedAt,
       privacyReviewedAt: user.privacyReviewedAt,
+      isAdmin: user.isAdmin,
     })
     .from(user)
     .where(eq(user.id, userId));
@@ -40,6 +41,7 @@ async function loadMe(db: Db, userId: string) {
     email: account.email,
     onboardingDismissed: account.onboardingDismissedAt !== null,
     privacyReviewed: account.privacyReviewedAt !== null,
+    isAdmin: account.isAdmin,
   };
 }
 

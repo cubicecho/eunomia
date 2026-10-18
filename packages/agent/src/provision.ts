@@ -1,10 +1,19 @@
-import { registerDevice, renameDevice, rotateDeviceKey, signOut, verifyMagicLink } from './api.ts';
+import {
+  registerDevice,
+  renameDevice,
+  rotateDeviceKey,
+  signOut,
+  verifyMagicLink,
+  verifyOneTimeToken,
+} from './api.ts';
+import type { SsoCredential } from './sso.ts';
 
 // The one place that decides how an agent becomes (or stays) a device on a
 // server. Desktop's setup window, `npm run provision`, and the Android setup
-// screen all differ in how they collect a magic-link token; from there on the
-// steps are identical, and every copy of them was a chance for one platform to
-// drift into registering duplicate devices.
+// screen all differ in how they sign in — a magic-link token, or what an OIDC
+// sign-in in the system browser handed back; from there on the steps are
+// identical, and every copy of them was a chance for one platform to drift
+// into registering duplicate devices.
 
 /**
  * What an already-provisioned install knows about itself — the subset of its
@@ -20,8 +29,10 @@ export interface DeviceIdentity {
 
 export interface ProvisionInput {
   serverUrl: string;
-  /** The magic-link token, or the whole link pasted from an inbox. */
-  tokenOrLink: string;
+  /** The magic-link token, or the whole link pasted from an inbox. Or `sso`, not both. */
+  tokenOrLink?: string | undefined;
+  /** What an OIDC sign-in handed back (sso.ts). */
+  sso?: SsoCredential | undefined;
   /** What this device should be called on the server. */
   name: string;
   /** 'windows' | 'macos' | 'linux' | 'android'. */
@@ -48,7 +59,7 @@ export function normalizeServerUrl(serverUrl: string): string {
 }
 
 /**
- * Signs in with a magic-link token and puts this machine on the server, then
+ * Signs in (a magic-link token, or an OIDC sign-in's) and puts this machine on the server, then
  * disposes of the session — agents authenticate with the returned device API
  * key, never a session.
  *
@@ -61,7 +72,9 @@ export function normalizeServerUrl(serverUrl: string): string {
 export async function provisionDevice(input: ProvisionInput): Promise<ProvisionResult> {
   const serverUrl = normalizeServerUrl(input.serverUrl);
   const name = input.name.trim();
-  const session = await verifyMagicLink(serverUrl, input.tokenOrLink);
+  const session = input.sso
+    ? await verifyOneTimeToken(serverUrl, input.sso.token, input.sso.codeVerifier)
+    : await verifyMagicLink(serverUrl, input.tokenOrLink ?? '');
 
   // Same server and a device we already own: keep its identity.
   const existing = input.existing;

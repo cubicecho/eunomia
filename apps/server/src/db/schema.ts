@@ -1,7 +1,8 @@
-import { buildRelations, createRelationsHelper } from 'drizzle-orm';
+import { buildRelations, createRelationsHelper, sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  check,
   doublePrecision,
   index,
   integer,
@@ -43,6 +44,10 @@ export const user = pgTable('user', {
   // is there if anything ever wants it; null is not yet.
   onboardingDismissedAt: timestamp('onboarding_dismissed_at'),
   privacyReviewedAt: timestamp('privacy_reviewed_at'),
+  // Ours. Whether this account runs the instance, which so far means one
+  // thing: choosing the OIDC provider people sign in with (src/oidc/). The
+  // first account is the admin (claimFirstAdmin), so nobody edits a row.
+  isAdmin: boolean('is_admin').notNull().default(false),
 });
 
 export const session = pgTable('session', {
@@ -493,6 +498,30 @@ export const erasures = pgTable(
   // Ingestion asks "anything ending after this batch's earliest ping?", which
   // for a live upload is nothing at all — one probe here.
   (t) => [index('erasures_device_to_idx').on(t.deviceId, t.to)],
+);
+
+// The OIDC provider this instance was paired with from the dashboard
+// (src/oidc/pairing.ts): one row or none, owned by no user and written only by
+// the server. OIDC_ISSUER in the environment wins over it. The client secret
+// and the registration access token are credentials, which is why the table
+// stays out of `relations` below and so out of the generated GraphQL reads.
+export const oidcSettings = pgTable(
+  'oidc_settings',
+  {
+    id: text('id').primaryKey().default('oidc'),
+    issuer: text('issuer').notNull(),
+    clientId: text('client_id').notNull(),
+    clientSecret: text('client_secret'),
+    // How the secret is sent to the token endpoint.
+    clientAuth: text('client_auth').notNull().default('client_secret_basic'),
+    // What the sign-in page's button calls the provider.
+    name: text('name').notNull(),
+    // RFC 7592: what deletes the registration at the provider on disconnect.
+    registrationAccessToken: text('registration_access_token'),
+    registrationClientUri: text('registration_client_uri'),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => [check('oidc_settings_singleton', sql`${t.id} = 'oidc'`)],
 );
 
 // --- relations (drizzle v1 relational query builder; drizzle-graphql uses

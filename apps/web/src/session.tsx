@@ -30,6 +30,7 @@ const SessionContext = createContext<Session>({
     effectiveRetentionDays: null,
     onboardingDismissed: false,
     privacyReviewed: false,
+    isAdmin: false,
   },
   setMe: () => {},
 });

@@ -4,6 +4,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp, createContextFactory } from '../src/app.ts';
 import { type Auth, createAuth, createAuthGateway } from '../src/auth.ts';
+import { fixedAuthHost } from '../src/auth-host.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 import { createMcpHandler } from '../src/mcp.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
@@ -54,11 +55,14 @@ describe('mcp over http', () => {
       secret: 'test-secret-test-secret-test-secret',
       baseURL: 'http://server.test',
     });
-    const gateway = createAuthGateway(auth, db as never);
+    const gateway = createAuthGateway(fixedAuthHost(auth), db as never);
     const schema = createSchema(db as never, gateway);
-    app = createApp(db as never, auth, gateway, schema);
+    app = createApp(db as never, fixedAuthHost(auth), gateway, schema);
 
-    const handler = createMcpHandler(schema, createContextFactory(db as never, auth));
+    const handler = createMcpHandler(
+      schema,
+      createContextFactory(db as never, fixedAuthHost(auth)),
+    );
     server = createServer((req, res) => void handler(req, res));
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const { port } = server.address() as { port: number };

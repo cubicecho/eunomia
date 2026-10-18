@@ -2,6 +2,7 @@ import { type Ping, uploadBatch } from '@eunomia/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { type Auth, createAuth, createAuthGateway } from '../src/auth.ts';
+import { fixedAuthHost } from '../src/auth-host.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
@@ -49,7 +50,11 @@ describe('graphql over http', () => {
       secret: 'test-secret-test-secret-test-secret',
       baseURL: 'http://server.test',
     });
-    app = createApp(db as never, auth, createAuthGateway(auth, db as never));
+    app = createApp(
+      db as never,
+      fixedAuthHost(auth),
+      createAuthGateway(fixedAuthHost(auth), db as never),
+    );
   });
 
   it('answers an anonymous protected query with UNAUTHENTICATED', async () => {
@@ -78,7 +83,7 @@ describe('graphql over http', () => {
     // are meant for the caller.
     app = createApp(
       db as never,
-      auth,
+      fixedAuthHost(auth),
       stubAuthGateway({
         signIn: async () => {
           throw new Error('connection string leaked in here');

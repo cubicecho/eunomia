@@ -24,6 +24,7 @@ export function createUnsupportedHost(): AgentHost {
       updates: false,
       externalDashboard: false,
       pause: false,
+      sso: false,
     },
     version: null,
     platform: 'linux',

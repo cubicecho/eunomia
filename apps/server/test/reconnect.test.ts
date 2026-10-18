@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { createAuth, createAuthGateway } from '../src/auth.ts';
+import { fixedAuthHost } from '../src/auth-host.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
 // The agent side of "change server / API key" (desktop tray → setup window),
@@ -29,10 +30,10 @@ describe('agent reconnect', () => {
     });
     app = createApp(
       db as never,
-      auth,
+      fixedAuthHost(auth),
       // The desktop's flow needs the magic token in the response; that's what
       // UNSAFE_LOCAL_NETWORK deployments do.
-      createAuthGateway(auth, db as never, { exposeMagicLinkToken: true }),
+      createAuthGateway(fixedAuthHost(auth), db as never, { exposeMagicLinkToken: true }),
     );
     vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
       app.fetch(new Request(String(input), init)),

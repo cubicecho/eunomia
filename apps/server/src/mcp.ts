@@ -69,7 +69,9 @@ export function createMcpHandler(
     // A file to download, not something to answer a question with: megabytes
     // of cursor-paged text that would only flood an agent's context. It is
     // session-only anyway, and agents authenticate with keys.
-    exclude: ['Query.accountExport'],
+    // ssoSetup is the sign-in page's plumbing: how this server signs people
+    // in says nothing about anyone's time.
+    exclude: ['Query.accountExport', 'Query.ssoSetup'],
     // Identity comes from the same headers GraphQL reads, resolved by the same
     // function: `x-api-key` for a device key, `Authorization: Bearer` for a
     // session. An anonymous call reaches the permissions layer and is refused

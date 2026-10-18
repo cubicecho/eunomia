@@ -7,6 +7,7 @@ import { normalizeServerUrl, provisionDevice } from './provision.ts';
 // ones were made.
 vi.mock('./api.ts', () => ({
   verifyMagicLink: vi.fn(async () => 'session-token'),
+  verifyOneTimeToken: vi.fn(async () => 'sso-session-token'),
   registerDevice: vi.fn(async () => ({ deviceId: 'new-device', apiKey: 'new-key' })),
   rotateDeviceKey: vi.fn(async () => ({ deviceId: 'old-device', apiKey: 'rotated-key' })),
   renameDevice: vi.fn(async () => {}),
@@ -119,5 +120,26 @@ describe('provisionDevice', () => {
 
     await expect(provisionDevice(input)).rejects.toThrow('name taken');
     expect(api.signOut).toHaveBeenCalledWith('http://server:4000', 'session-token');
+  });
+});
+
+describe('provisionDevice with an OIDC sign-in', () => {
+  it('trades the token and its verifier for the session, not a magic link', async () => {
+    await provisionDevice({
+      serverUrl: 'http://server:4000',
+      sso: { token: 'ott', codeVerifier: 'verifier' },
+      name: 'laptop',
+      platform: 'linux',
+    });
+
+    expect(api.verifyOneTimeToken).toHaveBeenCalledWith('http://server:4000', 'ott', 'verifier');
+    expect(api.verifyMagicLink).not.toHaveBeenCalled();
+    expect(api.registerDevice).toHaveBeenCalledWith(
+      'http://server:4000',
+      'sso-session-token',
+      'laptop',
+      'linux',
+    );
+    expect(api.signOut).toHaveBeenCalledWith('http://server:4000', 'sso-session-token');
   });
 });
