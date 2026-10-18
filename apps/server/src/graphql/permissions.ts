@@ -90,6 +90,8 @@ export const permissions = {
     me: accept,
     // Public: the sign-in page reads it to show the provider's button.
     ssoSetup: accept,
+    // Public: the sign-in page reads it to offer the setup code.
+    setupCodePending: accept,
   },
   Mutation: {
     '*': deny,
@@ -104,6 +106,12 @@ export const permissions = {
     sessionFromDeviceKey: deviceAuthenticated,
     // Public: the last leg of an OIDC sign-in, made before there is a session.
     verifyOneTimeToken: accept,
+    // Public: the first account is made before there is anyone to be. The
+    // gateway refuses it once any account exists.
+    claimSetupCode: accept,
+    // Session-only: a key that could mint sign-in links could mint itself a
+    // session and from there new keys, surviving its own revocation.
+    deviceSignInLink: sessionAuthenticated,
     // Public at this layer because a brand-new instance (no accounts yet) may
     // be paired by whoever installs it. Past that the resolver allows only the
     // admin's session (sso-fields.ts) — the rule lives with the state it reads.

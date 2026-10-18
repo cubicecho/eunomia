@@ -28,6 +28,7 @@ describe('graphql schema', () => {
       'me',
       'mergeRules',
       'rulePacks',
+      'setupCodePending',
       'ssoSetup',
     ]);
     expect(Object.keys(schema.getMutationType()?.getFields() ?? {}).sort()).toEqual([
@@ -35,6 +36,7 @@ describe('graphql schema', () => {
       'applyMergeRules',
       'assignActivity',
       'assignEntry',
+      'claimSetupCode',
       'createApiKey',
       'createCategory',
       'createCategoryRule',
@@ -47,6 +49,7 @@ describe('graphql schema', () => {
       'deleteDevice',
       'deleteMergeRule',
       'deleteRange',
+      'deviceSignInLink',
       'importChunk',
       'installRulePack',
       'mergeDevice',

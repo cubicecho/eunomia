@@ -114,6 +114,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
       ...exportFields(db),
       ...rulePackQueryFields(db),
       ...ssoQueryFields(db),
+      setupCodePending: () => auth.setupCodePending(),
     },
     Mutation: {
       ...authFields(auth),

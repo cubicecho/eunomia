@@ -1173,6 +1173,7 @@ type Mutation {
     """
     to: String!
   ): Float!
+  claimSetupCode(code: String!, email: String!): AuthSession!
   createApiKey(expiresInDays: Int, name: String!): ApiKeyIssued!
 
   """`kind` defaults to neutral."""
@@ -1199,6 +1200,7 @@ type Mutation {
   they arrive. See `RangeDeletion.partialDays` for what can't be split.
   """
   deleteRange(deviceId: String, from: String!, to: String!): RangeDeletion!
+  deviceSignInLink: String!
 
   """
   Imports history from a file into the caller's own account, a chunk of records
@@ -1473,6 +1475,7 @@ type Query {
   installed (see `installRulePack`).
   """
   rulePacks: [RulePack!]!
+  setupCodePending: Boolean!
   ssoSetup: SsoSetup!
 }
 

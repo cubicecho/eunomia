@@ -2,6 +2,7 @@ import { CircleAlert, Merge } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { type Device, deleteDevice, fetchDevices, mergeDevice, renameDevice } from '@/api';
 import { ConfirmDelete } from '@/components/confirm-delete';
+import { DeviceLinkCard } from '@/components/device-link-card';
 import { EmptyState } from '@/components/empty-state';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
@@ -64,6 +65,7 @@ export function DevicesView() {
         </CardContent>
       </Card>
       <StatusLine status={action.status} />
+      <DeviceLinkCard />
     </div>
   );
 }

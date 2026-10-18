@@ -127,6 +127,20 @@ export type SsoSetup = SsoSetupQuery['ssoSetup'];
 
 export const fetchSsoSetup = (): Promise<SsoSetup> => sdk.SsoSetup().then((d) => d.ssoSetup);
 
+/** Whether this is a brand-new server waiting for the setup code in its log. */
+export const fetchSetupCodePending = (): Promise<boolean> =>
+  sdk.SetupCodePending().then((d) => d.setupCodePending);
+
+/** Makes the first account with the server's setup code, and signs in as it. */
+export const claimSetupCode = async (code: string, email: string): Promise<void> => {
+  const data = await sdk.ClaimSetupCode({ code, email });
+  setToken(data.claimSetupCode.token);
+};
+
+/** A single-use sign-in link for the caller's own address, to paste into an agent. */
+export const fetchDeviceSignInLink = (): Promise<string> =>
+  sdk.DeviceSignInLink().then((d) => d.deviceSignInLink);
+
 /** Spends the one-time token an OIDC sign-in landed with, for a session. */
 export const verifyOneTimeToken = async (token: string): Promise<void> => {
   const data = await sdk.VerifyOneTimeToken({ token });
