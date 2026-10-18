@@ -263,12 +263,13 @@ query ApiKeys {
     lastUsedAt
     expiresAt
     enabled
+    scopes
   }
 }
 
 # `token` is the secret, and this response is the only place it exists.
-mutation CreateApiKey($name: String!, $expiresInDays: Int) {
-  createApiKey(name: $name, expiresInDays: $expiresInDays) {
+mutation CreateApiKey($name: String!, $expiresInDays: Int, $scopes: [ApiKeyScope!]) {
+  createApiKey(name: $name, expiresInDays: $expiresInDays, scopes: $scopes) {
     token
     key {
       id
@@ -278,6 +279,7 @@ mutation CreateApiKey($name: String!, $expiresInDays: Int) {
       lastUsedAt
       expiresAt
       enabled
+      scopes
     }
   }
 }

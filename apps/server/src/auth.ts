@@ -4,6 +4,7 @@ import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { bearer, genericOAuth, magicLink, oneTimeToken } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
+import { type KeyScope, scopesFrom } from './api-keys.ts';
 import type { AuthHost } from './auth-host.ts';
 import type { Db } from './db/client.ts';
 import { account, apikey, session, user, verification } from './db/schema.ts';
@@ -175,6 +176,8 @@ export interface KeyCredentials {
   userId: string;
   keyId: string;
   deviceId: string | undefined;
+  /** What an integration key was minted to do beyond reading. */
+  scopes: KeyScope[];
 }
 
 /**
@@ -212,12 +215,18 @@ export async function mintDeviceKey(
  */
 export async function mintUserKey(
   auth: Auth,
-  input: { userId: string; name: string; expiresInDays?: number | undefined },
+  input: {
+    userId: string;
+    name: string;
+    expiresInDays?: number | undefined;
+    scopes?: KeyScope[] | undefined;
+  },
 ): Promise<{ id: string; key: string }> {
   const created = await auth.api.createApiKey({
     body: {
       userId: input.userId,
       name: input.name,
+      ...(input.scopes?.length ? { metadata: { scopes: input.scopes } } : {}),
       // Same reason as a device key: the plugin's per-key default of 10
       // requests/day would starve anything that actually polls.
       rateLimitEnabled: false,
@@ -243,6 +252,7 @@ export async function verifyApiKey(auth: Auth, key: string): Promise<KeyCredenti
     userId: result.key.referenceId,
     keyId: result.key.id,
     deviceId: typeof deviceId === 'string' ? deviceId : undefined,
+    scopes: scopesFrom(metadata),
   };
 }
 
@@ -272,6 +282,7 @@ export interface AuthGateway {
     userId: string;
     name: string;
     expiresInDays?: number | undefined;
+    scopes?: KeyScope[] | undefined;
   }): Promise<{ id: string; key: string }>;
   /**
    * Opens a short-lived session for a device key's owner, so the desktop app

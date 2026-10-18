@@ -22,13 +22,17 @@ describe('graphql schema', () => {
       'categoryRules',
       'categorySummary',
       'contextRules',
+      'daySummary',
       'deviceSummary',
       'devices',
       'focusSegments',
       'me',
       'mergeRules',
+      'previewCategoryRule',
       'rulePacks',
+      'searchActivity',
       'ssoSetup',
+      'uncategorized',
     ]);
     expect(Object.keys(schema.getMutationType()?.getFields() ?? {}).sort()).toEqual([
       'applyCategoryRules',

@@ -49,6 +49,28 @@ describe('mcp over http', () => {
     return body.data.signUp.token;
   };
 
+  /** An integration key, minted the way the dashboard mints one. */
+  const mintKey = async (token: string, scopes: string[] = []): Promise<string> => {
+    const response = await app.fetch('http://server.test/graphql', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        query: `mutation ($scopes: [ApiKeyScope!]) {
+          createApiKey(name: "assistant", scopes: $scopes) { token key { scopes } }
+        }`,
+        variables: { scopes },
+      }),
+    });
+    const body = (await response.json()) as {
+      data: { createApiKey: { token: string; key: { scopes: string[] } } };
+    };
+    expect(body.data.createApiKey.key.scopes).toEqual(scopes);
+    return body.data.createApiKey.token;
+  };
+
+  const toolNames = async (client: Client) =>
+    (await client.listTools()).tools.map((tool) => tool.name);
+
   beforeEach(async () => {
     db = await createMigratedTestDb();
     auth = createAuth(db as never, {
@@ -88,12 +110,16 @@ describe('mcp over http', () => {
       'category_rules',
       'category_summary',
       'context_rules',
+      'day_summary',
       'device_summary',
       'devices',
       'focus_segments',
       'me',
       'merge_rules',
+      'preview_category_rule',
       'rule_packs',
+      'search_activity',
+      'uncategorized',
     ]);
     // The dangerous half: signIn and registerDevice are mutations, and an agent
     // that could call them would be minting credentials, not reading data.
@@ -143,5 +169,96 @@ describe('mcp over http', () => {
     });
 
     expect(response.status).toBe(400);
+  });
+
+  describe('categorization write tools', () => {
+    const writes = [
+      'apply_category_rules',
+      'assign_activity',
+      'assign_entry',
+      'create_category',
+      'create_category_rule',
+    ];
+
+    it('are only for a key minted with the CATEGORIZE scope', async () => {
+      const token = await signIn();
+      const plain = await connect({ 'x-api-key': await mintKey(token) });
+      const scoped = await connect({ 'x-api-key': await mintKey(token, ['CATEGORIZE']) });
+      const session = await connect({ authorization: `Bearer ${token}` });
+
+      for (const client of [plain, session]) {
+        const names = await toolNames(client);
+        for (const name of writes) expect(names).not.toContain(name);
+      }
+      const names = await toolNames(scoped);
+      for (const name of writes) expect(names).toContain(name);
+      // Still nothing else that writes.
+      expect(names).not.toContain('delete_range');
+      expect(names).not.toContain('create_api_key');
+      expect(names).not.toContain('register_device');
+    });
+
+    it('write as the key’s owner, and a key without the scope cannot call them by name', async () => {
+      const token = await signIn();
+      const scoped = await connect({ 'x-api-key': await mintKey(token, ['CATEGORIZE']) });
+      const created = (await scoped.callTool({
+        name: 'create_category',
+        arguments: { name: 'Deep work', kind: 'focus' },
+      })) as unknown as TextResult;
+      expect(created.isError).toBeFalsy();
+      expect(JSON.parse(created.content[0]!.text).data.createCategory.name).toBe('Deep work');
+
+      const plain = await connect({ 'x-api-key': await mintKey(token) });
+      const refused = (await plain.callTool({
+        name: 'create_category',
+        arguments: { name: 'Nope' },
+      })) as unknown as TextResult;
+      expect(refused.isError).toBe(true);
+    });
+  });
+
+  describe('prompts', () => {
+    it('offers standup, weekly review and triage', async () => {
+      const client = await connect();
+      const { prompts } = await client.listPrompts();
+      expect(prompts.map((prompt) => prompt.name).sort()).toEqual([
+        'categorize_triage',
+        'standup',
+        'weekly_review',
+      ]);
+      const standup = prompts.find((prompt) => prompt.name === 'standup');
+      expect(standup?.arguments).toEqual([
+        expect.objectContaining({ name: 'day', required: false }),
+      ]);
+    });
+
+    it('fill in the caller’s own data', async () => {
+      const token = await signIn();
+      const client = await connect({ 'x-api-key': await mintKey(token) });
+      const result = await client.getPrompt({ name: 'standup', arguments: { day: '2026-08-16' } });
+      const text = (result.messages[0]!.content as { text: string }).text;
+      expect(text).toContain('standup for 2026-08-16');
+      expect(text).toContain('"day": "2026-08-15"');
+      expect(text).toContain('"totalSeconds": 0');
+
+      const triage = await client.getPrompt({ name: 'categorize_triage', arguments: {} });
+      // A key without the scope is told it can't write, not pointed at tools it lacks.
+      expect((triage.messages[0]!.content as { text: string }).text).toContain("can't write");
+    });
+
+    it('refuse an anonymous caller', async () => {
+      const client = await connect();
+      await expect(client.getPrompt({ name: 'weekly_review', arguments: {} })).rejects.toThrow(
+        /Not authenticated/,
+      );
+    });
+
+    it('check their arguments', async () => {
+      const token = await signIn();
+      const client = await connect({ 'x-api-key': await mintKey(token) });
+      await expect(
+        client.getPrompt({ name: 'standup', arguments: { day: 'yesterday' } }),
+      ).rejects.toThrow(/YYYY-MM-DD/);
+    });
   });
 });

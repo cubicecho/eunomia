@@ -82,12 +82,35 @@ last week on. It is [`@cubicecho/graphql-mcp`](https://www.npmjs.com/package/@cu
 pointed at the same schema object `/graphql` serves, which is what makes the two
 surfaces provably the same API rather than two that are meant to agree.
 
-**Reads only.** Mutations would become tools just as happily, but this schema's
-mutations are the login flow, device registration and ingestion — an agent that
-could call them would be minting credentials, not reading data. Drop
-`includeMutations: false` in `apps/server/src/mcp.ts` if you want them. One
-read is left out too: `accountExport`, a file download that would only flood an
-agent's context (and is session-only anyway).
+Four reads exist mainly for agents, answering in one call what the dashboard
+assembles from several:
+
+| Tool | What |
+| --- | --- |
+| `day_summary` | one day at a glance (today by default): total, per category, biggest entries, per device |
+| `uncategorized` | the biggest uncategorized entries over a window (last 7 days by default) |
+| `search_activity` | stored activities whose app, context or window title contains some text |
+| `preview_category_rule` | what a rule with these patterns would match, without creating it |
+
+**Prompts.** `/mcp` also offers three prompts a client can list by name, each
+filled in with your own data before it reaches the model: `standup` (yesterday
+and today), `weekly_review` (the last 7 days against the 7 before) and
+`categorize_triage` (the biggest uncategorized time, with your categories and
+rules, and a request to propose rules for it).
+
+**Reads only, unless you opt in.** Mutations would become tools just as happily,
+but this schema's mutations are the login flow, device registration and
+ingestion — an agent that could call them would be minting credentials, not
+reading data. The one exception: tick **Let it categorize** when you create a
+key, and an assistant using that key also gets `create_category`,
+`create_category_rule`, `apply_category_rules`, `assign_entry` and
+`assign_activity` — enough to file your time, nothing that deletes or reaches
+devices, keys or your account. Sessions and other keys see read tools only.
+One read is left out too: `accountExport`, a file download that would only
+flood an agent's context (and is session-only anyway).
+
+The permission only changes what `/mcp` offers. Over `/graphql` a key could
+already call those mutations, and still can.
 
 **It authenticates exactly like `/graphql`**, through the same function: an
 API key in `x-api-key`, or a session in `Authorization: Bearer`. An anonymous

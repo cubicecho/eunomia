@@ -35,6 +35,36 @@ export interface ApiKeyRow {
   lastRequest: Date | null;
   expiresAt: Date | null;
   enabled: boolean;
+  /** What the key may do beyond reading (see KEY_SCOPES). */
+  scopes: KeyScope[];
+}
+
+/**
+ * What an integration key may do beyond reading, chosen when it is minted and
+ * kept in its metadata. Only MCP looks at them today: a key with `categorize`
+ * gets the categorization write tools there (src/mcp.ts).
+ */
+export const KEY_SCOPES = ['categorize'] as const;
+export type KeyScope = (typeof KEY_SCOPES)[number];
+
+/** The plugin's metadata column, parsed (it is double-encoded in some versions). */
+function parseMetadata(metadata: string | null): Record<string, unknown> | null {
+  if (!metadata) return null;
+  try {
+    let parsed: unknown = JSON.parse(metadata);
+    if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The known scopes in a key's metadata, whichever form it arrives in. */
+export function scopesFrom(metadata: Record<string, unknown> | string | null): KeyScope[] {
+  const parsed = typeof metadata === 'string' ? parseMetadata(metadata) : metadata;
+  const scopes = parsed?.scopes;
+  if (!Array.isArray(scopes)) return [];
+  return KEY_SCOPES.filter((scope) => scopes.includes(scope));
 }
 
 /**
@@ -44,15 +74,8 @@ export interface ApiKeyRow {
  * unparseable.
  */
 export function keyMetadataDeviceId(metadata: string | null): string | null {
-  if (!metadata) return null;
-  try {
-    let parsed: unknown = JSON.parse(metadata);
-    if (typeof parsed === 'string') parsed = JSON.parse(parsed);
-    const deviceId = (parsed as Record<string, unknown> | null)?.deviceId;
-    return typeof deviceId === 'string' ? deviceId : null;
-  } catch {
-    return null;
-  }
+  const deviceId = parseMetadata(metadata)?.deviceId;
+  return typeof deviceId === 'string' ? deviceId : null;
 }
 
 /** Every key the user holds, both kinds, with the metadata still attached. */
@@ -85,7 +108,11 @@ export async function listIntegrationKeys(db: Db, userId: string): Promise<ApiKe
   const rows = await ownKeys(db, userId);
   return rows
     .filter((row) => keyMetadataDeviceId(row.metadata) === null)
-    .map(({ metadata: _metadata, name, ...row }) => ({ ...row, name: name ?? 'unnamed' }))
+    .map(({ metadata, name, ...row }) => ({
+      ...row,
+      name: name ?? 'unnamed',
+      scopes: scopesFrom(metadata),
+    }))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
