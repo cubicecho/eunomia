@@ -33,6 +33,9 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       OIDC_CLIENT_AUTH: ${OIDC_CLIENT_AUTH:-client_secret_basic}
       OIDC_NAME: ${OIDC_NAME:-}
+      # Prometheus /metrics — off unless METRICS_TOKEN is set.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      METRICS_PER_USER: ${METRICS_PER_USER:-false}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-}
       SMTP_USER: ${SMTP_USER:-}

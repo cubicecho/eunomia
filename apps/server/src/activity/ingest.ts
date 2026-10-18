@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
 import { type Device, devices } from '../db/schema.ts';
+import { type PingOutcome, recordIngest } from '../metrics.ts';
 import { type ContextRule, extractContext, loadContextRules } from './context.ts';
 import { erasuresFor, isErased } from './erasures.ts';
 import { type Activity, foldPing, lockDevice, type Ping } from './fold.ts';
@@ -85,7 +86,9 @@ export async function ingestPings(
   // Loaded before the lock: rules don't change what the lock protects, and
   // three queries not held against the device's next upload is worth it.
   const loaded = rules ?? (await loadFoldRules(db, device.userId));
-  return db.transaction(async (tx) => {
+  // Counted once the transaction commits, so a rolled-back batch isn't.
+  const outcomes: PingOutcome[] = [];
+  const result = await db.transaction(async (tx) => {
     const locked = await lockDevice(tx, device.id);
     if (!locked) return batch.map(() => null);
     let head = await logHead(tx, device.id);
@@ -112,12 +115,15 @@ export async function ingestPings(
     for (const [i, ping] of batch.entries()) {
       const at = ping.capturedAt;
       if (!appended[i] || (locked.pingLogFrom && at < locked.pingLogFrom)) {
+        outcomes.push(!keep[i] ? 'erased' : !appended[i] ? 'duplicate' : 'before_log');
         touched.push(null);
       } else if (head && at < head) {
         if (!backfillFrom || at < backfillFrom) backfillFrom = at;
+        outcomes.push('backfill');
         touched.push(null);
       } else {
         touched.push(await foldOne(tx, device.id, loaded, ping));
+        outcomes.push('folded');
         head = at;
       }
     }
@@ -132,6 +138,8 @@ export async function ingestPings(
     }
     return touched;
   });
+  if (outcomes.length > 0) recordIngest(outcomes);
+  return result;
 }
 
 async function foldOne(

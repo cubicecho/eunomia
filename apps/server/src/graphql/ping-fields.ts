@@ -5,6 +5,7 @@ import type { RawPing } from '../activity/ping-log.ts';
 import type { Db } from '../db/client.ts';
 import { devices } from '../db/schema.ts';
 import { badInput } from '../errors.ts';
+import { recordUploadDelay } from '../metrics.ts';
 import type { Context } from './context.ts';
 import { requireOwned, requireUser } from './guards.ts';
 
@@ -109,6 +110,7 @@ export function pingFields(db: Db) {
       const [capturedAt] = parseCapturedAt([args]);
       await touchLastSeen(db, device);
       const [activity] = await ingestPings(db, device, toRawPings([args], [capturedAt!]));
+      recordUploadDelay([capturedAt!]);
       return activity ?? null;
     },
     // The agents' upload path: one round trip, one transaction, one fold lock.
@@ -125,6 +127,7 @@ export function pingFields(db: Db) {
       if (args.pings.length === 0) return 0;
       await touchLastSeen(db, device);
       const touched = await ingestPings(db, device, toRawPings(args.pings, capturedAts));
+      recordUploadDelay(capturedAts);
       return touched.filter((activity) => activity !== null).length;
     },
   } satisfies MutationResolvers;

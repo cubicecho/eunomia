@@ -692,6 +692,35 @@ Postgres, and `503` (with the error) when that fails — so it reports the
 outage that matters instead of just "the process is up". Compose uses it as
 the `app` service's healthcheck; point any external monitor at it too.
 
+### Metrics (Prometheus)
+
+`GET /metrics` serves Prometheus' text format once `METRICS_TOKEN` is set (it
+is a 404 otherwise), and wants that token as a Bearer header:
+
+```yaml
+scrape_configs:
+  - job_name: eunomia
+    authorization: { credentials: <METRICS_TOKEN> }
+    static_configs: [{ targets: ['eunomia.lan:4000'] }]
+```
+
+By default everything is aggregate — nothing names a device or a person:
+
+| Metric | What |
+| --- | --- |
+| `eunomia_up` | `1` when the database answered the scrape |
+| `eunomia_pings_ingested_total{outcome}` | pings `folded` live, logged for a `backfill` replay, `before_log`, skipped as a `duplicate` retry, or `erased` (inside a deleted range) |
+| `eunomia_ping_batches_total` | batches ingested (uploads and imports) |
+| `eunomia_upload_delay_seconds` | histogram of capture → receipt; a long tail is an agent's outbox draining after time offline |
+| `eunomia_devices{platform}`, `eunomia_devices_seen{within}`, `eunomia_devices_never_seen` | registered devices, and how many uploaded in the last 5m / 1h / 24h |
+| `eunomia_devices_replay_pending`, `eunomia_activities_unrolled` | work the replay and rollup jobs still have; stuck above zero means a job is failing |
+| `eunomia_users`, `eunomia_activities_open`, `eunomia_build_info{version}` | |
+
+`METRICS_PER_USER=true` adds `eunomia_category_seconds{user,category}`: each
+user's all-time active seconds per category (by email; uncategorized is
+`category=""`), so `increase(…[1d])` charts a day. Leave it off unless the
+people on the server want their time on a dashboard.
+
 ### Backing up and starting over
 
 All state lives in the `pgdata` volume — the database is the only thing worth

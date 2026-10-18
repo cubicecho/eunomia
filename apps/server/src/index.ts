@@ -9,6 +9,7 @@ import { SECRET_HELP, secretProblem, secretWarning } from './env.ts';
 import { createSchema } from './graphql/schema.ts';
 import { checkHealth, VERSION } from './health.ts';
 import { createMcpHandler } from './mcp.ts';
+import { createMetricsHandler, metricsToken } from './metrics.ts';
 import { oidcEnvProblem, oidcRedirectUri } from './oidc/config.ts';
 import { createSsoHandler } from './oidc/http.ts';
 import { registrationPolicyFromEnv } from './registration.ts';
@@ -90,6 +91,15 @@ const yoga = createApp(db, authHost, gateway, schema);
 const mcp = createMcpHandler(schema, createContextFactory(db, authHost));
 const sso = createSsoHandler(authHost, { allowedEmails: registration.allowedEmails });
 
+// Prometheus scrape endpoint: off unless METRICS_TOKEN is set (see metrics.ts).
+const metricsPerUser = process.env.METRICS_PER_USER === 'true';
+const metrics = createMetricsHandler(db, metricsToken(), { perUser: metricsPerUser });
+if (metricsToken()) {
+  console.log(
+    `[metrics] /metrics on, bearer token required${metricsPerUser ? ', per-user totals included' : ''}`,
+  );
+}
+
 // WEB_DIST points at the built dashboard (set in the container image); the
 // server then serves it on every non-/graphql path, so one origin hosts both
 // and the SPA's relative /graphql calls need no proxy. Unset in dev, where
@@ -107,6 +117,11 @@ const server = createServer((req, res) => {
       res.writeHead(health.ok ? 200 : 503, { 'content-type': 'application/json' });
       res.end(JSON.stringify(health));
     });
+    return;
+  }
+  // Before the static handler too, or a scraper would get index.html.
+  if (path === '/metrics') {
+    void metrics(req, res);
     return;
   }
   // Before the static handler, for the same reason /healthz is: the SPA
