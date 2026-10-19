@@ -18,6 +18,7 @@ import { ReviewView } from '@/components/review-view';
 import { RulesView } from '@/components/rules-view';
 import { SettingsView } from '@/components/settings-view';
 import { SignIn } from '@/components/sign-in';
+import { TimelineView } from '@/components/timeline-view';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { errorMessage } from '@/hooks/use-query';
@@ -43,6 +44,7 @@ function ssoErrorMessage(code: string): string {
 
 const VIEWS = [
   { value: 'dashboard', label: 'Dashboard' },
+  { value: 'timeline', label: 'Timeline' },
   { value: 'review', label: 'Review' },
   { value: 'rules', label: 'Categories & rules' },
   { value: 'merges', label: 'Merge entries' },
@@ -155,6 +157,9 @@ export function App() {
 
           <TabsContent value="dashboard">
             <DashboardView onNavigate={setView} />
+          </TabsContent>
+          <TabsContent value="timeline">
+            <TimelineView />
           </TabsContent>
           <TabsContent value="review">
             <ReviewView />

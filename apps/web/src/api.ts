@@ -18,6 +18,7 @@ import {
   type DeleteRangeMutation,
   type DeviceSummaryQuery,
   type DevicesQuery,
+  type FocusSegmentsQuery,
   getSdk,
   type ImportChunkMutation,
   type ImportChunkMutationVariables,
@@ -31,6 +32,7 @@ import {
   type SsoSetupQuery,
 } from '@eunomia/gql/web';
 import type { DateRange } from '@/lib/format';
+import type { TimelineSegment } from '@/lib/timeline';
 
 const TOKEN_KEY = 'eunomia.token';
 
@@ -343,6 +345,49 @@ export const assignEntry = (
     .then((d) => d.assignEntry);
 
 /** Re-runs category rules over past activities; resolves to the number changed. */
+/**
+ * Assigns one activity by hand: rules never move it again. Null takes it back
+ * out of its category.
+ */
+export const assignActivity = (activityId: string, categoryId: string | null): Promise<unknown> =>
+  sdk.AssignActivity({ activityId, categoryId });
+
+/** The page size FocusSegments asks for: the server's own cap on a list. */
+const SEGMENT_PAGE = 1000;
+
+/**
+ * Every focus segment overlapping [from, to), flattened for the timeline.
+ * Pages until the server runs out, since a busy day is thousands of focuses.
+ */
+export async function fetchFocusSegments(from: Date, to: Date): Promise<TimelineSegment[]> {
+  const segments: TimelineSegment[] = [];
+  let after: string | null = null;
+  for (;;) {
+    const page: FocusSegmentsQuery['focusSegments'] = (
+      await sdk.FocusSegments({ from: from.toISOString(), to: to.toISOString(), after })
+    ).focusSegments;
+    for (const row of page) {
+      if (!row.activity) continue;
+      segments.push({
+        id: row.id,
+        deviceId: row.deviceId,
+        activityId: row.activityId,
+        start: new Date(row.startedAt).getTime(),
+        end: new Date(row.endedAt).getTime(),
+        app: row.activity.app,
+        context: row.activity.context ?? null,
+        title: row.activity.title ?? null,
+        categoryId: row.activity.categoryId ?? null,
+        categoryName: row.activity.category?.name ?? null,
+        color: row.activity.category?.color ?? null,
+      });
+    }
+    const last = page.at(-1);
+    if (page.length < SEGMENT_PAGE || !last?.cursor) return segments;
+    after = last.cursor;
+  }
+}
+
 export const applyCategoryRules = (): Promise<number> =>
   sdk.ApplyCategoryRules().then((d) => d.applyCategoryRules);
 

@@ -497,3 +497,37 @@ mutation DeleteMergeRule($id: String!) {
 mutation ApplyMergeRules {
   applyMergeRules
 }
+
+# The day timeline: every focus that overlaps a window, oldest first, with
+# what it was. A long day runs past one page, so callers follow `cursor`.
+query FocusSegments($from: DateTime!, $to: DateTime!, $after: String) {
+  focusSegments(
+    where: { startedAt: { lt: $to }, endedAt: { gte: $from } }
+    orderBy: { startedAt: { direction: asc, priority: 1 } }
+    limit: 1000
+    after: $after
+  ) {
+    id
+    deviceId
+    activityId
+    startedAt
+    endedAt
+    cursor
+    activity {
+      app
+      context
+      title
+      categoryId
+      category {
+        name
+        color
+      }
+    }
+  }
+}
+
+mutation AssignActivity($activityId: String!, $categoryId: String) {
+  assignActivity(activityId: $activityId, categoryId: $categoryId) {
+    id
+  }
+}
