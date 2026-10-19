@@ -68,6 +68,11 @@ export interface SamplerDeps {
    */
   sanitize(): PingSanitizer;
   /**
+   * What other sources on this machine add to the ping (local-feed.ts) —
+   * merged before sanitizing, so the privacy rules apply to it too.
+   */
+  enrich?(ping: Ping): Ping;
+  /**
    * Whether the user has taken this moment off the record (pause.ts). Asked
    * per tick, before the OS is read: a paused tick doesn't look at the
    * foreground at all, so there is nothing to leak into a log line or a
@@ -168,13 +173,14 @@ export function createSampler(deps: SamplerDeps): Sampler {
 
         // Sanitized before it exists anywhere: ignored and redacted data never
         // reaches the ping log, let alone the server.
-        const ping: Ping | null = deps.sanitize()({
+        const raw: Ping = {
           capturedAt: new Date(at).toISOString(),
           app: sample.app,
           title: sample.title,
           context: deps.readContext(sample),
           idleSeconds: sample.idleSeconds,
-        });
+        };
+        const ping: Ping | null = deps.sanitize()(deps.enrich ? deps.enrich(raw) : raw);
         if (!ping) return; // ignored app — don't remember it as emitted
 
         deps.outbox.push(ping);

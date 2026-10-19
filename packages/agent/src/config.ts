@@ -40,6 +40,36 @@ export interface StoredConfig extends AgentConfig {
   redactApps?: string[];
   /** Privacy: how much of every ping is kept — see CaptureLevel. */
   captureLevel?: CaptureLevel;
+  /** Desktop: the local API other capture sources report to (local-api.ts). */
+  localApi?: LocalApiConfig;
+}
+
+/** Desktop: where the local API listens, and whether at all. */
+export interface LocalApiConfig {
+  /** Default true. */
+  enabled?: boolean;
+  /** Default DEFAULT_LOCAL_API_PORT, ActivityWatch's. */
+  port?: number;
+  /** Answer ActivityWatch watchers under /api/0. Default true. */
+  activityWatch?: boolean;
+}
+
+/** Reads `localApi` out of untrusted JSON, keeping only the fields that make sense. */
+export function parseLocalApiConfig(raw: unknown): LocalApiConfig | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  const config: LocalApiConfig = {};
+  if (typeof value.enabled === 'boolean') config.enabled = value.enabled;
+  if (typeof value.activityWatch === 'boolean') config.activityWatch = value.activityWatch;
+  if (
+    typeof value.port === 'number' &&
+    Number.isInteger(value.port) &&
+    value.port > 0 &&
+    value.port < 65536
+  ) {
+    config.port = value.port;
+  }
+  return config;
 }
 
 const isStringArray = (value: unknown): value is string[] =>
@@ -87,6 +117,8 @@ export function parseConfig(raw: unknown): StoredConfig | null {
   // An unrecognized level is dropped and so means full detail — the same way
   // an invalid privacy pattern is skipped rather than applied.
   if (isCaptureLevel(parsed.captureLevel)) config.captureLevel = parsed.captureLevel;
+  const localApi = parseLocalApiConfig(parsed.localApi);
+  if (localApi) config.localApi = localApi;
   return config;
 }
 
