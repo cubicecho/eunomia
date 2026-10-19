@@ -1,0 +1,14 @@
+{
+  "name": "@eunomia/extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser extension (Chromium and Firefox, Manifest V3) that reports the focused tab's site to the local eunomia agent.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "zip": "rm -f eunomia-extension.zip && zip -r eunomia-extension.zip manifest.json src -x 'src/*.test.js'"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  }
+}

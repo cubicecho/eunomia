@@ -27,6 +27,9 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 - `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in,
   per-category/per-day/per-app views, rules, entry merges, devices, API keys. Talks to the
   server through the generated GraphQL SDK in `packages/gql`.
+- `apps/extension` — a Manifest V3 browser extension (Chromium, Firefox) that
+  tells the local desktop agent which site the focused tab is on. Plain
+  JavaScript, no build step.
 - `packages/agent` — agent core shared by every target: append-only ping log,
   batch uploader, the usage-event → ping synthesizer, the config parser, and
   the shared provisioning flow.
@@ -333,6 +336,41 @@ The report lasts as long as the heartbeat's `pulsetime`. Other bucket types,
 and inserted (finished) events, are acknowledged and ignored. Buckets are
 kept in memory only; a watcher's next heartbeat after an agent restart
 re-creates its bucket from the data.
+
+### Browser extension (sites on Linux and Firefox)
+
+The agent reads a browser's site from its window only on Windows and macOS,
+and not for every browser even there. `apps/extension` is a Manifest V3
+extension for Chromium-based browsers and Firefox (121+) that fills the gap.
+It tells the local agent which site the focused tab is on, through the local
+API above. It sends nothing to the server. The agent already counts the
+browser's time from the foreground window, and the extension only names the
+site, so nothing is counted twice.
+
+- **What it sends:** the tab's origin (`https://github.com/`), never its path
+  or query, plus the tab title unless **Send tab titles** is off. The agent
+  keeps only the hostname, and only when a browser is the foreground app.
+  The tab title is used only when the agent can't read the window title. The
+  device's capture level and privacy rules still decide what is kept.
+- **Private windows:** it sends only "private" with no address or title, and
+  the agent then drops the window title too. Browsers don't run extensions in
+  private windows unless you allow it. If you don't, a private window is
+  covered by the window title alone, the same as without the extension.
+- **When the browser isn't in front,** it reports that too, so its last tab
+  stops counting at once.
+
+**Install (unpacked, for now):**
+
+- **Chromium/Chrome/Edge/Brave:** open `chrome://extensions`, turn on
+  Developer mode, choose **Load unpacked**, and pick `apps/extension`.
+- **Firefox:** open `about:debugging#/runtime/this-firefox` and choose
+  **Load Temporary Add-on**, picking `apps/extension/manifest.json`. A
+  temporary add-on lasts until Firefox restarts. A permanent install needs
+  the add-on signed by Mozilla, which this repo doesn't do yet.
+
+Then paste the token (tray → **Copy local API token**) into its options page
+and press **Save**. It should say *Connected to the agent*. `npm run zip -w
+@eunomia/extension` packs it for a store upload.
 
 ### Linux on Wayland
 
