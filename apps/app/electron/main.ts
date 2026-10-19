@@ -3,11 +3,14 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
   type AgentConfig,
+  BROWSER_APP,
   CHECK_INTERVAL_MS,
+  createLocalFeed,
   createSampler,
   createSanitizer,
   createUploader,
   currentPause,
+  hostOf,
   isPausedAt,
   logRetentionDays,
   Outbox,
@@ -24,17 +27,28 @@ import {
   type Uploader,
 } from '@eunomia/agent';
 import { activeWindow } from '@miniben90/x-win';
-import { app, Menu, type MenuItem, nativeImage, powerMonitor, shell, Tray } from 'electron';
+import {
+  app,
+  clipboard,
+  Menu,
+  type MenuItem,
+  nativeImage,
+  powerMonitor,
+  shell,
+  Tray,
+} from 'electron';
 import type { PauseState } from '../src/host/types.ts';
 import { syncAutostart } from './autostart.ts';
 import {
   isEnvConfigured,
   loadConfig,
+  loadLocalApiConfig,
   platformName,
   saveAutostart,
   writeAgentConfig,
 } from './config.ts';
 import { type AgentRuntime, registerAgentIpc } from './ipc.ts';
+import { type LocalApiStatus, localApiToken, startLocalApi } from './local-api.ts';
 import { readLog, resetLog, startFileLog } from './log.ts';
 import { pingLogDir, pingLogStore } from './ping-log.ts';
 import { registerAgentScheme, serveAgentBundle } from './protocol.ts';
@@ -68,24 +82,20 @@ function agentVersion(): string {
 // shared agent UI renders into. What that UI is allowed to ask for is ipc.ts;
 // what it is told about this shell is `info()`.
 
-// Apps whose window URL x-win can read (Windows/macOS; always empty on
-// Linux). Only these pay the accessibility round-trip for the url getter.
-const BROWSER_EXEC =
-  /^(chrome|chromium|msedge|firefox|librewolf|waterfox|zen|brave|opera|vivaldi|arc|safari)/i;
-
 /**
  * Hostname of the focused browser window, or null. Hostname only — full URLs
  * carry queries and tokens that should never leave the machine; the server
  * subdivides browser time by site, nothing finer.
  */
+// Only browsers pay the accessibility round-trip for the url getter, which
+// x-win answers on Windows/macOS and always leaves empty on Linux — where the
+// browser extension (local API) supplies the site instead.
 function browserContext(win: ReturnType<typeof activeWindow>, app: string | null): string | null {
-  if (!app || !BROWSER_EXEC.test(app)) return null;
+  if (!app || !BROWSER_APP.test(app)) return null;
   try {
-    const url = win.url;
-    if (!url) return null;
-    return new URL(url).hostname.toLowerCase() || null;
+    return hostOf(win.url);
   } catch {
-    return null; // unsupported browser build, or a non-URL address bar value
+    return null; // unsupported browser build
   }
 }
 
@@ -101,6 +111,9 @@ let lastWindow: ReturnType<typeof activeWindow> | null = null;
 
 /** Everything a tick can read cheaply. Throwing is how the OS says "not now". */
 function readSample(): Sample {
+  // Cleared first: a read that throws must not leave the last tick's window
+  // behind for readContext, now that a local report can stand in for it.
+  lastWindow = null;
   const win = activeWindow();
   lastWindow = win;
   return {
@@ -207,6 +220,11 @@ app.whenReady().then(async () => {
   });
   let sanitize = createSanitizer(config ?? {});
 
+  // What other capture sources on this machine report (local-api.ts): the
+  // browser extension's tab, a Wayland watcher's window, an idle monitor.
+  // Folded into the sample before the sanitizer, so it obeys the same rules.
+  const feed = createLocalFeed();
+
   // Off the record (@eunomia/agent pause.ts). Kept on disk so a pause "until
   // resumed" survives a restart or a login: a pause that quietly ended because
   // the machine rebooted would record exactly what the person asked it not to.
@@ -218,11 +236,23 @@ app.whenReady().then(async () => {
   // at. `sanitize` is read per tick so a privacy change applies immediately.
   const sampler: Sampler = createSampler({
     outbox,
-    read: readSample,
+    read: () => feed.sample(readSample),
     readContext,
+    enrich: feed.enrich,
     sanitize: () => sanitize,
     paused: (at) => isPausedAt(pauses, at),
   });
+
+  // Started whether or not uploads are set up: sampling is, too.
+  const localApi = startLocalApi(
+    loadLocalApiConfig(dataDir),
+    {
+      feed,
+      token: localApiToken(dataDir),
+      info: { hostname: hostname(), version: agentVersion(), deviceId: config?.deviceId },
+    },
+    () => refreshTrayMenu(),
+  );
 
   // Only provisioned installs register launch-at-login; {"autostart": false}
   // in config.json opts out (and removes an earlier registration).
@@ -306,6 +336,13 @@ app.whenReady().then(async () => {
     refreshTrayMenu();
   };
 
+  const localApiLabel = (status: LocalApiStatus = localApi.status()): string => {
+    if (status.state === 'disabled') return 'Local API off';
+    if (status.state === 'failed') return `Local API not running: ${status.error}`;
+    const sources = new Set(feed.sources().map((source) => source.source)).size;
+    return `Local API on 127.0.0.1:${status.port}${sources > 0 ? ` — ${sources} reporting` : ''}`;
+  };
+
   const pauseState = (): PauseState => {
     const current = currentPause(pauses, Date.now());
     return { paused: current !== null, until: current?.to ?? null };
@@ -362,6 +399,17 @@ app.whenReady().then(async () => {
               })),
             },
         { label: `Ping log: ${pingLogDir(dataDir)}`, enabled: false },
+        { label: localApiLabel(), enabled: false },
+        ...(localApi.status().state === 'disabled'
+          ? []
+          : [
+              {
+                // What the browser extension and ActivityWatch watchers ask
+                // for as their "API key". It is also the file local-api-token in userData.
+                label: 'Copy local API token',
+                click: () => clipboard.writeText(localApiToken(dataDir)),
+              },
+            ]),
         ...(config
           ? [
               { label: 'Open Dashboard', click: () => void showDashboard() },

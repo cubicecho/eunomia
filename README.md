@@ -275,6 +275,65 @@ kept in `pause.json` (desktop userData) or `pauses.json` (Android documents),
 survives a restart, and the server never learns about it; it sees a gap, and
 the app focused before the gap accrues at most 30 seconds, as above.
 
+### Local API (other capture sources)
+
+The desktop agent listens on `127.0.0.1:5600` for other programs on the same
+machine to tell it what they can see and it can't, such as a browser
+extension or an ActivityWatch watcher. What they report is folded into the
+agent's own sample before the ping is made, so the privacy controls, pause
+and ping log above apply to it exactly as to anything the agent read itself,
+and nothing reaches the server twice. Reports describe the present only. Each
+expires on its own, and nothing is backfilled.
+
+- **Loopback only.** It binds `127.0.0.1`, refuses requests whose `Host` isn't
+  loopback, and refuses any request from a web page (an `Origin` that isn't a
+  browser extension's).
+- **Token required.** Every request needs `Authorization: Bearer <token>`. The
+  token is made on first start in `local-api-token` in the agent's userData
+  directory, readable by your user only. Tray → **Copy local API token** puts
+  it on the clipboard.
+- **Port 5600 is ActivityWatch's.** If aw-server is running, the agent can't
+  have the port. The tray says so, and nothing else is affected. Move it in
+  `config.json`, or turn it off:
+
+```json
+{ "localApi": { "port": 5601, "activityWatch": true, "enabled": true } }
+```
+
+Its own shape is `POST /v1/events`, taking one report, a list, or `{"events": [...]}`:
+
+```sh
+curl -s http://127.0.0.1:5600/v1/events \
+  -H "Authorization: Bearer $(cat ~/.config/eunomia-agent/local-api-token)" \
+  -H 'content-type: application/json' \
+  -d '{"kind": "window", "app": "kitty", "title": "vim notes.md", "source": "my-script", "ttlSeconds": 15}'
+```
+
+| `kind` | fields | effect while fresh |
+| --- | --- | --- |
+| `window` | `app`, `title?` | replaces the foreground app and title the platform read. It also stands in when the platform can't read one at all (Wayland). |
+| `afk` | `afk`, `since?` (ISO) | replaces the idle time: seconds since `since` when away, 0 when present |
+| `browser` | `url?`, `title?`, `incognito?`, `browser?`, `focused?` | when a browser is in front, its site (the hostname only) becomes the context. `incognito: true` strips the context *and* the window title. |
+
+Optional on every report: `source` (one held report per source and kind),
+`at` (ISO, default now) and `ttlSeconds` (default 15, at most 300).
+`GET /v1/status` lists the sources currently reporting.
+
+**ActivityWatch watchers** work unmodified against `/api/0`, the subset of
+aw-server's API they call: `info`, bucket create/list/get/delete, and
+`heartbeat`. Give them the local API token as their API key. aw-watcher-web
+has an API key field in its settings; awatcher takes `api_key` in its config
+file. Heartbeats map by bucket type:
+
+- `currentwindow` (awatcher, aw-watcher-window) becomes a `window` report.
+- `afkstatus` becomes an `afk` report.
+- `web.tab.current` (aw-watcher-web) becomes a `browser` report.
+
+The report lasts as long as the heartbeat's `pulsetime`. Other bucket types,
+and inserted (finished) events, are acknowledged and ignored. Buckets are
+kept in memory only; a watcher's next heartbeat after an agent restart
+re-creates its bucket from the data.
+
 ### Packaging the desktop agent
 
 ```bash

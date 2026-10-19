@@ -2,7 +2,9 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   type AgentConfig,
+  type LocalApiConfig,
   parseConfigText,
+  parseLocalApiConfig,
   patchConfigText,
   type StoredConfig,
   serializeConfig,
@@ -19,7 +21,8 @@ const configPath = (dataDir: string): string => join(dataDir, 'config.json');
  * {"serverUrl": ..., "apiKey": ..., "syncIntervalSeconds"?: ...,
  *  "ignoreApps"?: [regex...], "redactApps"?: [regex...],
  *  "captureLevel"?: "app" | "context" | "title", "autostart"?: bool,
- *  "logRetentionDays"?: number, "deviceId"?: ..., "deviceName"?: ...}.
+ *  "logRetentionDays"?: number, "deviceId"?: ..., "deviceName"?: ...,
+ *  "localApi"?: {"enabled"?: bool, "port"?: number, "activityWatch"?: bool}}.
  * EUNOMIA_SYNC_INTERVAL_SECONDS overrides the interval in either case.
  */
 export function loadConfig(dataDir: string): StoredConfig | null {
@@ -56,8 +59,14 @@ function withLocalPrefs(config: AgentConfig, dataDir: string): StoredConfig {
   const raw = readRaw(dataDir);
   if (raw === null) return config;
   try {
-    const parsed = JSON.parse(raw) as { autostart?: unknown; logRetentionDays?: unknown };
+    const parsed = JSON.parse(raw) as {
+      autostart?: unknown;
+      logRetentionDays?: unknown;
+      localApi?: unknown;
+    };
     const prefs: StoredConfig = { ...config };
+    const localApi = parseLocalApiConfig(parsed.localApi);
+    if (localApi) prefs.localApi = localApi;
     if (typeof parsed.autostart === 'boolean') prefs.autostart = parsed.autostart;
     if (typeof parsed.logRetentionDays === 'number') {
       prefs.logRetentionDays = parsed.logRetentionDays;
@@ -65,6 +74,20 @@ function withLocalPrefs(config: AgentConfig, dataDir: string): StoredConfig {
     return prefs;
   } catch {
     return config;
+  }
+}
+
+/**
+ * The local API settings, read even when there is no server connection: an
+ * agent that isn't set up yet still samples, and still takes reports.
+ */
+export function loadLocalApiConfig(dataDir: string): LocalApiConfig | undefined {
+  const raw = readRaw(dataDir);
+  if (raw === null) return undefined;
+  try {
+    return parseLocalApiConfig((JSON.parse(raw) as { localApi?: unknown }).localApi);
+  } catch {
+    return undefined;
   }
 }
 
