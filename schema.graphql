@@ -1123,6 +1123,31 @@ input IntFilter {
   notInArray: [Int!]
 }
 
+type LlmSettings {
+  baseUrl: String
+
+  """
+  Whether the caller may change it: the admin, and only when it isn't set by the environment.
+  """
+  canEdit: Boolean!
+
+  """Whether an API key is set. The key itself is never returned."""
+  hasApiKey: Boolean!
+  model: String
+  source: LlmSource!
+}
+
+enum LlmSource {
+  """LLM_BASE_URL and LLM_MODEL in the server's environment."""
+  ENV
+
+  """No model set up: suggestions and summaries are off."""
+  NONE
+
+  """Set by the admin from the dashboard."""
+  STORED
+}
+
 type MagicLinkRequest {
   ok: Boolean!
   token: String
@@ -1251,6 +1276,7 @@ type Mutation {
     to: String!
   ): Float!
   claimSetupCode(code: String!, email: String!): AuthSession!
+  clearLlmSettings: LlmSettings!
   createApiKey(expiresInDays: Int, name: String!, scopes: [ApiKeyScope!]): ApiKeyIssued!
 
   """`kind` defaults to neutral."""
@@ -1336,6 +1362,7 @@ type Mutation {
   revokeApiKey(id: String!): Boolean!
   rotateDeviceKey(id: String!): DeviceRegistration!
   sessionFromDeviceKey: AuthSession!
+  setLlmSettings(apiKey: String, baseUrl: String!, model: String!): LlmSettings!
   setOnboarding(dismissed: Boolean, privacyReviewed: Boolean): Me!
   setRetention(days: Int): Me!
   setTimeZone(timeZone: String): Me!
@@ -1537,6 +1564,16 @@ type Query {
     orderBy: DevicesOrderBy
     where: DevicesFilters
   ): [Devices!]!
+
+  """
+  A short standup-style summary of one day, drafted by the language model for
+  the caller to edit. Same data rules as `suggestRules`. Signed-in sessions.
+  """
+  draftStandup(
+    """`YYYY-MM-DD` in the caller's time zone. Default: today."""
+    day: String
+    includeTitles: Boolean
+  ): StandupDraft!
   focusSegments(
     """
     Keyset pagination: only return rows strictly after this cursor (a row's `cursor` field from a previous page, under the same orderBy).
@@ -1547,6 +1584,12 @@ type Query {
     orderBy: FocusSegmentsOrderBy
     where: FocusSegmentsFilters
   ): [FocusSegments!]!
+
+  """
+  The language model this instance asks for suggestions and summaries, if any.
+  The API key is never returned, only whether one is set. Signed-in sessions.
+  """
+  llmSettings: LlmSettings!
 
   """The caller, or null when the request is anonymous."""
   me: Me
@@ -1605,6 +1648,30 @@ type Query {
   ): [ActivityMatch!]!
   setupCodePending: Boolean!
   ssoSetup: SsoSetup!
+
+  """
+  Asks the language model which category the largest uncategorized entries
+  belong to, and returns rules it would make — nothing is created or changed.
+  Each comes with its preview, as `previewCategoryRule` would give. Sends app
+  and context names with their totals; window titles only with
+  `includeTitles`. FAILED_PRECONDITION when no model is set up; UNAVAILABLE
+  when it doesn't answer. Signed-in sessions.
+  """
+  suggestRules(
+    """Start, inclusive, `YYYY-MM-DD`. Default: 7 days before `to`."""
+    from: String
+
+    """Also send up to three window titles per entry. Default false."""
+    includeTitles: Boolean
+
+    """
+    How many uncategorized entries to ask about, largest first. Default 15, at most 40.
+    """
+    limit: Int
+
+    """End, EXCLUSIVE, `YYYY-MM-DD`. Default: tomorrow."""
+    to: String
+  ): [RuleSuggestion!]!
 
   """
   The biggest uncategorized entries over the window, largest first: what to
@@ -1692,6 +1759,37 @@ type RulePackInstall {
 }
 
 """
+A rule the language model proposes. Nothing is created until the caller does it.
+"""
+type RuleSuggestion {
+  """The uncategorized entry it came from."""
+  app: String!
+
+  """
+  Exact-match patterns built by the server, ready for `createCategoryRule`.
+  """
+  appPattern: String!
+
+  """The existing category, or null when `isNewCategory`."""
+  categoryId: ID
+  categoryName: String!
+
+  """Set when the rule is for this context only, not the whole app."""
+  context: String
+  contextPattern: String
+  isNewCategory: Boolean!
+
+  """What the rule would match over the same window."""
+  preview: CategoryRulePreview!
+
+  """The model's one-line reason."""
+  reason: String!
+
+  """Uncategorized seconds of the entry in the window asked about."""
+  seconds: Float!
+}
+
+"""
 How sign-in through an OIDC provider is set up, and whether the caller may change it.
 """
 type SsoSetup {
@@ -1726,6 +1824,13 @@ enum SsoSource {
 
   """Paired from a setup URL."""
   PAIRED
+}
+
+type StandupDraft {
+  day: String!
+
+  """Markdown bullet points."""
+  text: String!
 }
 
 input StringFilter {

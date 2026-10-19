@@ -531,3 +531,53 @@ mutation AssignActivity($activityId: String!, $categoryId: String) {
     id
   }
 }
+
+# Bring-your-own language model (#41). The key is never returned, only whether
+# one is set. Suggestions and drafts are reads: nothing is created until the
+# person saves a suggested rule through createCategoryRule.
+query LlmSettings {
+  llmSettings {
+    source
+    baseUrl
+    model
+    hasApiKey
+    canEdit
+  }
+}
+
+mutation SetLlmSettings($baseUrl: String!, $model: String!, $apiKey: String) {
+  setLlmSettings(baseUrl: $baseUrl, model: $model, apiKey: $apiKey) {
+    source
+  }
+}
+
+mutation ClearLlmSettings {
+  clearLlmSettings {
+    source
+  }
+}
+
+query SuggestRules($from: String, $to: String, $includeTitles: Boolean) {
+  suggestRules(from: $from, to: $to, includeTitles: $includeTitles) {
+    app
+    context
+    seconds
+    appPattern
+    contextPattern
+    categoryId
+    categoryName
+    isNewCategory
+    reason
+    preview {
+      matchedSeconds
+      changeableSeconds
+    }
+  }
+}
+
+query DraftStandup($day: String, $includeTitles: Boolean) {
+  draftStandup(day: $day, includeTitles: $includeTitles) {
+    day
+    text
+  }
+}

@@ -1,6 +1,7 @@
 import { Globe } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { setOnboarding, setTimeZone } from '@/api';
+import { LlmCard } from '@/components/assistant/llm-card';
 import { CardLayout } from '@/components/card-layout';
 import { ExportCard } from '@/components/export-card';
 import { FormField } from '@/components/form-field';
@@ -151,6 +152,7 @@ export function SettingsView() {
       )}
       <StatusLine status={action.status} />
       {me.isAdmin && <SsoCard />}
+      <LlmCard />
       <div ref={exportRef} className="scroll-mt-6">
         <ExportCard />
       </div>

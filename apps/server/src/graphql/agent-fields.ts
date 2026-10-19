@@ -38,7 +38,7 @@ function requireDay(value: string, name: string): string {
 }
 
 /** [from, to) defaulting to the `days` days up to and including today. */
-async function window(
+export async function window(
   db: Db,
   userId: string,
   args: { from?: string | null; to?: string | null },

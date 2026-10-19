@@ -101,7 +101,16 @@ export function createMcpHandler(
     // session-only anyway, and agents authenticate with keys.
     // ssoSetup and setupCodePending are the sign-in page's plumbing: how this
     // server signs people in says nothing about anyone's time.
-    exclude: ['Query.accountExport', 'Query.ssoSetup', 'Query.setupCodePending'],
+    // The language-model reads are the dashboard's: an assistant asking this
+    // server to ask another model is a detour, and keys can't call them anyway.
+    exclude: [
+      'Query.accountExport',
+      'Query.ssoSetup',
+      'Query.setupCodePending',
+      'Query.llmSettings',
+      'Query.suggestRules',
+      'Query.draftStandup',
+    ],
   };
   // Queries only — see the note at the top.
   const readOnly = createServerFactory({ ...common, includeMutations: false });

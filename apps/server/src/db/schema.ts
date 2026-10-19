@@ -534,6 +534,22 @@ export const instanceSecrets = pgTable('instance_secrets', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+// The language model the admin pointed this instance at (src/llm/settings.ts):
+// any OpenAI-compatible endpoint, a local Ollama included. One row, like
+// `oidc_settings`, and out of `relations` for the same reason — `api_key` is a
+// credential, written from the dashboard and never read back to it.
+export const llmSettings = pgTable(
+  'llm_settings',
+  {
+    id: text('id').primaryKey().default('llm'),
+    baseUrl: text('base_url').notNull(),
+    model: text('model').notNull(),
+    apiKey: text('api_key'),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => [check('llm_settings_singleton', sql`${t.id} = 'llm'`)],
+);
+
 // --- relations (drizzle v1 relational query builder; drizzle-graphql uses
 // these for eager-loaded nested queries) ---
 

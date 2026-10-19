@@ -20,6 +20,7 @@ import { deviceFields } from './device-fields.ts';
 import { buildEntities, type Entities, type Fields } from './entities.ts';
 import { exportFields } from './export-fields.ts';
 import { importFields } from './import-fields.ts';
+import { llmFields, llmQueryFields } from './llm-fields.ts';
 import { mergeFields } from './merge-fields.ts';
 import { permissions, type Resolvers } from './permissions.ts';
 import { pingFields } from './ping-fields.ts';
@@ -116,6 +117,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
       ...rulePackQueryFields(db),
       ...ssoQueryFields(db),
       ...agentQueryFields(db),
+      ...llmQueryFields(db),
       setupCodePending: () => auth.setupCodePending(),
     },
     Mutation: {
@@ -130,6 +132,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
       ...pingFields(db),
       ...userFields(db),
       ...importFields(db),
+      ...llmFields(db),
     },
   });
   return applyPermissions<Resolvers>(schema, permissions);

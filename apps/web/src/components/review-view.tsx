@@ -7,8 +7,10 @@ import {
   type Category,
   fetchAppSummary,
   fetchCategories,
+  fetchLlmSettings,
   fetchRecentActivities,
 } from '@/api';
+import { SuggestionsCard } from '@/components/assistant/suggestions-card';
 import { CardLayout } from '@/components/card-layout';
 import { Combobox } from '@/components/combobox';
 import { RangePicker } from '@/components/dashboard/range-picker';
@@ -63,12 +65,17 @@ export function ReviewView() {
     [range.from, range.to],
   );
   const action = useAction();
+  // Whether a language model is set up; a failure just hides the suggestions.
+  const llm = useQuery(fetchLlmSettings, []);
 
   const run: Run = (mutation) => action.run(mutation, { onDone: reload });
 
   return (
     <div className="flex flex-col gap-6">
       <RangePicker range={range} timeZone={timeZone} onChange={setRange} />
+      {llm.data ? (
+        <SuggestionsCard range={range} configured={llm.data.source !== 'NONE'} onSaved={reload} />
+      ) : null}
       {error && !data ? (
         <QueryError error={error} onRetry={refetch} what="the review queue" />
       ) : !data ? (

@@ -23,6 +23,7 @@ import {
   type ImportChunkMutation,
   type ImportChunkMutationVariables,
   type InstallRulePackMutation,
+  type LlmSettingsQuery,
   type MeQuery,
   type MergeRulesQuery,
   type PurgeAppMutation,
@@ -30,6 +31,7 @@ import {
   type Requester,
   type RulePacksQuery,
   type SsoSetupQuery,
+  type SuggestRulesQuery,
 } from '@eunomia/gql/web';
 import type { DateRange } from '@/lib/format';
 import type { TimelineSegment } from '@/lib/timeline';
@@ -447,3 +449,47 @@ export const renameApiKey = (id: string, name: string): Promise<unknown> =>
 
 /** A full revocation: whatever holds the key is refused on its next request. */
 export const revokeApiKey = (id: string): Promise<unknown> => sdk.RevokeApiKey({ id });
+
+// --- bring-your-own language model (#41) ---
+
+export type LlmSettings = LlmSettingsQuery['llmSettings'];
+export type RuleSuggestion = SuggestRulesQuery['suggestRules'][number];
+
+export const fetchLlmSettings = (): Promise<LlmSettings> =>
+  sdk.LlmSettings().then((d) => d.llmSettings);
+
+/** `apiKey` undefined keeps the stored key; null or "" removes it. */
+export const setLlmSettings = (
+  baseUrl: string,
+  model: string,
+  apiKey?: string | null,
+): Promise<unknown> =>
+  sdk.SetLlmSettings(apiKey === undefined ? { baseUrl, model } : { baseUrl, model, apiKey });
+
+export const clearLlmSettings = (): Promise<unknown> => sdk.ClearLlmSettings();
+
+export const suggestRules = (range: DateRange, includeTitles: boolean): Promise<RuleSuggestion[]> =>
+  sdk.SuggestRules({ from: range.from, to: range.to, includeTitles }).then((d) => d.suggestRules);
+
+export const draftStandup = (day: string, includeTitles: boolean): Promise<string> =>
+  sdk.DraftStandup({ day, includeTitles }).then((d) => d.draftStandup.text);
+
+/**
+ * Saves one suggestion as an ordinary rule — making its category first when it
+ * is a new one — and sweeps recorded activity, the same as saving a rule from
+ * the review queue. The only path from a suggestion to a change.
+ */
+export async function acceptSuggestion(suggestion: RuleSuggestion, kind: CategoryKind) {
+  const categoryId =
+    suggestion.categoryId ??
+    (await sdk.CreateCategory({ name: suggestion.categoryName, color: null, kind })).createCategory
+      .id;
+  await createCategoryRule({
+    categoryId,
+    appPattern: suggestion.appPattern,
+    titlePattern: null,
+    contextPattern: suggestion.contextPattern ?? null,
+    priority: null,
+  });
+  return applyCategoryRules();
+}
