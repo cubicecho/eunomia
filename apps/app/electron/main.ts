@@ -3,11 +3,14 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
   type AgentConfig,
+  BROWSER_APP,
   CHECK_INTERVAL_MS,
+  createLocalFeed,
   createSampler,
   createSanitizer,
   createUploader,
   currentPause,
+  hostOf,
   isPausedAt,
   logRetentionDays,
   Outbox,
@@ -23,18 +26,43 @@ import {
   syncIntervalMs,
   type Uploader,
 } from '@eunomia/agent';
-import { activeWindow } from '@miniben90/x-win';
-import { app, Menu, type MenuItem, nativeImage, powerMonitor, shell, Tray } from 'electron';
+import {
+  activeWindow,
+  enableExtension,
+  installExtension,
+  isEnabledExtension,
+  isInstalledExtension,
+} from '@miniben90/x-win';
+import {
+  app,
+  clipboard,
+  Menu,
+  type MenuItem,
+  type MenuItemConstructorOptions,
+  nativeImage,
+  powerMonitor,
+  shell,
+  Tray,
+} from 'electron';
 import type { PauseState } from '../src/host/types.ts';
 import { syncAutostart } from './autostart.ts';
 import {
   isEnvConfigured,
   loadConfig,
+  loadLocalApiConfig,
   platformName,
   saveAutostart,
   writeAgentConfig,
 } from './config.ts';
 import { type AgentRuntime, registerAgentIpc } from './ipc.ts';
+import {
+  type GnomeExtension,
+  type LinuxSession,
+  linuxSession,
+  startCompositorIdle,
+  waylandAdvice,
+} from './linux-session.ts';
+import { type LocalApiStatus, localApiToken, startLocalApi } from './local-api.ts';
 import { readLog, resetLog, startFileLog } from './log.ts';
 import { pingLogDir, pingLogStore } from './ping-log.ts';
 import { registerAgentScheme, serveAgentBundle } from './protocol.ts';
@@ -68,28 +96,46 @@ function agentVersion(): string {
 // shared agent UI renders into. What that UI is allowed to ask for is ipc.ts;
 // what it is told about this shell is `info()`.
 
-// Apps whose window URL x-win can read (Windows/macOS; always empty on
-// Linux). Only these pay the accessibility round-trip for the url getter.
-const BROWSER_EXEC =
-  /^(chrome|chromium|msedge|firefox|librewolf|waterfox|zen|brave|opera|vivaldi|arc|safari)/i;
-
 /**
  * Hostname of the focused browser window, or null. Hostname only — full URLs
  * carry queries and tokens that should never leave the machine; the server
  * subdivides browser time by site, nothing finer.
  */
+// Only browsers pay the accessibility round-trip for the url getter, which
+// x-win answers on Windows/macOS and always leaves empty on Linux — where the
+// browser extension (local API) supplies the site instead.
 function browserContext(win: ReturnType<typeof activeWindow>, app: string | null): string | null {
-  if (!app || !BROWSER_EXEC.test(app)) return null;
+  if (!app || !BROWSER_APP.test(app)) return null;
   try {
-    const url = win.url;
-    if (!url) return null;
-    return new URL(url).hostname.toLowerCase() || null;
+    return hostOf(win.url);
   } catch {
-    return null; // unsupported browser build, or a non-URL address bar value
+    return null; // unsupported browser build
   }
 }
 
 let tray: Tray | undefined;
+
+/** Wayland or not, and which desktop: what decides where window and idle come from. */
+const session: LinuxSession =
+  process.platform === 'linux' ? linuxSession(process.env) : { wayland: false, desktop: 'other' };
+
+/**
+ * The compositor's own idle time, on Wayland, where Electron's reading may only
+ * see input sent to XWayland windows. Null until the compositor answers, and
+ * Electron's is used meanwhile (see linux-session.ts).
+ */
+const compositorIdle = session.wayland ? startCompositorIdle(session.desktop) : null;
+
+/** What x-win's GNOME Shell extension (Wayland window capture) says about itself. */
+function gnomeExtension(): GnomeExtension {
+  if (!session.wayland || session.desktop !== 'gnome') return 'unknown';
+  try {
+    if (isEnabledExtension()) return 'enabled';
+    return isInstalledExtension() ? 'installed' : 'missing';
+  } catch {
+    return 'unknown';
+  }
+}
 
 /**
  * The window object the last read produced. The sampler calls readContext for
@@ -101,12 +147,15 @@ let lastWindow: ReturnType<typeof activeWindow> | null = null;
 
 /** Everything a tick can read cheaply. Throwing is how the OS says "not now". */
 function readSample(): Sample {
+  // Cleared first: a read that throws must not leave the last tick's window
+  // behind for readContext, now that a local report can stand in for it.
+  lastWindow = null;
   const win = activeWindow();
   lastWindow = win;
   return {
     app: win?.info?.execName || null,
     title: win?.title || null,
-    idleSeconds: powerMonitor.getSystemIdleTime(),
+    idleSeconds: compositorIdle?.idleSeconds() ?? powerMonitor.getSystemIdleTime(),
   };
 }
 
@@ -199,6 +248,11 @@ app.whenReady().then(async () => {
   }
 
   const logPath = startFileLog(dataDir);
+  if (session.wayland) {
+    // Said once, so a log full of "sampling failed" reads as the session's
+    // limit rather than a broken agent.
+    console.log(`Wayland session (${session.desktop}): window capture depends on the desktop`);
+  }
   let config = loadConfig(dataDir);
   // Config first: opening the log prunes it, and a longer configured retention
   // must not lose to the default on the way in.
@@ -206,6 +260,11 @@ app.whenReady().then(async () => {
     retentionDays: logRetentionDays(config ?? {}),
   });
   let sanitize = createSanitizer(config ?? {});
+
+  // What other capture sources on this machine report (local-api.ts): the
+  // browser extension's tab, a Wayland watcher's window, an idle monitor.
+  // Folded into the sample before the sanitizer, so it obeys the same rules.
+  const feed = createLocalFeed();
 
   // Off the record (@eunomia/agent pause.ts). Kept on disk so a pause "until
   // resumed" survives a restart or a login: a pause that quietly ended because
@@ -218,11 +277,23 @@ app.whenReady().then(async () => {
   // at. `sanitize` is read per tick so a privacy change applies immediately.
   const sampler: Sampler = createSampler({
     outbox,
-    read: readSample,
+    read: () => feed.sample(readSample),
     readContext,
+    enrich: feed.enrich,
     sanitize: () => sanitize,
     paused: (at) => isPausedAt(pauses, at),
   });
+
+  // Started whether or not uploads are set up: sampling is, too.
+  const localApi = startLocalApi(
+    loadLocalApiConfig(dataDir),
+    {
+      feed,
+      token: localApiToken(dataDir),
+      info: { hostname: hostname(), version: agentVersion(), deviceId: config?.deviceId },
+    },
+    () => refreshTrayMenu(),
+  );
 
   // Only provisioned installs register launch-at-login; {"autostart": false}
   // in config.json opts out (and removes an earlier registration).
@@ -306,6 +377,48 @@ app.whenReady().then(async () => {
     refreshTrayMenu();
   };
 
+  const localApiLabel = (status: LocalApiStatus = localApi.status()): string => {
+    if (status.state === 'disabled') return 'Local API off';
+    if (status.state === 'failed') return `Local API not running: ${status.error}`;
+    const sources = new Set(feed.sources().map((source) => source.source)).size;
+    return `Local API on 127.0.0.1:${status.port}${sources > 0 ? ` — ${sources} reporting` : ''}`;
+  };
+
+  // GNOME on Wayland: the extension x-win reads the focused window through.
+  // Installing it is a file copy; GNOME Shell only loads it at the next login.
+  let extensionRestartNeeded = false;
+  const setUpGnomeExtension = (): void => {
+    try {
+      const installed = isInstalledExtension() || installExtension();
+      const enabled = installed && enableExtension();
+      console.log(`GNOME window extension: installed=${installed} enabled=${enabled}`);
+      extensionRestartNeeded = installed && !isEnabledExtension();
+    } catch (error) {
+      console.error('GNOME window extension setup failed:', error);
+    }
+    refreshTrayMenu();
+  };
+  const sessionItems = (): MenuItemConstructorOptions[] => {
+    const extension = gnomeExtension();
+    const advice = waylandAdvice(session, {
+      extension,
+      windowReported: feed.sources().some((source) => source.kind === 'window'),
+      restartNeeded: extensionRestartNeeded,
+    });
+    if (!advice) return [];
+    const items: MenuItemConstructorOptions[] = [{ label: advice, enabled: false }];
+    if (session.desktop === 'gnome' && !extensionRestartNeeded && extension !== 'enabled') {
+      items.push({
+        label:
+          extension === 'installed'
+            ? 'Turn on the GNOME window extension'
+            : 'Install the GNOME window extension…',
+        click: setUpGnomeExtension,
+      });
+    }
+    return items;
+  };
+
   const pauseState = (): PauseState => {
     const current = currentPause(pauses, Date.now());
     return { paused: current !== null, until: current?.to ?? null };
@@ -362,6 +475,18 @@ app.whenReady().then(async () => {
               })),
             },
         { label: `Ping log: ${pingLogDir(dataDir)}`, enabled: false },
+        ...sessionItems(),
+        { label: localApiLabel(), enabled: false },
+        ...(localApi.status().state === 'disabled'
+          ? []
+          : [
+              {
+                // What the browser extension and ActivityWatch watchers ask
+                // for as their "API key". It is also the file local-api-token in userData.
+                label: 'Copy local API token',
+                click: () => clipboard.writeText(localApiToken(dataDir)),
+              },
+            ]),
         ...(config
           ? [
               { label: 'Open Dashboard', click: () => void showDashboard() },

@@ -212,3 +212,23 @@ describe('sampler stalls', () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining('sampler: 1 ticks, 1 pings'));
   });
 });
+
+describe('sampler enrichment', () => {
+  it('merges what other sources add before the privacy rules see the ping', () => {
+    const outbox = new Outbox(memoryLogStore());
+    const sampler = createSampler({
+      outbox,
+      read: () => sample({ app: 'secret-app' }),
+      readContext: () => null,
+      // A source naming the tab of an app the user redacted must not get it
+      // past the sanitizer.
+      enrich: (ping) => ({ ...ping, context: 'from-extension' }),
+      sanitize: () => createSanitizer({ redactApps: ['^secret'] }),
+      now: () => 1_700_000_000_000,
+    });
+    sampler.tick();
+    expect(outbox.peek(10)).toEqual([
+      expect.objectContaining({ app: 'secret-app', context: null, title: null }),
+    ]);
+  });
+});

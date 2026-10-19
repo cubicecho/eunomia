@@ -16,12 +16,36 @@ export {
   verifyOneTimeToken,
 } from './api.ts';
 export {
+  type LocalApiConfig,
   parseConfig,
   parseConfigText,
+  parseLocalApiConfig,
   patchConfigText,
   type StoredConfig,
   serializeConfig,
 } from './config.ts';
+export {
+  createLocalApi,
+  DEFAULT_LOCAL_API_PORT,
+  type LocalApiOptions,
+  type LocalRequest,
+  type LocalResponse,
+  MAX_LOCAL_BODY_BYTES,
+} from './local-api.ts';
+export {
+  type AfkReport,
+  BROWSER_APP,
+  type BrowserReport,
+  createLocalFeed,
+  DEFAULT_REPORT_TTL_SECONDS,
+  type FeedSource,
+  hostOf,
+  type LocalFeed,
+  type LocalReport,
+  MAX_REPORT_TTL_SECONDS,
+  parseReport,
+  type WindowReport,
+} from './local-feed.ts';
 export {
   DEFAULT_LOG_RETENTION_DAYS,
   logRetentionDays,

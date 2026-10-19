@@ -27,6 +27,9 @@ Research and architecture decisions: [.agents/research.md](.agents/research.md).
 - `apps/web` — Vite + React dashboard (shadcn/ui, Recharts): sign-in,
   per-category/per-day/per-app views, rules, entry merges, devices, API keys. Talks to the
   server through the generated GraphQL SDK in `packages/gql`.
+- `apps/extension` — a Manifest V3 browser extension (Chromium, Firefox) that
+  tells the local desktop agent which site the focused tab is on. Plain
+  JavaScript, no build step.
 - `packages/agent` — agent core shared by every target: append-only ping log,
   batch uploader, the usage-event → ping synthesizer, the config parser, and
   the shared provisioning flow.
@@ -274,6 +277,137 @@ screen say **Paused** until it ends. A pause is local to the device — it is
 kept in `pause.json` (desktop userData) or `pauses.json` (Android documents),
 survives a restart, and the server never learns about it; it sees a gap, and
 the app focused before the gap accrues at most 30 seconds, as above.
+
+### Local API (other capture sources)
+
+The desktop agent listens on `127.0.0.1:5600` for other programs on the same
+machine to tell it what they can see and it can't, such as a browser
+extension or an ActivityWatch watcher. What they report is folded into the
+agent's own sample before the ping is made, so the privacy controls, pause
+and ping log above apply to it exactly as to anything the agent read itself,
+and nothing reaches the server twice. Reports describe the present only. Each
+expires on its own, and nothing is backfilled.
+
+- **Loopback only.** It binds `127.0.0.1`, refuses requests whose `Host` isn't
+  loopback, and refuses any request from a web page (an `Origin` that isn't a
+  browser extension's).
+- **Token required.** Every request needs `Authorization: Bearer <token>`. The
+  token is made on first start in `local-api-token` in the agent's userData
+  directory, readable by your user only. Tray → **Copy local API token** puts
+  it on the clipboard.
+- **Port 5600 is ActivityWatch's.** If aw-server is running, the agent can't
+  have the port. The tray says so, and nothing else is affected. Move it in
+  `config.json`, or turn it off:
+
+```json
+{ "localApi": { "port": 5601, "activityWatch": true, "enabled": true } }
+```
+
+Its own shape is `POST /v1/events`, taking one report, a list, or `{"events": [...]}`:
+
+```sh
+curl -s http://127.0.0.1:5600/v1/events \
+  -H "Authorization: Bearer $(cat ~/.config/eunomia-agent/local-api-token)" \
+  -H 'content-type: application/json' \
+  -d '{"kind": "window", "app": "kitty", "title": "vim notes.md", "source": "my-script", "ttlSeconds": 15}'
+```
+
+| `kind` | fields | effect while fresh |
+| --- | --- | --- |
+| `window` | `app`, `title?` | replaces the foreground app and title the platform read. It also stands in when the platform can't read one at all (Wayland). |
+| `afk` | `afk`, `since?` (ISO) | replaces the idle time: seconds since `since` when away, 0 when present |
+| `browser` | `url?`, `title?`, `incognito?`, `browser?`, `focused?` | when a browser is in front, its site (the hostname only) becomes the context. `incognito: true` strips the context *and* the window title. |
+
+Optional on every report: `source` (one held report per source and kind),
+`at` (ISO, default now) and `ttlSeconds` (default 15, at most 300).
+`GET /v1/status` lists the sources currently reporting.
+
+**ActivityWatch watchers** work unmodified against `/api/0`, the subset of
+aw-server's API they call: `info`, bucket create/list/get/delete, and
+`heartbeat`. Give them the local API token as their API key. aw-watcher-web
+has an API key field in its settings; awatcher takes `api_key` in its config
+file. Heartbeats map by bucket type:
+
+- `currentwindow` (awatcher, aw-watcher-window) becomes a `window` report.
+- `afkstatus` becomes an `afk` report.
+- `web.tab.current` (aw-watcher-web) becomes a `browser` report.
+
+The report lasts as long as the heartbeat's `pulsetime`. Other bucket types,
+and inserted (finished) events, are acknowledged and ignored. Buckets are
+kept in memory only; a watcher's next heartbeat after an agent restart
+re-creates its bucket from the data.
+
+### Browser extension (sites on Linux and Firefox)
+
+The agent reads a browser's site from its window only on Windows and macOS,
+and not for every browser even there. `apps/extension` is a Manifest V3
+extension for Chromium-based browsers and Firefox (121+) that fills the gap.
+It tells the local agent which site the focused tab is on, through the local
+API above. It sends nothing to the server. The agent already counts the
+browser's time from the foreground window, and the extension only names the
+site, so nothing is counted twice.
+
+- **What it sends:** the tab's origin (`https://github.com/`), never its path
+  or query, plus the tab title unless **Send tab titles** is off. The agent
+  keeps only the hostname, and only when a browser is the foreground app.
+  The tab title is used only when the agent can't read the window title. The
+  device's capture level and privacy rules still decide what is kept.
+- **Private windows:** it sends only "private" with no address or title, and
+  the agent then drops the window title too. Browsers don't run extensions in
+  private windows unless you allow it. If you don't, a private window is
+  covered by the window title alone, the same as without the extension.
+- **When the browser isn't in front,** it reports that too, so its last tab
+  stops counting at once.
+
+**Install (unpacked, for now):**
+
+- **Chromium/Chrome/Edge/Brave:** open `chrome://extensions`, turn on
+  Developer mode, choose **Load unpacked**, and pick `apps/extension`.
+- **Firefox:** open `about:debugging#/runtime/this-firefox` and choose
+  **Load Temporary Add-on**, picking `apps/extension/manifest.json`. A
+  temporary add-on lasts until Firefox restarts. A permanent install needs
+  the add-on signed by Mozilla, which this repo doesn't do yet.
+
+Then paste the token (tray → **Copy local API token**) into its options page
+and press **Save**. It should say *Connected to the agent*. `npm run zip -w
+@eunomia/extension` packs it for a store upload.
+
+### Linux on Wayland
+
+Core Wayland has no way to ask which window is focused, and GNOME and KDE
+default to Wayland on Ubuntu and Fedora. What the desktop agent does there,
+per desktop:
+
+| Desktop | Focused window | Idle time |
+| --- | --- | --- |
+| GNOME | x-win's GNOME Shell extension. Tray → **Install the GNOME window extension…**, then log out and back in. | Mutter's idle monitor, over D-Bus |
+| KDE Plasma | [awatcher](https://github.com/2e3s/awatcher), through the local API | `org.freedesktop.ScreenSaver`, over D-Bus |
+| Sway, Hyprland, other wlroots | awatcher | awatcher's afk reports, or Electron's own reading |
+| X11 (any desktop) | the agent itself, as before | Electron's reading, as before |
+
+The agent says which session it found once in its log, and the tray carries a
+line about window capture until something covers it. Until then the tray
+shows **NOT TRACKING** with x-win's error, as it would for any failed read.
+When the compositor answers on D-Bus, its idle time is used instead of
+Electron's, which under Wayland may only see input sent to XWayland windows.
+
+**awatcher, all desktops:** awatcher reads the focused window and idle on
+GNOME, KDE and the wlroots compositors, and sends them as ActivityWatch
+heartbeats, which the agent's local API accepts unmodified. Install the plain
+`awatcher` binary, not the bundle (the bundle brings its own server), stop
+any ActivityWatch server (it would hold port 5600), and give it the token in
+`~/.config/awatcher/config.toml`:
+
+```toml
+[server]
+port = 5600
+host = "127.0.0.1"
+api-key = "<tray → Copy local API token>"
+```
+
+Its window reports replace what the agent reads itself, and its afk reports
+replace the idle time, for as long as they keep arriving. Stop awatcher and
+the agent goes back to its own reading within seconds.
 
 ### Packaging the desktop agent
 
