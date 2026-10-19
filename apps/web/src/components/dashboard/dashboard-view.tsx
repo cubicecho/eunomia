@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { fetchAppSummary, fetchDeviceSummary, fetchSummary } from '@/api';
+import { fetchAppSummary, fetchDeviceSummary, fetchLlmSettings, fetchSummary } from '@/api';
+import { StandupCard } from '@/components/assistant/standup-card';
 import { CategoryChart } from '@/components/dashboard/category-chart';
 import { DayChart } from '@/components/dashboard/day-chart';
 import { DevicePicker } from '@/components/dashboard/device-picker';
@@ -34,6 +35,8 @@ export function DashboardView({ onNavigate }: { onNavigate(view: View): void }) 
   // share while the view is filtered to one of them, so it deliberately
   // doesn't depend on the selection.
   const devices = useQuery(() => fetchDeviceSummary(range.from, range.to), [range.from, range.to]);
+  // Only offered when a language model is set up (Settings).
+  const llm = useQuery(fetchLlmSettings, []);
 
   const [summary, appRows] = data ?? [[], []];
   const categories = categoryTotals(summary);
@@ -79,6 +82,7 @@ export function DashboardView({ onNavigate }: { onNavigate(view: View): void }) 
           </div>
         </div>
       )}
+      {llm.data && llm.data.source !== 'NONE' ? <StandupCard /> : null}
     </div>
   );
 }

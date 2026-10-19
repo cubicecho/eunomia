@@ -92,6 +92,12 @@ export const permissions = {
     uncategorized: authenticated,
     searchActivity: authenticated,
     previewCategoryRule: authenticated,
+    // Language-model features (llm-fields.ts): the dashboard's, not a key's.
+    // Each call spends the admin's model (and maybe their API credits), and
+    // the settings name where it is.
+    llmSettings: sessionAuthenticated,
+    suggestRules: sessionAuthenticated,
+    draftStandup: sessionAuthenticated,
     // Public by design: returns the caller or null.
     me: accept,
     // Public: the sign-in page reads it to show the provider's button.
@@ -153,6 +159,9 @@ export const permissions = {
     createApiKey: sessionAuthenticated,
     renameApiKey: sessionAuthenticated,
     revokeApiKey: sessionAuthenticated,
+    // The admin check is the resolver's (llm-fields.ts); a key never gets that far.
+    setLlmSettings: sessionAuthenticated,
+    clearLlmSettings: sessionAuthenticated,
     recordPing: authenticated,
     recordPings: authenticated,
     createCategory: authenticated,

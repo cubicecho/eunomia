@@ -33,6 +33,11 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       OIDC_CLIENT_AUTH: ${OIDC_CLIENT_AUTH:-client_secret_basic}
       OIDC_NAME: ${OIDC_NAME:-}
+      # Optional language model — see .env.example. Unset, the admin can set
+      # one from the dashboard.
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-}
       SMTP_USER: ${SMTP_USER:-}

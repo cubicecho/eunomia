@@ -158,6 +158,40 @@ extend type Query {
     "The previous chunk's `next`. Omitted starts the file."
     cursor: String
   ): ExportChunk!
+  """
+  The language model this instance asks for suggestions and summaries, if any.
+  The API key is never returned, only whether one is set. Signed-in sessions.
+  """
+  llmSettings: LlmSettings!
+
+  """
+  Asks the language model which category the largest uncategorized entries
+  belong to, and returns rules it would make — nothing is created or changed.
+  Each comes with its preview, as `previewCategoryRule` would give. Sends app
+  and context names with their totals; window titles only with
+  `includeTitles`. FAILED_PRECONDITION when no model is set up; UNAVAILABLE
+  when it doesn't answer. Signed-in sessions.
+  """
+  suggestRules(
+    "Start, inclusive, `YYYY-MM-DD`. Default: 7 days before `to`."
+    from: String
+    "End, EXCLUSIVE, `YYYY-MM-DD`. Default: tomorrow."
+    to: String
+    "How many uncategorized entries to ask about, largest first. Default 15, at most 40."
+    limit: Int
+    "Also send up to three window titles per entry. Default false."
+    includeTitles: Boolean
+  ): [RuleSuggestion!]!
+
+  """
+  A short standup-style summary of one day, drafted by the language model for
+  the caller to edit. Same data rules as `suggestRules`. Signed-in sessions.
+  """
+  draftStandup(
+    "`YYYY-MM-DD` in the caller's time zone. Default: today."
+    day: String
+    includeTitles: Boolean
+  ): StandupDraft!
 }
 
 type Mutation {
@@ -192,6 +226,14 @@ type Mutation {
   # Deletes eunomia's client at the paired provider and stops offering it.
   # Accounts stay. Same rule as pairSso.
   unpairSso: SsoSetup!
+  # Points the instance at an OpenAI-compatible endpoint (an Ollama at
+  # http://localhost:11434/v1, LM Studio, vLLM, a hosted API) for rule
+  # suggestions and summaries. `apiKey` omitted keeps the stored key; null or
+  # "" removes it. The admin only, from a signed-in session; FORBIDDEN when
+  # LLM_BASE_URL names the endpoint.
+  setLlmSettings(baseUrl: String!, model: String!, apiKey: String): LlmSettings!
+  # Forgets the stored endpoint. Same rule as setLlmSettings.
+  clearLlmSettings: LlmSettings!
 
   # Account. The caller's time zone: an IANA name, or null to follow the
   # server's. Moves the days of every activity still kept onto the new zone's
@@ -698,6 +740,52 @@ type ActivityMatch {
   deviceName: String!
   categoryId: String
   categoryName: String
+}
+
+enum LlmSource {
+  "LLM_BASE_URL and LLM_MODEL in the server's environment."
+  ENV
+  "Set by the admin from the dashboard."
+  STORED
+  "No model set up: suggestions and summaries are off."
+  NONE
+}
+
+type LlmSettings {
+  source: LlmSource!
+  baseUrl: String
+  model: String
+  "Whether an API key is set. The key itself is never returned."
+  hasApiKey: Boolean!
+  "Whether the caller may change it: the admin, and only when it isn't set by the environment."
+  canEdit: Boolean!
+}
+
+"A rule the language model proposes. Nothing is created until the caller does it."
+type RuleSuggestion {
+  "The uncategorized entry it came from."
+  app: String!
+  "Set when the rule is for this context only, not the whole app."
+  context: String
+  "Uncategorized seconds of the entry in the window asked about."
+  seconds: Float!
+  "Exact-match patterns built by the server, ready for `createCategoryRule`."
+  appPattern: String!
+  contextPattern: String
+  "The existing category, or null when `isNewCategory`."
+  categoryId: ID
+  categoryName: String!
+  isNewCategory: Boolean!
+  "The model's one-line reason."
+  reason: String!
+  "What the rule would match over the same window."
+  preview: CategoryRulePreview!
+}
+
+type StandupDraft {
+  day: String!
+  "Markdown bullet points."
+  text: String!
 }
 
 "What `previewCategoryRule` found."

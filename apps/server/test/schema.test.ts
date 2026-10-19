@@ -25,7 +25,9 @@ describe('graphql schema', () => {
       'daySummary',
       'deviceSummary',
       'devices',
+      'draftStandup',
       'focusSegments',
+      'llmSettings',
       'me',
       'mergeRules',
       'previewCategoryRule',
@@ -33,6 +35,7 @@ describe('graphql schema', () => {
       'searchActivity',
       'setupCodePending',
       'ssoSetup',
+      'suggestRules',
       'uncategorized',
     ]);
     expect(Object.keys(schema.getMutationType()?.getFields() ?? {}).sort()).toEqual([
@@ -41,6 +44,7 @@ describe('graphql schema', () => {
       'assignActivity',
       'assignEntry',
       'claimSetupCode',
+      'clearLlmSettings',
       'createApiKey',
       'createCategory',
       'createCategoryRule',
@@ -69,6 +73,7 @@ describe('graphql schema', () => {
       'revokeApiKey',
       'rotateDeviceKey',
       'sessionFromDeviceKey',
+      'setLlmSettings',
       'setOnboarding',
       'setRetention',
       'setTimeZone',

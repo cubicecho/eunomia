@@ -514,6 +514,37 @@ during it, with three actions:
 Raw activities are kept for `ACTIVITY_RETENTION_DAYS`, so older days are
 empty here even though their totals stay in the charts.
 
+### Suggestions from your own language model
+
+eunomia can ask a language model to help sort uncategorized time and to draft
+a daily standup. It never runs a model itself and never needs one: it calls
+any OpenAI-compatible endpoint you point it at, and every feature works
+without one.
+
+- **Set it up** under **Settings → Language model** (the admin), or with
+  `LLM_BASE_URL`, `LLM_MODEL` and optionally `LLM_API_KEY` in the environment,
+  which then wins. The API key is write-only: the dashboard only ever learns
+  whether one is set.
+- **Locally, with Ollama:** `ollama pull llama3.1:8b`, then base URL
+  `http://localhost:11434/v1` and model `llama3.1:8b`. From inside
+  `docker compose`, `localhost` is the container — use
+  `http://host.docker.internal:11434/v1` (add
+  `extra_hosts: ["host.docker.internal:host-gateway"]` on Linux) or the host's
+  address. LM Studio, vLLM and hosted APIs work the same way.
+- **Suggested rules** (Review tab): the model sees the biggest uncategorized
+  entries in the range and the categories you have, and proposes a category
+  for each — the whole app, or just that site or project. eunomia builds the
+  rule itself (an exact match, never a pattern the model wrote) and shows
+  how much time it would file. Nothing changes until you press **Add rule**,
+  which saves an ordinary rule you can edit or delete like any other.
+- **Draft a standup** (Dashboard): a few bullet points from one day's totals,
+  to copy and edit. Nothing is saved.
+- **What is sent:** app and context (site, project) names with their totals,
+  and your category names. Window titles only when you tick **Include window
+  titles** for that request — they are where the private detail is.
+
+Both are dashboard-only: API keys and the MCP endpoint can't call them.
+
 ### Exporting your data
 
 The dashboard's **Settings** tab downloads your account as files, in three

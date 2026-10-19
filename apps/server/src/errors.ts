@@ -36,3 +36,9 @@ export const unauthenticated = (message = 'Not authenticated'): GraphQLError =>
 
 /** The caller is known but not allowed to do this at all. */
 export const forbidden = withCode('FORBIDDEN');
+
+/** The request is fine but the server isn't set up for it yet — e.g. no language model. */
+export const failedPrecondition = withCode('FAILED_PRECONDITION');
+
+/** Something this server depends on (a language model endpoint) didn't answer usefully. */
+export const unavailable = withCode('UNAVAILABLE');
