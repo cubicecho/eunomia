@@ -17,7 +17,9 @@ export function ApplyRules() {
       <Button
         variant="outline"
         size="sm"
-        disabled={applying}
+        loading={applying}
+        loadingLabel="Applying…"
+        content="Apply rules to existing activities"
         onClick={() => {
           setApplying(true);
           applyCategoryRules()
@@ -27,9 +29,7 @@ export function ApplyRules() {
             .catch((cause: unknown) => setApplied(errorMessage(cause)))
             .finally(() => setApplying(false));
         }}
-      >
-        Apply rules to existing activities
-      </Button>
+      />
       {applied && <span className="text-muted-foreground text-sm">{applied}</span>}
     </div>
   );

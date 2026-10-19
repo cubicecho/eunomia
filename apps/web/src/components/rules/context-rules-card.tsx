@@ -1,17 +1,11 @@
+import { Trash2 } from 'lucide-react';
 import { type ActivitySample, type ContextRule, deleteContextRule } from '@/api';
-import { ConfirmDelete } from '@/components/confirm-delete';
+import { CardLayout } from '@/components/card-layout';
+import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { ContextRuleForm } from '@/components/rules/context-rule-form';
 import { Pattern } from '@/components/rules/pattern';
-import { AddRuleButton, EditRuleButton, RuleDialog } from '@/components/rules/rule-dialog';
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { addRuleTrigger, editRuleTrigger, RuleDialog } from '@/components/rules/rule-dialog';
 import {
   Table,
   TableBody,
@@ -33,37 +27,29 @@ interface Props {
 
 export function ContextRulesCard({ rules, samples, run, reload }: Props) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Context rules</CardTitle>
-        <CardDescription>
-          Splits an app’s time by what was open in it — the project in an editor, the site in a
-          browser — by pulling the context out of the window title. Only applies to pings without a
-          context of their own, and only going forward.
-        </CardDescription>
-        <CardAction>
-          <RuleDialog
-            title="New context rule"
-            description="Pick the part of the window title that names what was open — the preview shows what it would pull out of recent titles."
-            trigger={<AddRuleButton label="Add rule" />}
-          >
-            {(close) => (
-              <ContextRuleForm
-                samples={samples}
-                onSaved={() => {
-                  close();
-                  reload();
-                }}
-              />
-            )}
-          </RuleDialog>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {rules.length === 0 && (
-          <EmptyState>No context rules yet — every app folds as one activity.</EmptyState>
-        )}
-        {rules.length > 0 && (
+    <CardLayout
+      title="Context rules"
+      description="Splits an app’s time by what was open in it — the project in an editor, the site in a browser — by pulling the context out of the window title. Only applies to pings without a context of their own, and only going forward."
+      actionSlot={
+        <RuleDialog
+          title="New context rule"
+          description="Pick the part of the window title that names what was open — the preview shows what it would pull out of recent titles."
+          trigger={addRuleTrigger('Add rule')}
+        >
+          {(host) => (
+            <ContextRuleForm
+              host={host}
+              samples={samples}
+              onSaved={() => {
+                host.close();
+                reload();
+              }}
+            />
+          )}
+        </RuleDialog>
+      }
+      contentSlot={
+        rules.length === 0 ? null : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -90,25 +76,31 @@ export function ContextRulesCard({ rules, samples, run, reload }: Props) {
                       {rule.priority}
                     </TableCell>
                     <TableCell>
-                      <span className="flex items-center justify-end">
+                      <span className="flex items-center justify-end gap-1">
                         <RuleDialog
                           title="Edit context rule"
                           description="Saving replaces the rule. Activities already split by it keep the contexts they have; the new pattern applies from the next ping on."
-                          trigger={<EditRuleButton label="context rule" />}
+                          trigger={editRuleTrigger('context rule')}
                         >
-                          {(close) => (
+                          {(host) => (
                             <ContextRuleForm
+                              host={host}
                               samples={samples}
                               rule={rule}
                               onSaved={() => {
-                                close();
+                                host.close();
                                 reload();
                               }}
                             />
                           )}
                         </RuleDialog>
-                        <ConfirmDelete
-                          name="context rule"
+                        <ConfirmButton
+                          variant="outline"
+                          size="icon-sm"
+                          aria-label="Delete context rule"
+                          hint="Delete context rule"
+                          iconSlot={<Trash2 />}
+                          title="Delete this context rule?"
                           description="Activities already split by this rule keep their contexts; new pings fold by app alone."
                           onConfirm={() => run(() => deleteContextRule(rule.id))}
                         />
@@ -118,8 +110,11 @@ export function ContextRulesCard({ rules, samples, run, reload }: Props) {
                 ))}
             </TableBody>
           </Table>
-        )}
-      </CardContent>
-    </Card>
+        )
+      }
+      emptySlot={
+        <EmptyState compact title="No context rules yet — every app folds as one activity." />
+      }
+    />
   );
 }

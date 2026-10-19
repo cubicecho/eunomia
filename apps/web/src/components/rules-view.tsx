@@ -6,6 +6,7 @@ import {
   fetchRecentActivities,
   fetchRulePacks,
 } from '@/api';
+import { QueryError, RowSkeleton } from '@/components/query-state';
 import { CategoriesCard } from '@/components/rules/categories-card';
 import { CategoryRulesCard } from '@/components/rules/category-rules-card';
 import { ContextRulesCard } from '@/components/rules/context-rules-card';
@@ -18,7 +19,7 @@ import { useAction, useQuery } from '@/hooks/use-query';
 // and applying rules changes what the tables say, so they reload together.
 
 export function RulesView() {
-  const { data, error, reload } = useQuery(
+  const { data, error, reload, refetch } = useQuery(
     () =>
       Promise.all([
         fetchCategories(),
@@ -33,8 +34,8 @@ export function RulesView() {
   );
   const action = useAction();
 
-  if (error) return <p className="text-destructive text-sm">{error}</p>;
-  if (!data) return null;
+  if (error && !data) return <QueryError error={error} onRetry={refetch} what="your rules" />;
+  if (!data) return <RowSkeleton rows={3} />;
   const [categories, categoryRules, contextRules, packs, samples] = data;
   const run = (mutation: () => Promise<unknown>) => action.run(mutation, { onDone: reload });
 

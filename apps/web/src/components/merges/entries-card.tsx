@@ -1,10 +1,8 @@
-import { ChevronRight, Merge } from 'lucide-react';
-import type * as React from 'react';
+import { ChevronRight } from 'lucide-react';
 import { useState } from 'react';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { MergeDialog } from '@/components/merges/merge-dialog';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { formatSeconds } from '@/lib/format';
@@ -44,62 +42,59 @@ export function EntriesCard({ groups, reload }: Props) {
     : groups;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Recorded entries</CardTitle>
-        <CardDescription>
-          Every app and context your devices have reported. Merging one into another rewrites the
-          time already recorded under it and folds future pings the same way — the fix for one thing
-          arriving under two names.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <Input
-          className="w-full sm:w-72"
-          placeholder="Filter apps and contexts"
-          aria-label="Filter entries"
-          value={query}
-          onChange={(event) => {
-            const next = event.target.value;
-            setQuery(next);
-            // Typing a context should show it, not just the app hiding it.
-            const term = next.trim();
-            setExpanded(
-              new Set(
-                term
-                  ? groups
-                      .filter((group) =>
-                        group.contexts.some((entry) => contains(entry.context, term)),
-                      )
-                      .map((group) => group.app)
-                  : [],
-              ),
-            );
-          }}
-        />
-        {groups.length === 0 && <EmptyState>Nothing recorded yet.</EmptyState>}
-        {groups.length > 0 && shown.length === 0 && (
-          <EmptyState>No entry matches “{needle}”.</EmptyState>
-        )}
-        {shown.map((group) => (
-          <AppRow
-            key={group.app}
-            group={group}
-            groups={groups}
-            open={expanded.has(group.app)}
-            onOpenChange={(open) =>
-              setExpanded((current) => {
-                const next = new Set(current);
-                if (open) next.add(group.app);
-                else next.delete(group.app);
-                return next;
-              })
-            }
-            reload={reload}
+    <CardLayout
+      title="Recorded entries"
+      description="Every app and context your devices have reported. Merging one into another rewrites the time already recorded under it and folds future pings the same way — the fix for one thing arriving under two names."
+      contentClassName="gap-3"
+      contentSlot={
+        <>
+          <Input
+            className="w-full sm:w-72"
+            placeholder="Filter apps and contexts"
+            aria-label="Filter entries"
+            value={query}
+            onChange={(event) => {
+              const next = event.target.value;
+              setQuery(next);
+              // Typing a context should show it, not just the app hiding it.
+              const term = next.trim();
+              setExpanded(
+                new Set(
+                  term
+                    ? groups
+                        .filter((group) =>
+                          group.contexts.some((entry) => contains(entry.context, term)),
+                        )
+                        .map((group) => group.app)
+                    : [],
+                ),
+              );
+            }}
           />
-        ))}
-      </CardContent>
-    </Card>
+          {groups.length === 0 && <EmptyState compact title="Nothing recorded yet." />}
+          {groups.length > 0 && shown.length === 0 && (
+            <EmptyState compact title={`No entry matches “${needle}”.`} />
+          )}
+          {shown.map((group) => (
+            <AppRow
+              key={group.app}
+              group={group}
+              groups={groups}
+              open={expanded.has(group.app)}
+              onOpenChange={(open) =>
+                setExpanded((current) => {
+                  const next = new Set(current);
+                  if (open) next.add(group.app);
+                  else next.delete(group.app);
+                  return next;
+                })
+              }
+              reload={reload}
+            />
+          ))}
+        </>
+      }
+    />
   );
 }
 
@@ -169,12 +164,7 @@ function AppRow({ group, groups, open, onOpenChange, reload }: RowProps) {
         ) : (
           <div className="grow px-1">{header}</div>
         )}
-        <MergeDialog
-          source={{ app: group.app, context: null }}
-          groups={groups}
-          onSaved={reload}
-          trigger={<MergeButton label={group.app} />}
-        />
+        <MergeDialog source={{ app: group.app, context: null }} groups={groups} onSaved={reload} />
       </div>
     </div>
   );
@@ -201,30 +191,7 @@ function ContextRow({
       <span className="text-muted-foreground w-16 shrink-0 text-right font-mono text-xs tabular-nums">
         {formatSeconds(seconds)}
       </span>
-      <MergeDialog
-        source={{ app, context }}
-        groups={groups}
-        onSaved={reload}
-        trigger={<MergeButton label={`${app} / ${context}`} />}
-      />
+      <MergeDialog source={{ app, context }} groups={groups} onSaved={reload} />
     </div>
-  );
-}
-
-// `DialogTrigger asChild` hands its child the click handler and aria state, so
-// this spreads what it's given — dropping them renders a button that does
-// nothing.
-function MergeButton({ label, ...props }: { label: string } & React.ComponentProps<typeof Button>) {
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      aria-label={`Merge ${label}`}
-      title={`Merge ${label}`}
-      className="text-muted-foreground hover:text-foreground size-8 shrink-0"
-      {...props}
-    >
-      <Merge className="size-4" />
-    </Button>
   );
 }

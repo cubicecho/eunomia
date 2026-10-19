@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
 import { addDays, type DateRange, rangeOfLastDays } from '@/lib/format';
-import { cn } from '@/lib/utils';
 
 // Whole labels rather than a "Last …" prefix: a range of one day is "Today",
 // not "Last 1 day".
@@ -42,23 +42,17 @@ export function RangePicker({ range, timeZone, onChange }: Props) {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="bg-muted/50 flex rounded-lg p-1">
+      <SegmentedGroup
+        aria-label="Range"
+        value={activePreset ? String(activePreset.days) : undefined}
+        onValueChange={(days) => onChange(rangeOfLastDays(Number(days), timeZone))}
+      >
         {PRESETS.map((preset) => (
-          <button
-            key={preset.days}
-            type="button"
-            onClick={() => onChange(rangeOfLastDays(preset.days, timeZone))}
-            className={cn(
-              'rounded-md px-3 py-1 text-sm transition-colors',
-              activePreset?.days === preset.days
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
+          <SegmentedButton key={preset.days} value={String(preset.days)}>
             {preset.label}
-          </button>
+          </SegmentedButton>
         ))}
-      </div>
+      </SegmentedGroup>
       <div className="flex flex-wrap items-center gap-2">
         <Input
           type="date"
@@ -81,9 +75,8 @@ export function RangePicker({ range, timeZone, onChange }: Props) {
           size="sm"
           disabled={!dirty || !draft.from || !draft.to || !ordered}
           onClick={() => onChange(stored(draft))}
-        >
-          Apply
-        </Button>
+          content="Apply"
+        />
       </div>
     </div>
   );

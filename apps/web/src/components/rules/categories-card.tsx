@@ -1,5 +1,5 @@
-import { Pencil } from 'lucide-react';
-import { useState } from 'react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { useId, useState } from 'react';
 import {
   type Category,
   type CategoryKind,
@@ -7,26 +7,17 @@ import {
   deleteCategory,
   updateCategory,
 } from '@/api';
-import { ConfirmDelete } from '@/components/confirm-delete';
+import { CardLayout } from '@/components/card-layout';
+import { ConfirmButton } from '@/components/confirm-button';
+import { DialogLayout } from '@/components/dialog-layout';
 import { EmptyState } from '@/components/empty-state';
+import { FormField } from '@/components/form-field';
 import { ColorPicker } from '@/components/rules/color-picker';
 import { KindHints, KindPicker } from '@/components/rules/kind-picker';
 import { Swatch } from '@/components/rules/swatch';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { type Run, useAction } from '@/hooks/use-query';
 import { DEFAULT_KIND, kindInfo } from '@/lib/kinds';
 import { CHART_COLORS, categoryColor } from '@/lib/palette';
@@ -44,67 +35,68 @@ export function CategoriesCard({ categories, run, reload }: Props) {
   const [kind, setKind] = useState<CategoryKind>(DEFAULT_KIND);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Categories</CardTitle>
-        <CardDescription>
-          A category’s kind — focus, work, neutral, personal or distracting — is what the
-          dashboard’s time-by-kind and weekly trends add up. Deleting a category keeps its
-          activities — they go back to uncategorized.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {categories.length === 0 ? (
-          <EmptyState>No categories yet.</EmptyState>
-        ) : (
-          <ul className="flex flex-col">
-            {[...categories]
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map((category) => (
-                <li
-                  key={category.id}
-                  className="flex items-center gap-2 border-b border-dashed py-1.5 last:border-0"
-                >
-                  <Swatch color={categoryColor(category.id, category.color)} />
-                  <span className="grow text-sm">{category.name}</span>
-                  <span className="text-muted-foreground text-xs">
-                    {kindInfo(category.kind).label}
-                  </span>
-                  <EditCategory category={category} onSaved={reload} />
-                  <ConfirmDelete
-                    name={category.name}
-                    description="Its rules are deleted too. The activities it holds stay, as uncategorized time."
-                    onConfirm={() => run(() => deleteCategory(category.id))}
-                  />
-                </li>
-              ))}
-          </ul>
-        )}
-        <form
-          className="flex flex-wrap items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!name.trim()) return;
-            run(() => createCategory(name.trim(), color, kind));
-            setName('');
-            setKind(DEFAULT_KIND);
-          }}
-        >
-          <Input
-            className="w-48"
-            placeholder="new category"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-          />
-          <ColorPicker value={color} onChange={setColor} />
-          <KindPicker value={kind} onChange={setKind} />
-          <Button type="submit" size="sm">
-            Add
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <CardLayout
+      title="Categories"
+      description="A category’s kind — focus, work, neutral, personal or distracting — is what the dashboard’s time-by-kind and weekly trends add up. Deleting a category keeps its activities — they go back to uncategorized."
+      contentClassName="gap-3"
+      contentSlot={
+        <>
+          {categories.length === 0 ? (
+            <EmptyState compact title="No categories yet." />
+          ) : (
+            <ul className="flex flex-col">
+              {[...categories]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((category) => (
+                  <li
+                    key={category.id}
+                    className="flex items-center gap-2 border-b border-dashed py-1.5 last:border-0"
+                  >
+                    <Swatch color={categoryColor(category.id, category.color)} />
+                    <span className="grow text-sm">{category.name}</span>
+                    <span className="text-muted-foreground text-xs">
+                      {kindInfo(category.kind).label}
+                    </span>
+                    <EditCategory category={category} onSaved={reload} />
+                    <ConfirmButton
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label={`Delete ${category.name}`}
+                      hint={`Delete ${category.name}`}
+                      iconSlot={<Trash2 />}
+                      title={`Delete “${category.name}”?`}
+                      description="Its rules are deleted too. The activities it holds stay, as uncategorized time."
+                      onConfirm={() => run(() => deleteCategory(category.id))}
+                    />
+                  </li>
+                ))}
+            </ul>
+          )}
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!name.trim()) return;
+              run(() => createCategory(name.trim(), color, kind));
+              setName('');
+              setKind(DEFAULT_KIND);
+            }}
+          >
+            <Input
+              className="w-48"
+              aria-label="New category name"
+              placeholder="new category"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+            <ColorPicker value={color} onChange={setColor} />
+            <KindPicker value={kind} onChange={setKind} />
+            <Button type="submit" size="sm" variant="info" iconSlot={<Plus />} content="Add" />
+          </form>
+        </>
+      }
+    />
   );
 }
 
@@ -125,9 +117,10 @@ function EditCategory({ category, onSaved }: { category: Category; onSaved(): vo
 
   const trimmed = name.trim();
   const changed = trimmed !== category.name || color !== category.color || kind !== category.kind;
+  const formId = useId();
 
   return (
-    <Dialog
+    <DialogLayout
       open={open}
       onOpenChange={(next) => {
         // Every opening starts from the category as it is now, not an
@@ -139,26 +132,21 @@ function EditCategory({ category, onSaved }: { category: Category; onSaved(): vo
         }
         setOpen(next);
       }}
-    >
-      <DialogTrigger asChild>
+      triggerSlot={
         <Button
-          variant="ghost"
-          size="icon"
+          variant="outline"
+          size="icon-sm"
           aria-label={`Edit ${category.name}`}
-          title={`Edit ${category.name}`}
-          className="text-muted-foreground hover:text-foreground size-8"
-        >
-          <Pencil className="size-4" />
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Edit “{category.name}”</DialogTitle>
-          <DialogDescription>
-            Its rules and the time already in it stay with it under the new name.
-          </DialogDescription>
-        </DialogHeader>
+          hint={`Edit ${category.name}`}
+          iconSlot={<Pencil />}
+        />
+      }
+      title={`Edit “${category.name}”`}
+      description="Its rules and the time already in it stay with it under the new name."
+      hasUnsavedChanges={changed}
+      contentSlot={
         <form
+          id={formId}
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault();
@@ -171,37 +159,47 @@ function EditCategory({ category, onSaved }: { category: Category; onSaved(): vo
             });
           }}
         >
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`category-name-${category.id}`}>Name</Label>
-            <Input
-              id={`category-name-${category.id}`}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Color</Label>
-            <ColorPicker value={color} onChange={setColor} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`category-kind-${category.id}`}>Kind</Label>
-            <KindPicker id={`category-kind-${category.id}`} value={kind} onChange={setKind} />
-            <KindHints />
-          </div>
+          <FormField
+            label="Name"
+            required
+            controlSlot={
+              <Input value={name} onChange={(event) => setName(event.target.value)} required />
+            }
+          />
+          <FormField
+            label="Color"
+            asGroup
+            controlSlot={(wired) => (
+              <div {...wired}>
+                <ColorPicker value={color} onChange={setColor} />
+              </div>
+            )}
+          />
+          <FormField
+            label="Kind"
+            description={<KindHints />}
+            controlSlot={(wired) => (
+              <div>
+                <KindPicker id={wired.id} value={kind} onChange={setKind} />
+              </div>
+            )}
+          />
           <StatusLine status={action.status} />
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline">
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button type="submit" disabled={!trimmed || !changed || action.pending}>
-              Save
-            </Button>
-          </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      }
+      footerActionsSlot={(close) => (
+        <>
+          <Button variant="outline" onClick={close} content="Cancel" />
+          <Button
+            type="submit"
+            form={formId}
+            variant="positive"
+            disabled={!trimmed || !changed}
+            loading={action.pending}
+            content="Save"
+          />
+        </>
+      )}
+    />
   );
 }

@@ -1,6 +1,6 @@
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   type ChartConfig,
   ChartContainer,
@@ -47,14 +47,12 @@ export function DayChart({ days, categories }: Props) {
   const ticks = hourTicks(Math.max(0, ...days.map((day) => day.total)));
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>By day</CardTitle>
-        <CardDescription>Active time per day, stacked by category.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {days.length === 0 ? (
-          <EmptyState>No activity in this range.</EmptyState>
+    <CardLayout
+      title="By day"
+      description="Active time per day, stacked by category."
+      contentSlot={
+        days.length === 0 ? (
+          <EmptyState compact title="No activity in this range." />
         ) : (
           <ChartContainer config={config} className="aspect-auto h-[280px] w-full">
             <BarChart accessibilityLayer data={days} margin={{ left: 4, right: 4, top: 8 }}>
@@ -109,8 +107,8 @@ export function DayChart({ days, categories }: Props) {
               <ChartLegend content={<ChartLegendContent />} />
             </BarChart>
           </ChartContainer>
-        )}
-      </CardContent>
-    </Card>
+        )
+      }
+    />
   );
 }

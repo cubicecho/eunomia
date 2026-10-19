@@ -1,6 +1,7 @@
 import { fetchAppSummary, fetchMergeRules } from '@/api';
 import { EntriesCard } from '@/components/merges/entries-card';
 import { MergesCard } from '@/components/merges/merges-card';
+import { QueryError, RowSkeleton } from '@/components/query-state';
 import { StatusLine } from '@/components/status-line';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { rangeOfEverything } from '@/lib/format';
@@ -17,14 +18,15 @@ import { useTimeZone } from '@/session';
 
 export function MergesView() {
   const timeZone = useTimeZone();
-  const { data, error, reload } = useQuery(() => {
+  const { data, error, reload, refetch } = useQuery(() => {
     const range = rangeOfEverything(timeZone);
     return Promise.all([fetchAppSummary(range.from, range.to), fetchMergeRules()]);
   }, [timeZone]);
   const action = useAction();
 
-  if (error) return <p className="text-destructive text-sm">{error}</p>;
-  if (!data) return null;
+  if (error && !data)
+    return <QueryError error={error} onRetry={refetch} what="your recorded entries" />;
+  if (!data) return <RowSkeleton rows={3} />;
   const [rows, rules] = data;
   const run = (mutation: () => Promise<unknown>) => action.run(mutation, { onDone: reload });
 

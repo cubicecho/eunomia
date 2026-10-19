@@ -1,8 +1,8 @@
 import { ChevronRight } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { Swatch } from '@/components/rules/swatch';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { formatSeconds } from '@/lib/format';
 import { UNCATEGORIZED_COLOR } from '@/lib/palette';
@@ -27,14 +27,10 @@ interface Props {
 export function TopApps({ apps }: Props) {
   if (apps.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Top apps</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <EmptyState>No activity in this range.</EmptyState>
-        </CardContent>
-      </Card>
+      <CardLayout
+        title="Top apps"
+        contentSlot={<EmptyState compact title="No activity in this range." />}
+      />
     );
   }
 
@@ -43,33 +39,32 @@ export function TopApps({ apps }: Props) {
   const legend = appCategories(apps);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Top apps</CardTitle>
-        <CardDescription>
-          Expand an app to see its contexts — the site, project, or file it was spent in.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-1">
-        {/* The bars carry color, so the card has to say what the colors mean
+    <CardLayout
+      title="Top apps"
+      description="Expand an app to see its contexts — the site, project, or file it was spent in."
+      contentClassName="gap-1"
+      contentSlot={
+        <>
+          {/* The bars carry color, so the card has to say what the colors mean
             without leaning on the category chart beside it — which is a
             separate card, and below rather than beside it on a narrow screen. */}
-        <ul className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-          {legend.map((category) => (
-            <li
-              key={category.id ?? 'uncategorized'}
-              className="text-muted-foreground flex items-center gap-1.5 text-xs"
-            >
-              <Swatch color={category.color} />
-              {category.name}
-            </li>
+          <ul className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {legend.map((category) => (
+              <li
+                key={category.id ?? 'uncategorized'}
+                className="text-muted-foreground flex items-center gap-1.5 text-xs"
+              >
+                <Swatch color={category.color} />
+                {category.name}
+              </li>
+            ))}
+          </ul>
+          {apps.map((app) => (
+            <AppRow key={app.name} app={app} max={max} />
           ))}
-        </ul>
-        {apps.map((app) => (
-          <AppRow key={app.name} app={app} max={max} />
-        ))}
-      </CardContent>
-    </Card>
+        </>
+      }
+    />
   );
 }
 

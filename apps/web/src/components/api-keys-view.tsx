@@ -1,29 +1,21 @@
-import { Check, Copy, KeyRound } from 'lucide-react';
+import { KeyRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { type ApiKey, createApiKey, fetchApiKeys, renameApiKey, revokeApiKey } from '@/api';
-import { ConfirmDelete } from '@/components/confirm-delete';
+import { CardLayout } from '@/components/card-layout';
+import { Combobox } from '@/components/combobox';
+import { ConfirmButton } from '@/components/confirm-button';
+import { DialogLayout } from '@/components/dialog-layout';
 import { EmptyState } from '@/components/empty-state';
+import { FieldRow } from '@/components/field-row';
+import { FormField } from '@/components/form-field';
+import { QueryError } from '@/components/query-state';
 import { StatusLine } from '@/components/status-line';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { CodeBlock } from '@/components/ui/code';
+import { CopyButton } from '@/components/ui/copy-button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { ago } from '@/lib/format';
 
@@ -41,7 +33,8 @@ const EXPIRY_CHOICES = [
 ] as const;
 
 export function ApiKeysView() {
-  const { data, error, reload } = useQuery(() => fetchApiKeys(), []);
+  const query = useQuery(() => fetchApiKeys(), []);
+  const { data, reload } = query;
   const action = useAction();
   const [name, setName] = useState('');
   const [expiry, setExpiry] = useState<string>('never');
@@ -50,8 +43,9 @@ export function ApiKeysView() {
   // a hash — so it is held here until the user dismisses it.
   const [issued, setIssued] = useState<{ name: string; token: string } | null>(null);
 
-  if (error) return <p className="text-destructive text-sm">{error}</p>;
-  if (!data) return null;
+  if (query.error && !data) {
+    return <QueryError error={query.error} onRetry={query.refetch} what="your API keys" />;
+  }
 
   const run = (mutation: () => Promise<unknown>) => action.run(mutation, { onDone: reload });
   const trimmed = name.trim();
@@ -72,83 +66,92 @@ export function ApiKeysView() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>API keys</CardTitle>
-          <CardDescription>
+      <CardLayout
+        title="API keys"
+        description={
+          <>
             For other apps that read this server — an MCP client, a script, anything that sends{' '}
             <code className="text-xs">x-api-key</code> to <code className="text-xs">/graphql</code>{' '}
             or <code className="text-xs">/mcp</code>. A key can do everything you can with your own
             data, so give each integration its own and revoke the one you stop trusting. Agents are
             paired from their setup screen and their keys live under Devices.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <form
-            className="flex flex-wrap items-end gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              issue();
-            }}
-          >
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="api-key-name">Name</Label>
-              <Input
-                id="api-key-name"
-                className="w-56"
-                placeholder="what will use it"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
+          </>
+        }
+        contentClassName="gap-4"
+        contentSlot={
+          <>
+            <form
+              id="api-key-form"
+              className="flex flex-col gap-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                issue();
+              }}
+            >
+              <FieldRow
+                contentSlot={
+                  <>
+                    <FormField
+                      label="Name"
+                      controlSlot={
+                        <Input
+                          placeholder="what will use it"
+                          value={name}
+                          onChange={(event) => setName(event.target.value)}
+                        />
+                      }
+                    />
+                    <FormField
+                      label="Expiry"
+                      controlSlot={(wired) => (
+                        <Combobox
+                          {...wired}
+                          options={EXPIRY_CHOICES.map(({ value, label }) => ({ value, label }))}
+                          value={expiry}
+                          onValueChange={setExpiry}
+                        />
+                      )}
+                    />
+                  </>
+                }
               />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="api-key-expiry">Expiry</Label>
-              <Select value={expiry} onValueChange={setExpiry}>
-                <SelectTrigger id="api-key-expiry" className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {EXPIRY_CHOICES.map((choice) => (
-                    <SelectItem key={choice.value} value={choice.value}>
-                      {choice.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button type="submit" disabled={!trimmed || action.pending}>
-              <KeyRound className="size-4" />
-              Create key
-            </Button>
-            <label className="flex basis-full items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="mt-0.5 size-4 accent-current"
-                checked={categorize}
-                onChange={(event) => setCategorize(event.target.checked)}
+              <FormField
+                orientation="horizontal"
+                label="Let it categorize"
+                description="Over MCP, an assistant using this key can also create categories and rules, assign time and re-apply rules. Without this it can only read. Nothing else it could change, and it can't delete anything."
+                controlSlot={
+                  <Checkbox
+                    checked={categorize}
+                    onCheckedChange={(checked) => setCategorize(checked === true)}
+                  />
+                }
               />
-              <span>
-                Let it categorize
-                <span className="text-muted-foreground block text-xs">
-                  Over MCP, an assistant using this key can also create categories and rules, assign
-                  time and re-apply rules. Without this it can only read. Nothing else it could
-                  change, and it can't delete anything.
-                </span>
-              </span>
-            </label>
-          </form>
-
-          {data.length === 0 ? (
-            <EmptyState>No API keys yet — create one to let another app read your data.</EmptyState>
-          ) : (
+              <div>
+                <Button
+                  type="submit"
+                  variant="info"
+                  disabled={!trimmed}
+                  loading={action.pending}
+                  iconSlot={<KeyRound />}
+                  content="Create key"
+                />
+              </div>
+            </form>
             <div className="flex flex-col gap-2">
-              {data.map((key) => (
+              {(data ?? []).map((key) => (
                 <KeyRow key={key.id} apiKey={key} run={run} />
               ))}
+              {data?.length === 0 ? (
+                <EmptyState
+                  compact
+                  title="No API keys yet — create one to let another app read your data."
+                />
+              ) : null}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </>
+        }
+        loading={query.isPending}
+      />
       <StatusLine status={action.status} />
       <IssuedKey issued={issued} onClose={() => setIssued(null)} />
     </div>
@@ -185,9 +188,8 @@ function KeyRow({ apiKey, run }: RowProps) {
         size="sm"
         disabled={!renamed}
         onClick={() => run(() => renameApiKey(apiKey.id, trimmed))}
-      >
-        Rename
-      </Button>
+        content="Rename"
+      />
       <code className="text-muted-foreground text-xs">{apiKey.start ?? '·····'}…</code>
       {apiKey.scopes.includes('CATEGORIZE') ? <Badge variant="secondary">categorize</Badge> : null}
       <span className="text-muted-foreground grow text-sm">
@@ -200,15 +202,15 @@ function KeyRow({ apiKey, run }: RowProps) {
       <span className={expired ? 'text-destructive text-sm' : 'text-muted-foreground text-sm'}>
         {usedMs === null ? 'never used' : `used ${ago(usedMs)}`}
       </span>
-      <ConfirmDelete
-        name={apiKey.name}
+      <ConfirmButton
+        variant="destructive-outline"
+        size="sm"
+        content="Revoke"
+        title={`Revoke “${apiKey.name}”?`}
+        confirmLabel="Revoke"
         description="Whatever holds this key is refused on its next request. Nothing it recorded is deleted — but if something is still using it, it stops working immediately and will need a new key."
         onConfirm={() => run(() => revokeApiKey(apiKey.id))}
-      >
-        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
-          Revoke
-        </Button>
-      </ConfirmDelete>
+      />
     </div>
   );
 }
@@ -225,47 +227,25 @@ function IssuedKey({
   issued: { name: string; token: string } | null;
   onClose(): void;
 }) {
-  // The token that was copied rather than a flag, so the next key issued shows
-  // "Copy" again without an effect to reset it.
-  const [copiedToken, setCopiedToken] = useState<string | null>(null);
-  const copied = issued !== null && copiedToken === issued.token;
-
-  const copy = () => {
-    if (!issued) return;
-    navigator.clipboard.writeText(issued.token).then(
-      () => setCopiedToken(issued.token),
-      // Clipboard access can be refused (an insecure origin, a denied
-      // permission). The key is on screen and selectable either way.
-      () => setCopiedToken(null),
-    );
-  };
-
   return (
-    <Dialog open={issued !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Copy “{issued?.name}” now</DialogTitle>
-          <DialogDescription>
-            This is the only time the key is shown — the server stores a hash of it, not the key. If
-            you lose it, revoke this one and create another.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex items-center gap-2">
-          <code className="bg-muted grow overflow-x-auto rounded px-3 py-2 font-mono text-xs">
-            {issued?.token}
-          </code>
-          <Button variant="outline" size="sm" onClick={copy}>
-            {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-            {copied ? 'Copied' : 'Copy'}
-          </Button>
-        </div>
-        <p className="text-muted-foreground text-sm">
-          Send it as the <code className="text-xs">x-api-key</code> header.
-        </p>
-        <DialogFooter>
-          <Button onClick={onClose}>Done</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <DialogLayout
+      open={issued !== null}
+      onOpenChange={(open) => !open && onClose()}
+      title={`Copy “${issued?.name ?? ''}” now`}
+      description="This is the only time the key is shown — the server stores a hash of it, not the key. If you lose it, revoke this one and create another."
+      contentSlot={
+        <>
+          <CodeBlock
+            wrap
+            content={issued?.token ?? ''}
+            actionSlot={<CopyButton value={issued?.token ?? ''} label="Copy key" />}
+          />
+          <p className="text-muted-foreground text-sm">
+            Send it as the <code className="text-xs">x-api-key</code> header.
+          </p>
+        </>
+      }
+      footerActionsSlot={<Button onClick={onClose} content="Done" />}
+    />
   );
 }

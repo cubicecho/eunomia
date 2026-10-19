@@ -1,11 +1,5 @@
+import { Combobox } from '@/components/combobox';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { compile, MATCH_MODES, type Match, type MatchMode, toPattern } from '@/lib/pattern';
 import { cn } from '@/lib/utils';
 
@@ -32,21 +26,13 @@ export function MatchField({ value, onChange, label }: Props) {
 
   return (
     <>
-      <Select
+      <Combobox
+        className="w-36"
+        aria-label={`How to match ${label}`}
+        options={MATCH_MODES}
         value={value.mode}
         onValueChange={(mode) => onChange({ ...value, mode: mode as MatchMode })}
-      >
-        <SelectTrigger className="w-36" aria-label={`How to match ${label}`}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {MATCH_MODES.map((mode) => (
-            <SelectItem key={mode.value} value={mode.value}>
-              {mode.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      />
       <div className="min-w-48 max-w-md grow">
         <Input
           aria-label={label}

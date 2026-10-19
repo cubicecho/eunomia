@@ -1,30 +1,16 @@
 import { CircleAlert, Merge } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { type Device, deleteDevice, fetchDevices, mergeDevice, renameDevice } from '@/api';
-import { ConfirmDelete } from '@/components/confirm-delete';
+import { CardLayout } from '@/components/card-layout';
+import { Combobox } from '@/components/combobox';
+import { ConfirmButton } from '@/components/confirm-button';
 import { DeviceLinkCard } from '@/components/device-link-card';
+import { DialogLayout } from '@/components/dialog-layout';
 import { EmptyState } from '@/components/empty-state';
+import { QueryError } from '@/components/query-state';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { ago } from '@/lib/format';
 
@@ -33,37 +19,32 @@ import { ago } from '@/lib/format';
 const STALE_AFTER_MS = 30 * 60 * 1000;
 
 export function DevicesView() {
-  const { data, error, reload } = useQuery(() => fetchDevices(), []);
+  const query = useQuery(() => fetchDevices(), []);
+  const { data, reload } = query;
   const action = useAction();
 
-  if (error) return <p className="text-destructive text-sm">{error}</p>;
-  if (!data) return null;
+  if (query.error && !data) {
+    return <QueryError error={query.error} onRetry={query.refetch} what="your devices" />;
+  }
   const run = (mutation: () => Promise<unknown>) => action.run(mutation, { onDone: reload });
 
   return (
     <div className="flex flex-col gap-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Devices</CardTitle>
-          <CardDescription>
-            Every agent that has registered an API key with this server.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {data.length === 0 ? (
-            <EmptyState>No devices yet — run an agent and register it.</EmptyState>
-          ) : (
-            data.map((device) => (
-              <DeviceRow
-                key={device.id}
-                device={device}
-                others={data.filter((other) => other.id !== device.id)}
-                run={run}
-              />
-            ))
-          )}
-        </CardContent>
-      </Card>
+      <CardLayout
+        title="Devices"
+        description="Every agent that has registered an API key with this server."
+        loading={query.isPending}
+        contentClassName="gap-2"
+        contentSlot={(data ?? []).map((device) => (
+          <DeviceRow
+            key={device.id}
+            device={device}
+            others={(data ?? []).filter((other) => other.id !== device.id)}
+            run={run}
+          />
+        ))}
+        emptySlot={<EmptyState compact title="No devices yet — run an agent and register it." />}
+      />
       <StatusLine status={action.status} />
       <DeviceLinkCard />
     </div>
@@ -100,9 +81,8 @@ function DeviceRow({ device, others, run }: RowProps) {
         size="sm"
         disabled={!renamed}
         onClick={() => run(() => renameDevice(device.id, trimmed))}
-      >
-        Rename
-      </Button>
+        content="Rename"
+      />
       <span className="text-muted-foreground grow text-sm">
         {device.platform} · added {added}
       </span>
@@ -117,15 +97,14 @@ function DeviceRow({ device, others, run }: RowProps) {
         {seenMs === null ? 'never seen' : `seen ${ago(seenMs)}`}
       </span>
       <MergeDevice device={device} others={others} run={run} />
-      <ConfirmDelete
-        name={device.name}
+      <ConfirmButton
+        variant="destructive-outline"
+        size="sm"
+        content="Delete"
+        title={`Delete “${device.name}”?`}
         description="Its recorded activity is deleted with it and its API key stops working — the agent on that machine will have to be paired again. To keep the time it recorded, merge it into another device instead."
         onConfirm={() => run(() => deleteDevice(device.id))}
-      >
-        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
-          Delete
-        </Button>
-      </ConfirmDelete>
+      />
     </div>
   );
 }
@@ -142,52 +121,41 @@ function MergeDevice({ device, others, run }: RowProps) {
   const target = others.find((other) => other.id === targetId);
 
   return (
-    <Dialog
+    <DialogLayout
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
         if (next) setTargetId('');
       }}
-    >
-      <DialogTrigger asChild>
+      triggerSlot={
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
           disabled={others.length === 0}
-          title={
+          hint={
             others.length === 0 ? 'Nothing to merge into yet' : `Merge ${device.name} into another`
           }
-          className="text-muted-foreground hover:text-foreground"
-        >
-          <Merge className="size-4" />
-          Merge
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Merge “{device.name}” into another device?</DialogTitle>
-          <DialogDescription>
-            Everything “{device.name}” recorded becomes the other device’s history, and “
-            {device.name}” is removed. Its API key stops working, so merge the duplicate into the
-            one whose agent is still running.
-          </DialogDescription>
-        </DialogHeader>
-        <Select value={targetId} onValueChange={setTargetId}>
-          <SelectTrigger className="w-full" aria-label="Merge into">
-            <SelectValue placeholder="Merge into…" />
-          </SelectTrigger>
-          <SelectContent>
-            {others.map((other) => (
-              <SelectItem key={other.id} value={other.id}>
-                {other.name} ({other.platform})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline">Cancel</Button>
-          </DialogClose>
+          iconSlot={<Merge />}
+          content="Merge"
+        />
+      }
+      title={`Merge “${device.name}” into another device?`}
+      description={`Everything “${device.name}” recorded becomes the other device’s history, and “${device.name}” is removed. Its API key stops working, so merge the duplicate into the one whose agent is still running.`}
+      contentSlot={
+        <Combobox
+          aria-label="Merge into"
+          placeholder="Merge into…"
+          options={others.map((other) => ({
+            value: other.id,
+            label: `${other.name} (${other.platform})`,
+          }))}
+          value={targetId}
+          onValueChange={setTargetId}
+        />
+      }
+      footerActionsSlot={(close) => (
+        <>
+          <Button variant="outline" onClick={close} content="Cancel" />
           <Button
             disabled={!target}
             onClick={() => {
@@ -195,11 +163,10 @@ function MergeDevice({ device, others, run }: RowProps) {
               run(() => mergeDevice(device.id, target.id));
               setOpen(false);
             }}
-          >
-            Merge into “{target?.name ?? '…'}”
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            content={`Merge into “${target?.name ?? '…'}”`}
+          />
+        </>
+      )}
+    />
   );
 }

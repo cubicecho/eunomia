@@ -14,6 +14,8 @@ import { ClockMark } from '@/components/clock-mark';
 import { DashboardView } from '@/components/dashboard/dashboard-view';
 import { DevicesView } from '@/components/devices-view';
 import { MergesView } from '@/components/merges-view';
+import { PageHeader } from '@/components/page-header';
+import { QueryError } from '@/components/query-state';
 import { ReviewView } from '@/components/review-view';
 import { RulesView } from '@/components/rules-view';
 import { SettingsView } from '@/components/settings-view';
@@ -124,36 +126,46 @@ export function App() {
       />
     );
   }
-  if (screen.error) return <p className="text-destructive p-6 text-sm">{screen.error}</p>;
+  if (screen.error) {
+    return (
+      <div className="mx-auto max-w-md p-6">
+        <QueryError
+          error={screen.error}
+          what="your account"
+          onRetry={() => setScreen({ kind: 'signed-in', me: null })}
+        />
+      </div>
+    );
+  }
   if (!screen.me) return null;
 
   return (
     <SessionProvider value={{ expire, me: screen.me, setMe }}>
       <div className="mx-auto flex min-h-svh w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
         <Tabs value={view} onValueChange={setView} className="gap-6">
-          <header className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <ClockMark className="size-6 shrink-0" />
-              <h1 className="text-xl font-semibold tracking-tight">eunomia</h1>
-              <span className="text-muted-foreground text-sm">activity tracker</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <TabsList>
+          <PageHeader
+            className="px-0 py-0"
+            iconSlot={<ClockMark className="size-6" />}
+            title="eunomia"
+            description="activity tracker"
+            actionSlot={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void signOut().then(() => setScreen({ kind: 'signin' }))}
+                content="Sign out"
+              />
+            }
+            contentSlot={
+              <TabsList aria-label="Views">
                 {VIEWS.map((view) => (
                   <TabsTrigger key={view.value} value={view.value}>
                     {view.label}
                   </TabsTrigger>
                 ))}
               </TabsList>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void signOut().then(() => setScreen({ kind: 'signin' }))}
-              >
-                Sign out
-              </Button>
-            </div>
-          </header>
+            }
+          />
 
           <TabsContent value="dashboard">
             <DashboardView onNavigate={setView} />

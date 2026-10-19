@@ -1,9 +1,11 @@
-import { Check, Copy, Link } from 'lucide-react';
+import { Link } from 'lucide-react';
 import { useState } from 'react';
 import { fetchDeviceSignInLink } from '@/api';
+import { CardLayout } from '@/components/card-layout';
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { CodeBlock } from '@/components/ui/code';
+import { CopyButton } from '@/components/ui/copy-button';
 import { errorMessage } from '@/hooks/use-query';
 
 /**
@@ -13,14 +15,12 @@ import { errorMessage } from '@/hooks/use-query';
  */
 export function DeviceLinkCard() {
   const [link, setLink] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   const make = async () => {
     setPending(true);
     setError(null);
-    setCopied(false);
     try {
       setLink(await fetchDeviceSignInLink());
     } catch (cause) {
@@ -30,53 +30,33 @@ export function DeviceLinkCard() {
     }
   };
 
-  const copy = async () => {
-    if (!link) return;
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-    } catch {
-      // No clipboard (plain http): the field is selectable instead.
-    }
-  };
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Sign in a device</CardTitle>
-        <CardDescription>
-          A sign-in link to paste into a new agent's setup screen, instead of having one emailed. It
-          works once, within 15 minutes, and signs that agent in as you.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {link ? (
-          <div className="flex gap-2">
-            <Input
-              readOnly
-              value={link}
-              aria-label="Sign-in link"
-              className="font-mono text-xs"
-              onFocus={(event) => event.target.select()}
+    <CardLayout
+      title="Sign in a device"
+      description="A sign-in link to paste into a new agent's setup screen, instead of having one emailed. It works once, within 15 minutes, and signs that agent in as you."
+      contentClassName="gap-3"
+      contentSlot={
+        <>
+          {link ? (
+            <CodeBlock
+              wrap
+              content={link}
+              actionSlot={<CopyButton value={link} label="Copy link" />}
             />
-            <Button variant="outline" onClick={copy} aria-label="Copy link">
-              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-              {copied ? 'Copied' : 'Copy'}
-            </Button>
+          ) : null}
+          <div>
+            <Button
+              variant={link ? 'outline' : 'default'}
+              onClick={make}
+              loading={pending}
+              loadingLabel="Making…"
+              iconSlot={<Link />}
+              content={link ? 'Make another' : 'Make a sign-in link'}
+            />
           </div>
-        ) : null}
-        <div>
-          <Button variant={link ? 'ghost' : 'default'} onClick={make} disabled={pending}>
-            <Link className="size-4" />
-            {link ? 'Make another' : pending ? 'Making…' : 'Make a sign-in link'}
-          </Button>
-        </div>
-        {error ? (
-          <p className="text-destructive text-sm" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
+          {error ? <Alert variant="destructive" title={error} /> : null}
+        </>
+      }
+    />
   );
 }

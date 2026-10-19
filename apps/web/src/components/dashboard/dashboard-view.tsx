@@ -10,6 +10,7 @@ import { DashboardSkeleton } from '@/components/dashboard/skeleton';
 import { StatTiles } from '@/components/dashboard/stat-tiles';
 import { TopApps } from '@/components/dashboard/top-apps';
 import { WeekTrend } from '@/components/dashboard/week-trend';
+import { QueryError } from '@/components/query-state';
 import { useQuery } from '@/hooks/use-query';
 import { rangeOfLastDays } from '@/lib/format';
 import { kindTotals } from '@/lib/kinds';
@@ -21,7 +22,7 @@ export function DashboardView({ onNavigate }: { onNavigate(view: View): void }) 
   const [range, setRange] = useState(() => rangeOfLastDays(7, timeZone));
   /** null = every device folded together, which is the default view. */
   const [deviceId, setDeviceId] = useState<string | null>(null);
-  const { data, error, loading } = useQuery(
+  const { data, error, loading, refetch } = useQuery(
     () =>
       Promise.all([
         fetchSummary(range.from, range.to, deviceId),
@@ -50,8 +51,8 @@ export function DashboardView({ onNavigate }: { onNavigate(view: View): void }) 
             answer the question, just without the device split. */}
         <DevicePicker devices={devices.data ?? []} selected={deviceId} onChange={setDeviceId} />
       </div>
-      {error ? (
-        <p className="text-destructive text-sm">{error}</p>
+      {error && !data ? (
+        <QueryError error={error} onRetry={refetch} what="your dashboard" />
       ) : !data ? (
         <DashboardSkeleton />
       ) : (
