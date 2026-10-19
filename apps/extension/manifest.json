@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "eunomia: browser sites",
+  "version": "0.1.0",
+  "description": "Tells the eunomia desktop agent on this computer which site the focused tab is on.",
+  "permissions": ["tabs", "storage", "alarms"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": {
+    "service_worker": "src/background.js",
+    "scripts": ["src/background.js"],
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "src/options.html"
+  },
+  "action": {
+    "default_title": "eunomia",
+    "default_popup": "src/options.html"
+  },
+  "incognito": "spanning",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "browser-sites@eunomia.cubicecho.com",
+      "strict_min_version": "121.0"
+    }
+  }
+}

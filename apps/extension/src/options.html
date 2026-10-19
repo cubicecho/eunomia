@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>eunomia</title>
+    <style>
+      body {
+        font: 14px/1.5 system-ui, sans-serif;
+        margin: 16px;
+        min-width: 320px;
+        max-width: 480px;
+      }
+      label {
+        display: block;
+        margin: 12px 0 4px;
+        font-weight: 600;
+      }
+      input[type='text'],
+      input[type='password'],
+      input[type='number'] {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 6px 8px;
+      }
+      .check {
+        font-weight: normal;
+      }
+      .hint,
+      #status {
+        color: #555;
+        font-size: 12px;
+      }
+      button {
+        margin-top: 16px;
+        padding: 6px 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <p>
+      Tells the eunomia desktop agent on this computer which site the focused tab is on. It sends
+      nothing to your server itself; the agent does that, under its own privacy settings.
+    </p>
+
+    <label for="token">Local API token</label>
+    <input id="token" type="password" autocomplete="off" spellcheck="false" />
+    <div class="hint">Tray icon → Copy local API token.</div>
+
+    <label for="port">Port</label>
+    <input id="port" type="number" min="1" max="65535" />
+    <div class="hint">5600 unless you changed <code>localApi.port</code> in the agent's config.</div>
+
+    <label class="check"><input id="sendTitles" type="checkbox" /> Send tab titles</label>
+    <div class="hint">
+      Used only when the agent can't read the window title itself. Sites are sent as the address's
+      host only; paths and queries never leave the browser. Private windows send nothing.
+    </div>
+
+    <button id="save" type="button">Save</button>
+    <p id="status" role="status"></p>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
