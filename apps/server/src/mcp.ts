@@ -99,9 +99,9 @@ export function createMcpHandler(
     // A file to download, not something to answer a question with: megabytes
     // of cursor-paged text that would only flood an agent's context. It is
     // session-only anyway, and agents authenticate with keys.
-    // ssoSetup is the sign-in page's plumbing: how this server signs people
-    // in says nothing about anyone's time.
-    exclude: ['Query.accountExport', 'Query.ssoSetup'],
+    // ssoSetup and setupCodePending are the sign-in page's plumbing: how this
+    // server signs people in says nothing about anyone's time.
+    exclude: ['Query.accountExport', 'Query.ssoSetup', 'Query.setupCodePending'],
   };
   // Queries only — see the note at the top.
   const readOnly = createServerFactory({ ...common, includeMutations: false });

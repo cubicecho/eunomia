@@ -13,6 +13,9 @@ export function stubAuthGateway(overrides: Partial<AuthGateway> = {}): AuthGatew
     signOut: async () => true,
     verifyOneTimeToken: async () => ({ token: 't', userId: 'u' }),
     reloadSso: async () => {},
+    setupCodePending: async () => false,
+    claimSetupCode: async () => ({ token: 't', userId: 'u' }),
+    magicLinkFor: async () => 'http://localhost/?token=t',
     ...overrides,
   };
 }

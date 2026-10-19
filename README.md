@@ -631,11 +631,32 @@ The app container serves the built web dashboard at `/`, GraphQL at
 links default to the server's own URL (override with `APP_URL` only if the
 dashboard is hosted elsewhere).
 
+### Quick start: one person, no email
+
+Nothing has to be configured to try it, or to run it just for yourself:
+
+1. `docker compose up -d --build`. With no `.env` at all, the server generates
+   its session secret on the first boot and keeps it in the database.
+2. `docker compose logs app` shows a **setup code** while the server has no
+   accounts. Open `http://<host>:4000`, enter the code and your email: that
+   makes your account (the admin) and signs you in. No email is sent.
+3. To sign in an agent, open **Devices → Sign in a device** in the dashboard,
+   make a link, and paste it into the agent's setup screen.
+4. Set `DISABLE_SIGNUP=true` (or `ALLOWED_EMAILS=you@example.com`) in `.env`
+   and `docker compose up -d` again, so nobody else can make an account.
+
+Without SMTP, "email me a link" still works, but the link is printed to
+`docker compose logs app` instead of being sent. For HTTPS, which the Android
+app needs, see [Tailscale](#https-with-tailscale) below.
+
 ### Before you expose it
 
 `BETTER_AUTH_SECRET` signs every session token and hashes every magic link.
-There is no default: the server refuses to start without a real one, and
-compose refuses to start without it in `.env`.
+Left unset, the server generates a random one on its first boot and stores it
+in the database (the `instance_secrets` table), so sessions survive restarts.
+That is as safe as the database itself: anyone who can read it can read the
+sessions too. Set your own if you'd rather keep it outside the database. The
+server refuses to start with one of the example values from this repo.
 
 ```bash
 openssl rand -base64 32   # put the result in .env
@@ -669,8 +690,40 @@ the proxy: it follows you onto networks your desktop never touches, and on each
 of them an `http://` server hands out that device's API key in the clear.
 
 `UNSAFE_LOCAL_NETWORK=true` returns magic-link tokens directly in the GraphQL
-response and skips the secret check. It exists so a LAN install works without
+response and lets the server start with an example secret. It exists so a LAN install works without
 an inbox; anyone who can reach the port can then log in as anyone.
+
+### HTTPS with Tailscale
+
+If your devices are on a [tailnet](https://tailscale.com/), `tailscale serve`
+puts a real certificate in front of eunomia without a domain, a proxy or an
+open port:
+
+```bash
+# on the docker host, once the tailnet has HTTPS certificates enabled
+tailscale serve --bg 4000
+tailscale serve status        # prints https://<host>.<tailnet>.ts.net
+```
+
+Then point eunomia at that address and narrow the published port to the
+machine itself, so the only way in is through the tailnet:
+
+```bash
+# .env
+BETTER_AUTH_URL=https://<host>.<tailnet>.ts.net
+```
+
+```yaml
+# docker-compose.yml, app service
+ports:
+  - "127.0.0.1:4000:4000"
+```
+
+Agents and browsers use `https://<host>.<tailnet>.ts.net` as the server URL;
+the Android app's production build accepts it like any other HTTPS server.
+Only devices on your tailnet can reach it. Signing in with Tailscale's identity
+headers instead of a link isn't supported; pair an OIDC provider if you want
+single sign-on.
 
 Each user's days split at the midnight of their own time zone, chosen in the
 dashboard's **Settings** tab (or with the `setTimeZone` mutation). `TZ` (IANA

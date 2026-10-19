@@ -8,10 +8,13 @@ import { createDb } from './db/client.ts';
 import { SECRET_HELP, secretProblem, secretWarning } from './env.ts';
 import { createSchema } from './graphql/schema.ts';
 import { checkHealth, VERSION } from './health.ts';
+import { storedSessionSecret } from './instance-secret.ts';
 import { createMcpHandler } from './mcp.ts';
-import { oidcEnvProblem, oidcRedirectUri } from './oidc/config.ts';
+import { appUrl, oidcEnvProblem, oidcRedirectUri } from './oidc/config.ts';
 import { createSsoHandler } from './oidc/http.ts';
+import { hasUsers } from './oidc/settings.ts';
 import { registrationPolicyFromEnv } from './registration.ts';
+import { SetupCode, setupCodeBanner } from './setup-code.ts';
 import { createStaticHandler } from './static.ts';
 
 // UNSAFE_LOCAL_NETWORK=true makes requestMagicLink return the sign-in token
@@ -24,9 +27,10 @@ if (unsafeLocalNetwork) {
 
 // Checked before anything connects: a forgeable session secret is not a
 // warning, it is an open door, and a server that boots anyway will be running
-// for months before anyone notices.
-const secret = process.env.BETTER_AUTH_SECRET;
-const problem = secretProblem(secret);
+// for months before anyone notices. Unset is fine: one is generated and kept
+// in the database below. A value copied from this repo is not.
+const secret = process.env.BETTER_AUTH_SECRET?.trim() || undefined;
+const problem = secret ? secretProblem(secret) : null;
 if (problem && !unsafeLocalNetwork) {
   console.error(`[auth] refusing to start: ${problem}.\n${SECRET_HELP}`);
   process.exit(1);
@@ -44,6 +48,17 @@ if (oidcProblem) {
 }
 
 const db = createDb();
+
+if (!secret) {
+  // Before anything builds better-auth, which reads it from the environment.
+  const stored = await storedSessionSecret(db);
+  process.env.BETTER_AUTH_SECRET = stored.secret;
+  console.log(
+    stored.created
+      ? '[auth] no BETTER_AUTH_SECRET set: generated one and stored it in the database'
+      : '[auth] using the session secret stored in the database (BETTER_AUTH_SECRET is not set)',
+  );
+}
 
 // Who may hold an account here: ALLOWED_EMAILS / DISABLE_SIGNUP. Both default
 // to off, which leaves registration open — fine on a LAN, not on the internet.
@@ -77,9 +92,15 @@ startRollupTimer(db);
 // Rebuild devices whose uploads brought pings older than ones already folded.
 startReplayTimer(db);
 
+// A brand-new server prints a code that makes the first account, so setting
+// one up needs no email (setup-code.ts).
+const setupCode = (await hasUsers(db)) ? undefined : new SetupCode();
+if (setupCode?.value) console.log(setupCodeBanner(setupCode.value, `${appUrl()}/`));
+
 const gateway = createAuthGateway(authHost, db, {
   exposeMagicLinkToken: unsafeLocalNetwork,
   registration,
+  setupCode,
 });
 
 // Built once and shared: /graphql and /mcp are the same API over two

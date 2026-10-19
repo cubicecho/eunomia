@@ -48,6 +48,17 @@ export function authFields(auth: AuthGateway) {
       }
       return auth.verifyOneTimeToken(args.token, args.codeVerifier);
     },
+    claimSetupCode: (_source, args) => {
+      // ~59 bits of code and the overall budget: guessing it is hopeless.
+      if (!allLogins.allow('*')) {
+        throw rateLimited('Too many sign-in attempts; try again in a few minutes');
+      }
+      return auth.claimSetupCode(args.code, args.email);
+    },
+    deviceSignInLink: (_source, _args, ctx) => {
+      if (!ctx.userId || ctx.keyId) throw unauthenticated();
+      return auth.magicLinkFor(ctx.userId);
+    },
     signOut: (_source, _args, ctx) => auth.signOut(ctx.headers),
     sessionFromDeviceKey: (_source, _args, ctx) => {
       if (!ctx.deviceId || !ctx.userId) throw unauthenticated();

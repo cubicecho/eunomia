@@ -32,6 +32,20 @@ query SsoSetup {
 }
 
 # The last leg of an OIDC sign-in: the callback lands on /?sso=<token>.
+query SetupCodePending {
+  setupCodePending
+}
+
+mutation ClaimSetupCode($code: String!, $email: String!) {
+  claimSetupCode(code: $code, email: $email) {
+    token
+  }
+}
+
+mutation DeviceSignInLink {
+  deviceSignInLink
+}
+
 mutation VerifyOneTimeToken($token: String!) {
   verifyOneTimeToken(token: $token) {
     token

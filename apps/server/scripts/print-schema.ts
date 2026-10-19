@@ -30,6 +30,9 @@ const stubAuth: AuthGateway = {
   signOut: unreachable,
   verifyOneTimeToken: unreachable,
   reloadSso: unreachable,
+  setupCodePending: unreachable,
+  claimSetupCode: unreachable,
+  magicLinkFor: unreachable,
 };
 
 const schema = createSchema(createDb('postgres://unused:unused@localhost:5432/unused'), stubAuth);

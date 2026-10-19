@@ -31,6 +31,7 @@ describe('graphql schema', () => {
       'previewCategoryRule',
       'rulePacks',
       'searchActivity',
+      'setupCodePending',
       'ssoSetup',
       'uncategorized',
     ]);
@@ -39,6 +40,7 @@ describe('graphql schema', () => {
       'applyMergeRules',
       'assignActivity',
       'assignEntry',
+      'claimSetupCode',
       'createApiKey',
       'createCategory',
       'createCategoryRule',
@@ -51,6 +53,7 @@ describe('graphql schema', () => {
       'deleteDevice',
       'deleteMergeRule',
       'deleteRange',
+      'deviceSignInLink',
       'importChunk',
       'installRulePack',
       'mergeDevice',

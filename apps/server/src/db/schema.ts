@@ -524,6 +524,16 @@ export const oidcSettings = pgTable(
   (t) => [check('oidc_settings_singleton', sql`${t.id} = 'oidc'`)],
 );
 
+// Secrets the server made for itself, when the operator didn't set one: today
+// only the session-signing secret, generated on the first boot without
+// BETTER_AUTH_SECRET (src/instance-secret.ts). A credential, so it stays out
+// of `relations` and the GraphQL reads built from them.
+export const instanceSecrets = pgTable('instance_secrets', {
+  name: text('name').primaryKey(),
+  value: text('value').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 // --- relations (drizzle v1 relational query builder; drizzle-graphql uses
 // these for eager-loaded nested queries) ---
 
