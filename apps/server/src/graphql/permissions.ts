@@ -86,6 +86,12 @@ export const permissions = {
     // at a time, in a loop. A key is issued to one app to do one job; one that
     // leaked should not be able to walk out with the whole history.
     accountExport: sessionAuthenticated,
+    // Agent-shaped reads (agent-fields.ts): the caller's own time, like the
+    // aggregates they are built from.
+    daySummary: authenticated,
+    uncategorized: authenticated,
+    searchActivity: authenticated,
+    previewCategoryRule: authenticated,
     // Public by design: returns the caller or null.
     me: accept,
     // Public: the sign-in page reads it to show the provider's button.

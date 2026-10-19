@@ -79,6 +79,7 @@ describe('integration keys', () => {
       userId: 'user-1',
       keyId: issued.key.id,
       deviceId: undefined,
+      scopes: [],
     });
 
     // The list that follows knows about the key but not what it is.
@@ -87,6 +88,30 @@ describe('integration keys', () => {
     expect(JSON.stringify(listed)).not.toContain(issued.token);
     // `start` is the few leading characters kept so two keys can be told apart.
     expect(issued.token.startsWith(listed[0].start)).toBe(true);
+  });
+
+  it('mints scopes into a key, lists them, and hands them to the request', async () => {
+    const result = await data(
+      `mutation {
+        createApiKey(name: "assistant", scopes: [CATEGORIZE, CATEGORIZE]) {
+          token
+          key { id scopes }
+        }
+      }`,
+      asSession('user-1'),
+    );
+    const issued = result.createApiKey;
+    expect(issued.key.scopes).toEqual(['CATEGORIZE']);
+    expect((await verifyApiKey(auth, issued.token))?.scopes).toEqual(['categorize']);
+
+    const plain = await create('reader');
+    const listed = await data('{ apiKeys { id scopes } }', asSession('user-1'));
+    expect(listed.apiKeys).toEqual(
+      expect.arrayContaining([
+        { id: issued.key.id, scopes: ['CATEGORIZE'] },
+        { id: plain.key.id, scopes: [] },
+      ]),
+    );
   });
 
   it('honours an expiry, in days, within better-auth’s bounds', async () => {

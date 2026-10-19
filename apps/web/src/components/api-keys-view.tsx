@@ -4,6 +4,7 @@ import { type ApiKey, createApiKey, fetchApiKeys, renameApiKey, revokeApiKey } f
 import { ConfirmDelete } from '@/components/confirm-delete';
 import { EmptyState } from '@/components/empty-state';
 import { StatusLine } from '@/components/status-line';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -44,6 +45,7 @@ export function ApiKeysView() {
   const action = useAction();
   const [name, setName] = useState('');
   const [expiry, setExpiry] = useState<string>('never');
+  const [categorize, setCategorize] = useState(false);
   // The key the server just minted. It exists nowhere else — the server stores
   // a hash — so it is held here until the user dismisses it.
   const [issued, setIssued] = useState<{ name: string; token: string } | null>(null);
@@ -59,9 +61,10 @@ export function ApiKeysView() {
     if (!trimmed) return;
     action.run(
       async () => {
-        const created = await createApiKey(trimmed, days);
+        const created = await createApiKey(trimmed, days, categorize);
         setIssued({ name: created.key.name, token: created.token });
         setName('');
+        setCategorize(false);
       },
       { onDone: reload },
     );
@@ -117,6 +120,22 @@ export function ApiKeysView() {
               <KeyRound className="size-4" />
               Create key
             </Button>
+            <label className="flex basis-full items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-current"
+                checked={categorize}
+                onChange={(event) => setCategorize(event.target.checked)}
+              />
+              <span>
+                Let it categorize
+                <span className="text-muted-foreground block text-xs">
+                  Over MCP, an assistant using this key can also create categories and rules, assign
+                  time and re-apply rules. Without this it can only read. Nothing else it could
+                  change, and it can't delete anything.
+                </span>
+              </span>
+            </label>
           </form>
 
           {data.length === 0 ? (
@@ -170,6 +189,7 @@ function KeyRow({ apiKey, run }: RowProps) {
         Rename
       </Button>
       <code className="text-muted-foreground text-xs">{apiKey.start ?? '·····'}…</code>
+      {apiKey.scopes.includes('CATEGORIZE') ? <Badge variant="secondary">categorize</Badge> : null}
       <span className="text-muted-foreground grow text-sm">
         created {created}
         {apiKey.expiresAt !== null &&

@@ -26,6 +26,7 @@ export function createContextFactory(db: Db, host: AuthHost) {
         userId: creds?.userId,
         keyId: creds?.keyId,
         deviceId: creds?.deviceId,
+        keyScopes: creds?.scopes,
         headers,
       };
     }

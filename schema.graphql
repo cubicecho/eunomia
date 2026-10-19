@@ -158,6 +158,23 @@ input ActivitiesOrderBy {
   title: InnerOrder
 }
 
+"""A stored activity that `searchActivity` matched."""
+type ActivityMatch {
+  activeSeconds: Float!
+  app: String!
+  categoryId: String
+  categoryName: String
+  context: String
+  deviceId: String!
+  deviceName: String!
+  id: String!
+  lastActiveAt: String!
+  startedAt: String!
+
+  """The most recent window title seen while it was active."""
+  title: String
+}
+
 """
 An integration key, as it can be listed after the fact — everything about the
 key except the key. Send it as `x-api-key` to `/graphql` or `/mcp`.
@@ -176,6 +193,9 @@ type ApiKey {
   lastUsedAt: String
   name: String!
 
+  """What the key may do beyond reading, chosen when it was made."""
+  scopes: [ApiKeyScope!]!
+
   """
   The key's first few characters, so two of them can be told apart in a list.
   """
@@ -185,6 +205,18 @@ type ApiKey {
 type ApiKeyIssued {
   key: ApiKey!
   token: String!
+}
+
+"""
+What an integration key may do beyond reading. Fixed when the key is made.
+"""
+enum ApiKeyScope {
+  """
+  Over `/mcp`, the categorization write tools: create categories and category
+  rules, assign entries and activities, and re-apply rules. Without it a key
+  sees only read tools there.
+  """
+  CATEGORIZE
 }
 
 type AppContextSummary {
@@ -436,6 +468,34 @@ type CategoryDaySummary {
   seconds: Float!
 }
 
+"""What `previewCategoryRule` found."""
+type CategoryRulePreview {
+  """
+  Of those, seconds a rule would move: not assigned by hand (rules never touch those).
+  """
+  changeableSeconds: Float!
+
+  """Matching activities, as entries, largest first (at most 50)."""
+  entries: [CategoryRulePreviewEntry!]!
+
+  """Seconds of stored activity the patterns match."""
+  matchedSeconds: Float!
+}
+
+type CategoryRulePreviewEntry {
+  """
+  How many matching activities there are, and how many were assigned by hand.
+  """
+  activities: Int!
+  app: String!
+
+  """Where the time is now; null is uncategorized."""
+  categoryName: String
+  context: String
+  manual: Int!
+  seconds: Float!
+}
+
 type CategoryRules {
   appPattern: String
   category(where: CategoriesFilters): Categories
@@ -618,6 +678,23 @@ input DateTimeFilter {
   Matches values starting with the given string. `%`, `_` and `\` are matched literally.
   """
   startsWith: String
+}
+
+"""One day, as `daySummary` reports it."""
+type DaySummary {
+  """
+  Time per category, largest first; uncategorized is the row with a null categoryId.
+  """
+  categories: [CategoryDaySummary!]!
+
+  """`YYYY-MM-DD` in the caller's time zone."""
+  day: String!
+  devices: [DeviceSummary!]!
+
+  """The biggest app/context entries, largest first."""
+  top: [AppContextSummary!]!
+  totalSeconds: Float!
+  uncategorizedSeconds: Float!
 }
 
 type DeviceRegistration {
@@ -1174,7 +1251,7 @@ type Mutation {
     to: String!
   ): Float!
   claimSetupCode(code: String!, email: String!): AuthSession!
-  createApiKey(expiresInDays: Int, name: String!): ApiKeyIssued!
+  createApiKey(expiresInDays: Int, name: String!, scopes: [ApiKeyScope!]): ApiKeyIssued!
 
   """`kind` defaults to neutral."""
   createCategory(color: String, kind: CategoriesKindEnum, name: String!): Categories!
@@ -1423,6 +1500,20 @@ type Query {
   ): [ContextRules!]!
 
   """
+  One day at a glance: total active time, time per category, the biggest
+  entries and time per device. `day` is `YYYY-MM-DD` in the caller's time zone;
+  omitted means today there.
+  """
+  daySummary(
+    day: String
+
+    """
+    How many of the biggest app/context entries to list. Default 10, at most 50.
+    """
+    top: Int
+  ): DaySummary!
+
+  """
   Time per device over the window — which machine or phone the time came from.
   """
   deviceSummary(
@@ -1471,12 +1562,68 @@ type Query {
   ): [MergeRules!]!
 
   """
+  What a category rule with these patterns would match, without creating it:
+  the dry run for `createCategoryRule`. Patterns are case-insensitive regular
+  expressions, as in a rule; every given one must match. Only stored
+  activities are checked (see `searchActivity`).
+  """
+  previewCategoryRule(
+    appPattern: String
+    contextPattern: String
+
+    """Start, inclusive, `YYYY-MM-DD`. Default: 30 days before `to`."""
+    from: String
+    titlePattern: String
+
+    """End, EXCLUSIVE, `YYYY-MM-DD`. Default: tomorrow."""
+    to: String
+  ): CategoryRulePreview!
+
+  """
   The starter rule packs this server ships, and which of them the caller has
   installed (see `installRulePack`).
   """
   rulePacks: [RulePack!]!
+
+  """
+  Stored activities whose app, context or window title contains `query`
+  (case-insensitive), most recent first. Raw activities are kept for the
+  retention period only, so older time is not searchable.
+  """
+  searchActivity(
+    """
+    Start, inclusive, `YYYY-MM-DD` in the caller's zone. Omitted: no lower bound.
+    """
+    from: String
+
+    """At most this many rows. Default 50, at most 200."""
+    limit: Int
+    query: String!
+
+    """End, EXCLUSIVE, `YYYY-MM-DD`. Omitted: no upper bound."""
+    to: String
+  ): [ActivityMatch!]!
   setupCodePending: Boolean!
   ssoSetup: SsoSetup!
+
+  """
+  The biggest uncategorized entries over the window, largest first: what to
+  write rules for. Each row is an app, or one context inside it, as the review
+  queue lists it. Pass one to `assignEntry`, or a pattern to
+  `previewCategoryRule` first.
+  """
+  uncategorized(
+    """
+    Start, inclusive, `YYYY-MM-DD` in the caller's zone. Default: 7 days before `to`.
+    """
+    from: String
+
+    """At most this many rows. Default 20, at most 100."""
+    limit: Int
+
+    """End, EXCLUSIVE, `YYYY-MM-DD`. Default: tomorrow, so today is included."""
+    to: String
+  ): [AppContextSummary!]!
 }
 
 """What `deleteRange` removed."""

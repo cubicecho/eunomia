@@ -1,3 +1,4 @@
+import type { KeyScope } from '../api-keys.ts';
 import type { Db } from '../db/client.ts';
 
 export interface Context {
@@ -13,6 +14,11 @@ export interface Context {
   keyId: string | undefined;
   /** Set only when the request authenticated with a *device* API key. */
   deviceId: string | undefined;
+  /**
+   * What the request's integration key was minted to do beyond reading
+   * (api-keys.ts KEY_SCOPES). Absent for sessions and keys without any.
+   */
+  keyScopes?: KeyScope[] | undefined;
   /** Original request headers — signOut needs them to find the session to revoke. */
   headers: Headers;
 }

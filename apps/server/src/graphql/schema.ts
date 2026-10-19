@@ -11,6 +11,7 @@ import {
 } from 'graphql';
 import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
+import { agentQueryFields } from './agent-fields.ts';
 import { apiKeyFields, apiKeyQueryFields } from './api-key-fields.ts';
 import { authFields } from './auth-fields.ts';
 import { categoryFields } from './category-fields.ts';
@@ -114,6 +115,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
       ...exportFields(db),
       ...rulePackQueryFields(db),
       ...ssoQueryFields(db),
+      ...agentQueryFields(db),
       setupCodePending: () => auth.setupCodePending(),
     },
     Mutation: {

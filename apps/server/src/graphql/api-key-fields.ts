@@ -1,8 +1,14 @@
-import type { ApiKey, MutationResolvers, QueryResolvers } from '@eunomia/gql/resolvers';
+import type {
+  ApiKey,
+  ApiKeyScope,
+  MutationResolvers,
+  QueryResolvers,
+} from '@eunomia/gql/resolvers';
 import {
   type ApiKeyRow,
   deleteKey,
   findIntegrationKey,
+  type KeyScope,
   listIntegrationKeys,
   renameKey,
 } from '../api-keys.ts';
@@ -40,6 +46,7 @@ function toGraphql(row: ApiKeyRow): ApiKey {
     lastUsedAt: row.lastRequest?.toISOString() ?? null,
     expiresAt: row.expiresAt?.toISOString() ?? null,
     enabled: row.enabled,
+    scopes: row.scopes.map((scope) => scope.toUpperCase() as ApiKeyScope),
   };
 }
 
@@ -75,7 +82,10 @@ export function apiKeyFields(db: Db, auth: AuthGateway) {
         throw badInput(`Too many API keys (max ${MAX_KEYS}) — revoke one first`);
       }
 
-      const { id, key } = await auth.mintUserKey({ userId, name, expiresInDays });
+      const scopes = [...new Set(args.scopes ?? [])].map(
+        (scope) => scope.toLowerCase() as KeyScope,
+      );
+      const { id, key } = await auth.mintUserKey({ userId, name, expiresInDays, scopes });
       // Read the row back rather than assembling it from the mint arguments:
       // createdAt and the stored `start` are the plugin's to decide, and the
       // list this response is about to be prepended to comes from the table.

@@ -387,11 +387,15 @@ export const fetchApiKeys = (): Promise<ApiKey[]> => sdk.ApiKeys().then((d) => d
  * keeps only a hash of it, so this is the one moment it can be shown — the
  * view has to put it in front of the user now or never.
  */
+/** `categorize` gives the key the categorization write tools over /mcp. */
 export const createApiKey = (
   name: string,
   expiresInDays: number | null,
+  categorize = false,
 ): Promise<{ token: string; key: ApiKey }> =>
-  sdk.CreateApiKey({ name, expiresInDays }).then((d) => d.createApiKey);
+  sdk
+    .CreateApiKey({ name, expiresInDays, scopes: categorize ? ['CATEGORIZE'] : [] })
+    .then((d) => d.createApiKey);
 
 export const renameApiKey = (id: string, name: string): Promise<unknown> =>
   sdk.RenameApiKey({ id, name });
