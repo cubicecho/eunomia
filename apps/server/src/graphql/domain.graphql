@@ -18,6 +18,9 @@ extend type Query {
   # can show the provider's button, and so a brand-new instance can offer to
   # set it up before anyone has an account.
   ssoSetup: SsoSetup!
+  # True on a brand-new server waiting for the setup code it printed to its
+  # log at boot (claimSetupCode). Public, for the sign-in page.
+  setupCodePending: Boolean!
 
   """
   The caller's integration keys — the ones issued from the dashboard for other
@@ -110,6 +113,14 @@ type Mutation {
   # sign-in with a `code_challenge` (to get the token back in the app rather
   # than the dashboard) must send the verifier behind it.
   verifyOneTimeToken(token: String!, codeVerifier: String): AuthSession!
+  # Creates the first account on a brand-new server, with the setup code the
+  # server printed to its log, and signs it in. No email is sent. FORBIDDEN
+  # once any account exists; BAD_USER_INPUT for a wrong code.
+  claimSetupCode(code: String!, email: String!): AuthSession!
+  # A sign-in link for the caller's own address, returned rather than emailed:
+  # paste it into an agent's setup screen to sign it in without SMTP. Expires
+  # in 15 minutes, single use. Signed-in sessions only.
+  deviceSignInLink: String!
   # Pairs the instance with the provider a setup URL names
   # (`<issuer>#setup=<token>&name=<name>`), registering eunomia there through
   # Dynamic Client Registration. The admin, or anyone while the instance has no

@@ -11,8 +11,9 @@ import { type MagicLinkMessage, sendMagicLinkEmail } from './email.ts';
 import { badInput, forbidden } from './errors.ts';
 import { appUrl, OIDC_PROVIDER_ID, type OidcConfig, serverUrl } from './oidc/config.ts';
 import { releaseChallenge, verifierMatches } from './oidc/handoff.ts';
-import { claimFirstAdmin } from './oidc/settings.ts';
+import { claimFirstAdmin, hasUsers } from './oidc/settings.ts';
 import { emailAllowed, OPEN_REGISTRATION, type RegistrationPolicy } from './registration.ts';
+import type { SetupCode } from './setup-code.ts';
 
 export interface AuthOptions {
   secret?: string | undefined;
@@ -301,6 +302,18 @@ export interface AuthGateway {
   verifyOneTimeToken(token: string, codeVerifier?: string | null): Promise<AuthSession>;
   /** Rebuilds the auth instance after the OIDC provider changed (a pairing, or its removal). */
   reloadSso(): Promise<void>;
+  /** Whether a brand-new server is waiting for its setup code (see setup-code.ts). */
+  setupCodePending(): Promise<boolean>;
+  /**
+   * The setup code for the first account, made directly and signed in: no
+   * email involved. Refused once any account exists.
+   */
+  claimSetupCode(code: string, email: string): Promise<AuthSession>;
+  /**
+   * A magic link for this user's own address, handed to them rather than
+   * emailed: how a signed-in person signs an agent in without SMTP.
+   */
+  magicLinkFor(userId: string): Promise<string>;
 }
 
 export interface AuthGatewayOptions {
@@ -312,6 +325,8 @@ export interface AuthGatewayOptions {
   exposeMagicLinkToken?: boolean;
   /** Who may hold an account here. Defaults to anyone (OPEN_REGISTRATION). */
   registration?: RegistrationPolicy;
+  /** The first-account setup code, on a server that booted with no accounts. */
+  setupCode?: SetupCode | undefined;
 }
 
 export function createAuthGateway(
@@ -340,6 +355,23 @@ export function createAuthGateway(
       .limit(1);
     return rows.length > 0;
   };
+
+  /** A magic-link token for `email`, kept rather than sent. */
+  const captureMagicToken = async (email: string): Promise<string | null> => {
+    const captureId = randomUUID();
+    tokenCaptures.set(captureId, '');
+    try {
+      await host.current().api.signInMagicLink({
+        body: { email, metadata: { captureId } },
+        headers: new Headers(),
+      });
+      return tokenCaptures.get(captureId) || null;
+    } finally {
+      tokenCaptures.delete(captureId);
+    }
+  };
+
+  const setup = gatewayOptions.setupCode;
 
   return {
     mintDeviceKey: (input) => mintDeviceKey(host.current(), input),
@@ -371,18 +403,56 @@ export function createAuthGateway(
         await host.current().api.signInMagicLink({ body: { email }, headers: new Headers() });
         return { token: null };
       }
-      const captureId = randomUUID();
-      tokenCaptures.set(captureId, '');
-      try {
-        await host.current().api.signInMagicLink({
-          body: { email, metadata: { captureId } },
-          headers: new Headers(),
-        });
-        const token = tokenCaptures.get(captureId);
-        return { token: token ? token : null };
-      } finally {
-        tokenCaptures.delete(captureId);
+      return { token: await captureMagicToken(email) };
+    },
+
+    async setupCodePending() {
+      return Boolean(setup?.value) && !(await hasUsers(db));
+    },
+
+    async claimSetupCode(code, email) {
+      if (!setup?.value || (await hasUsers(db))) {
+        throw forbidden('This server is already set up. Sign in instead.');
       }
+      const address = email.trim().toLowerCase();
+      assertAllowed(address);
+      const spent = setup.value;
+      if (!setup.take(code)) {
+        throw badInput("That isn't the setup code. It is in the server's log.");
+      }
+      try {
+        const ctx = await host.current().$context;
+        // Hooks run here as for any sign-up: the allowlist, and the first
+        // account becoming the admin.
+        const created = await ctx.internalAdapter.createUser(
+          {
+            email: address,
+            name: '',
+            emailVerified: true,
+          },
+          // Not one of better-auth's own: an address taken on trust from
+          // someone who proved they run the server.
+          { method: 'setup-code' },
+        );
+        if (!created) throw new Error('The account was not created');
+        const session = await ctx.internalAdapter.createSession(created.id, false);
+        return { token: session.token, userId: created.id };
+      } catch (error) {
+        setup.restore(spent);
+        throw error;
+      }
+    },
+
+    async magicLinkFor(userId) {
+      const [row] = await db
+        .select({ email: user.email })
+        .from(user)
+        .where(eq(user.id, userId))
+        .limit(1);
+      if (!row) throw forbidden('No such account');
+      const token = await captureMagicToken(row.email);
+      if (!token) throw new Error('No sign-in link was made');
+      return `${appUrl()}/?token=${encodeURIComponent(token)}`;
     },
 
     async verifyMagicLink(token) {
