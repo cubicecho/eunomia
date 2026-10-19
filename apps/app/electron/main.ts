@@ -26,12 +26,19 @@ import {
   syncIntervalMs,
   type Uploader,
 } from '@eunomia/agent';
-import { activeWindow } from '@miniben90/x-win';
+import {
+  activeWindow,
+  enableExtension,
+  installExtension,
+  isEnabledExtension,
+  isInstalledExtension,
+} from '@miniben90/x-win';
 import {
   app,
   clipboard,
   Menu,
   type MenuItem,
+  type MenuItemConstructorOptions,
   nativeImage,
   powerMonitor,
   shell,
@@ -48,6 +55,13 @@ import {
   writeAgentConfig,
 } from './config.ts';
 import { type AgentRuntime, registerAgentIpc } from './ipc.ts';
+import {
+  type GnomeExtension,
+  type LinuxSession,
+  linuxSession,
+  startCompositorIdle,
+  waylandAdvice,
+} from './linux-session.ts';
 import { type LocalApiStatus, localApiToken, startLocalApi } from './local-api.ts';
 import { readLog, resetLog, startFileLog } from './log.ts';
 import { pingLogDir, pingLogStore } from './ping-log.ts';
@@ -101,6 +115,28 @@ function browserContext(win: ReturnType<typeof activeWindow>, app: string | null
 
 let tray: Tray | undefined;
 
+/** Wayland or not, and which desktop: what decides where window and idle come from. */
+const session: LinuxSession =
+  process.platform === 'linux' ? linuxSession(process.env) : { wayland: false, desktop: 'other' };
+
+/**
+ * The compositor's own idle time, on Wayland, where Electron's reading may only
+ * see input sent to XWayland windows. Null until the compositor answers, and
+ * Electron's is used meanwhile (see linux-session.ts).
+ */
+const compositorIdle = session.wayland ? startCompositorIdle(session.desktop) : null;
+
+/** What x-win's GNOME Shell extension (Wayland window capture) says about itself. */
+function gnomeExtension(): GnomeExtension {
+  if (!session.wayland || session.desktop !== 'gnome') return 'unknown';
+  try {
+    if (isEnabledExtension()) return 'enabled';
+    return isInstalledExtension() ? 'installed' : 'missing';
+  } catch {
+    return 'unknown';
+  }
+}
+
 /**
  * The window object the last read produced. The sampler calls readContext for
  * the sample it has just read, in the same tick, so holding it here is safe —
@@ -119,7 +155,7 @@ function readSample(): Sample {
   return {
     app: win?.info?.execName || null,
     title: win?.title || null,
-    idleSeconds: powerMonitor.getSystemIdleTime(),
+    idleSeconds: compositorIdle?.idleSeconds() ?? powerMonitor.getSystemIdleTime(),
   };
 }
 
@@ -212,6 +248,11 @@ app.whenReady().then(async () => {
   }
 
   const logPath = startFileLog(dataDir);
+  if (session.wayland) {
+    // Said once, so a log full of "sampling failed" reads as the session's
+    // limit rather than a broken agent.
+    console.log(`Wayland session (${session.desktop}): window capture depends on the desktop`);
+  }
   let config = loadConfig(dataDir);
   // Config first: opening the log prunes it, and a longer configured retention
   // must not lose to the default on the way in.
@@ -343,6 +384,41 @@ app.whenReady().then(async () => {
     return `Local API on 127.0.0.1:${status.port}${sources > 0 ? ` — ${sources} reporting` : ''}`;
   };
 
+  // GNOME on Wayland: the extension x-win reads the focused window through.
+  // Installing it is a file copy; GNOME Shell only loads it at the next login.
+  let extensionRestartNeeded = false;
+  const setUpGnomeExtension = (): void => {
+    try {
+      const installed = isInstalledExtension() || installExtension();
+      const enabled = installed && enableExtension();
+      console.log(`GNOME window extension: installed=${installed} enabled=${enabled}`);
+      extensionRestartNeeded = installed && !isEnabledExtension();
+    } catch (error) {
+      console.error('GNOME window extension setup failed:', error);
+    }
+    refreshTrayMenu();
+  };
+  const sessionItems = (): MenuItemConstructorOptions[] => {
+    const extension = gnomeExtension();
+    const advice = waylandAdvice(session, {
+      extension,
+      windowReported: feed.sources().some((source) => source.kind === 'window'),
+      restartNeeded: extensionRestartNeeded,
+    });
+    if (!advice) return [];
+    const items: MenuItemConstructorOptions[] = [{ label: advice, enabled: false }];
+    if (session.desktop === 'gnome' && !extensionRestartNeeded && extension !== 'enabled') {
+      items.push({
+        label:
+          extension === 'installed'
+            ? 'Turn on the GNOME window extension'
+            : 'Install the GNOME window extension…',
+        click: setUpGnomeExtension,
+      });
+    }
+    return items;
+  };
+
   const pauseState = (): PauseState => {
     const current = currentPause(pauses, Date.now());
     return { paused: current !== null, until: current?.to ?? null };
@@ -399,6 +475,7 @@ app.whenReady().then(async () => {
               })),
             },
         { label: `Ping log: ${pingLogDir(dataDir)}`, enabled: false },
+        ...sessionItems(),
         { label: localApiLabel(), enabled: false },
         ...(localApi.status().state === 'disabled'
           ? []

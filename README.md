@@ -372,6 +372,43 @@ Then paste the token (tray → **Copy local API token**) into its options page
 and press **Save**. It should say *Connected to the agent*. `npm run zip -w
 @eunomia/extension` packs it for a store upload.
 
+### Linux on Wayland
+
+Core Wayland has no way to ask which window is focused, and GNOME and KDE
+default to Wayland on Ubuntu and Fedora. What the desktop agent does there,
+per desktop:
+
+| Desktop | Focused window | Idle time |
+| --- | --- | --- |
+| GNOME | x-win's GNOME Shell extension. Tray → **Install the GNOME window extension…**, then log out and back in. | Mutter's idle monitor, over D-Bus |
+| KDE Plasma | [awatcher](https://github.com/2e3s/awatcher), through the local API | `org.freedesktop.ScreenSaver`, over D-Bus |
+| Sway, Hyprland, other wlroots | awatcher | awatcher's afk reports, or Electron's own reading |
+| X11 (any desktop) | the agent itself, as before | Electron's reading, as before |
+
+The agent says which session it found once in its log, and the tray carries a
+line about window capture until something covers it. Until then the tray
+shows **NOT TRACKING** with x-win's error, as it would for any failed read.
+When the compositor answers on D-Bus, its idle time is used instead of
+Electron's, which under Wayland may only see input sent to XWayland windows.
+
+**awatcher, all desktops:** awatcher reads the focused window and idle on
+GNOME, KDE and the wlroots compositors, and sends them as ActivityWatch
+heartbeats, which the agent's local API accepts unmodified. Install the plain
+`awatcher` binary, not the bundle (the bundle brings its own server), stop
+any ActivityWatch server (it would hold port 5600), and give it the token in
+`~/.config/awatcher/config.toml`:
+
+```toml
+[server]
+port = 5600
+host = "127.0.0.1"
+api-key = "<tray → Copy local API token>"
+```
+
+Its window reports replace what the agent reads itself, and its afk reports
+replace the idle time, for as long as they keep arriving. Stop awatcher and
+the agent goes back to its own reading within seconds.
+
 ### Packaging the desktop agent
 
 ```bash
