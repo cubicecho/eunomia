@@ -1,19 +1,14 @@
-import { CircleAlert, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { deleteRange, fetchDevices, type RangeDeletion } from '@/api';
-import { ConfirmDelete } from '@/components/confirm-delete';
+import { CardLayout } from '@/components/card-layout';
+import { Combobox } from '@/components/combobox';
+import { ConfirmButton } from '@/components/confirm-button';
+import { FieldRow } from '@/components/field-row';
+import { FormField } from '@/components/form-field';
 import { StatusLine } from '@/components/status-line';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { dayIn, instantIn, localIn } from '@/lib/format';
 import { useTimeZone } from '@/session';
@@ -73,105 +68,111 @@ export function DeleteRangeCard() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Delete a time range</CardTitle>
-        <CardDescription>
+    <CardLayout
+      title="Delete a time range"
+      description={
+        <>
           Removes everything recorded between two times — raw pings, activities and the daily totals
           built from them — and keeps it deleted if an agent uploads pings from that time later.
           Times are in <span className="text-foreground">{timeZone}</span>.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="bg-muted/50 flex w-fit flex-wrap rounded-lg p-1">
-          {PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              type="button"
-              onClick={() => setRange(preset.range(new Date(), timeZone))}
-              className="text-muted-foreground hover:text-foreground rounded-md px-3 py-1 text-sm transition-colors"
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="delete-from">From</Label>
-            <Input
-              id="delete-from"
-              type="datetime-local"
-              className="w-auto"
-              value={from}
-              onChange={(event) => setRange([event.target.value, to])}
-            />
+        </>
+      }
+      contentClassName="gap-4"
+      contentSlot={
+        <>
+          <div className="bg-muted/50 flex w-fit flex-wrap rounded-lg p-1">
+            {PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => setRange(preset.range(new Date(), timeZone))}
+                className="text-muted-foreground hover:text-foreground rounded-md px-3 py-1 text-sm transition-colors"
+              >
+                {preset.label}
+              </button>
+            ))}
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="delete-to">Up to</Label>
-            <Input
-              id="delete-to"
-              type="datetime-local"
-              className="w-auto"
-              aria-invalid={!valid}
-              value={to}
-              onChange={(event) => setRange([from, event.target.value])}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="delete-device">Device</Label>
-            <Select value={deviceId} onValueChange={setDeviceId}>
-              <SelectTrigger id="delete-device" className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>Every device</SelectItem>
-                {devices.data?.map((candidate) => (
-                  <SelectItem key={candidate.id} value={candidate.id}>
-                    {candidate.name} ({candidate.platform})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <ConfirmDelete
-            name={`${when(from)} → ${when(to)}`}
-            description={`Everything recorded in this range ${target} is deleted for good. Export it first if you might want it back.`}
-            onConfirm={confirm}
-          >
-            <Button variant="destructive" disabled={!valid || action.pending}>
-              <Trash2 className="size-4" />
-              Delete range
-            </Button>
-          </ConfirmDelete>
-        </div>
-        <p className="text-muted-foreground text-sm">
-          Days older than raw history is kept for, and days imported only as daily totals, can't be
-          split by the hour: those are deleted when the range covers the whole day, and otherwise
-          left as they are.
-        </p>
-        <StatusLine status={action.status} />
-        {result && (
+          <FieldRow
+            perRow={3}
+            contentSlot={
+              <>
+                <FormField
+                  label="From"
+                  controlSlot={
+                    <Input
+                      type="datetime-local"
+                      value={from}
+                      onChange={(event) => setRange([event.target.value, to])}
+                    />
+                  }
+                />
+                <FormField
+                  label="Up to"
+                  error={valid ? undefined : 'Pick a time after the start.'}
+                  controlSlot={
+                    <Input
+                      type="datetime-local"
+                      value={to}
+                      onChange={(event) => setRange([from, event.target.value])}
+                    />
+                  }
+                />
+                <FormField
+                  label="Device"
+                  controlSlot={(wired) => (
+                    <Combobox
+                      {...wired}
+                      options={[
+                        { value: ALL, label: 'Every device' },
+                        ...(devices.data ?? []).map((candidate) => ({
+                          value: candidate.id,
+                          label: `${candidate.name} (${candidate.platform})`,
+                        })),
+                      ]}
+                      value={deviceId}
+                      onValueChange={setDeviceId}
+                    />
+                  )}
+                />
+              </>
+            }
+          />
           <p className="text-muted-foreground text-sm">
-            {result.pings.toLocaleString()} pings removed from {result.devices}{' '}
-            {result.devices === 1 ? 'device' : 'devices'}
-            {result.days > 0 &&
-              `, and ${result.days} whole ${result.days === 1 ? 'day' : 'days'} cleared outright`}
-            .
+            Days older than raw history is kept for, and days imported only as daily totals, can't
+            be split by the hour: those are deleted when the range covers the whole day, and
+            otherwise left as they are.
           </p>
-        )}
-        {result && result.partialDays.length > 0 && (
-          <p className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
-            <CircleAlert className="mt-0.5 size-4 shrink-0" />
-            <span>
-              {result.partialDays.join(', ')} {result.partialDays.length === 1 ? 'was' : 'were'}{' '}
-              only partly in the range and {result.partialDays.length === 1 ? 'has' : 'have'} no raw
-              record left to split, so{' '}
-              {result.partialDays.length === 1 ? 'its daily total' : 'their daily totals'} may still
-              include some of the deleted time. Delete the whole day to remove it.
-            </span>
-          </p>
-        )}
-      </CardContent>
-    </Card>
+          <StatusLine status={action.status} />
+          {result && (
+            <p className="text-muted-foreground text-sm">
+              {result.pings.toLocaleString()} pings removed from {result.devices}{' '}
+              {result.devices === 1 ? 'device' : 'devices'}
+              {result.days > 0 &&
+                `, and ${result.days} whole ${result.days === 1 ? 'day' : 'days'} cleared outright`}
+              .
+            </p>
+          )}
+          {result && result.partialDays.length > 0 && (
+            <Alert
+              variant="warning"
+              title={`${result.partialDays.join(', ')} ${result.partialDays.length === 1 ? 'was' : 'were'} only partly in the range`}
+              description={`${result.partialDays.length === 1 ? 'It has' : 'They have'} no raw record left to split, so ${result.partialDays.length === 1 ? 'its daily total' : 'their daily totals'} may still include some of the deleted time. Delete the whole day to remove it.`}
+            />
+          )}
+        </>
+      }
+      footerActionsSlot={
+        <ConfirmButton
+          variant="destructive"
+          disabled={!valid}
+          loading={action.pending}
+          iconSlot={<Trash2 />}
+          content="Delete range"
+          title={`Delete ${when(from)} → ${when(to)}?`}
+          description={`Everything recorded in this range ${target} is deleted for good. Export it first if you might want it back.`}
+          onConfirm={confirm}
+        />
+      }
+    />
   );
 }

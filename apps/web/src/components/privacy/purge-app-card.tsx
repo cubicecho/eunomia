@@ -1,12 +1,12 @@
 import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { type AppPurge, fetchAppSummary, purgeApp } from '@/api';
-import { ConfirmDelete } from '@/components/confirm-delete';
+import { CardLayout } from '@/components/card-layout';
+import { ConfirmButton } from '@/components/confirm-button';
+import { FieldRow } from '@/components/field-row';
+import { FormField } from '@/components/form-field';
 import { StatusLine } from '@/components/status-line';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { rangeOfEverything } from '@/lib/format';
 import { allEntries } from '@/lib/summary';
@@ -46,75 +46,77 @@ export function PurgeAppCard() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Delete an app</CardTitle>
-        <CardDescription>
-          Removes every trace of an app — or of one site or context within it — from every device
-          and every day, including daily totals kept past raw history. It doesn't stop the app being
-          recorded from now on: add it to the agent's ignored apps for that.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <form
-          className="flex flex-wrap items-end gap-2"
-          onSubmit={(event) => event.preventDefault()}
-        >
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="purge-app">App</Label>
-            <Input
-              id="purge-app"
-              className="w-56"
-              list="purge-apps"
-              placeholder="e.g. firefox"
-              value={app}
-              onChange={(event) => setApp(event.target.value)}
+    <CardLayout
+      title="Delete an app"
+      description="Removes every trace of an app — or of one site or context within it — from every device and every day, including daily totals kept past raw history. It doesn't stop the app being recorded from now on: add it to the agent's ignored apps for that."
+      contentClassName="gap-4"
+      contentSlot={
+        <>
+          <form onSubmit={(event) => event.preventDefault()}>
+            <FieldRow
+              contentSlot={
+                <>
+                  <FormField
+                    label="App"
+                    controlSlot={
+                      <Input
+                        list="purge-apps"
+                        placeholder="e.g. firefox"
+                        value={app}
+                        onChange={(event) => setApp(event.target.value)}
+                      />
+                    }
+                  />
+                  <FormField
+                    label="Context (optional)"
+                    controlSlot={
+                      <Input
+                        list="purge-contexts"
+                        placeholder="the whole app"
+                        value={context}
+                        onChange={(event) => setContext(event.target.value)}
+                      />
+                    }
+                  />
+                </>
+              }
             />
             <datalist id="purge-apps">
               {entries.data?.map((entry) => (
                 <option key={entry.app} value={entry.app} />
               ))}
             </datalist>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="purge-context">Context (optional)</Label>
-            <Input
-              id="purge-context"
-              className="w-56"
-              list="purge-contexts"
-              placeholder="the whole app"
-              value={context}
-              onChange={(event) => setContext(event.target.value)}
-            />
             <datalist id="purge-contexts">
               {contexts.map((entry) => (
                 <option key={entry.context} value={entry.context} />
               ))}
             </datalist>
-          </div>
-          <ConfirmDelete
-            name={label}
-            description={
-              site
-                ? `Everything recorded in ${name} under ${site} is deleted from every device, for good. The rest of ${name} stays.`
-                : `Everything recorded in ${name}, under any context, is deleted from every device, for good.`
-            }
-            onConfirm={confirm}
-          >
-            <Button variant="destructive" disabled={!name || action.pending}>
-              <Trash2 className="size-4" />
-              Delete app
-            </Button>
-          </ConfirmDelete>
-        </form>
-        <StatusLine status={action.status} />
-        {result && (
-          <p className="text-muted-foreground text-sm">
-            {result.pings.toLocaleString()} pings, {result.activities.toLocaleString()} activities
-            and {result.summaries.toLocaleString()} daily totals removed.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+          </form>
+          <StatusLine status={action.status} />
+          {result && (
+            <p className="text-muted-foreground text-sm">
+              {result.pings.toLocaleString()} pings, {result.activities.toLocaleString()} activities
+              and {result.summaries.toLocaleString()} daily totals removed.
+            </p>
+          )}
+        </>
+      }
+      footerActionsSlot={
+        <ConfirmButton
+          variant="destructive"
+          disabled={!name}
+          loading={action.pending}
+          iconSlot={<Trash2 />}
+          content="Delete app"
+          title={`Delete ${label}?`}
+          description={
+            site
+              ? `Everything recorded in ${name} under ${site} is deleted from every device, for good. The rest of ${name} stays.`
+              : `Everything recorded in ${name}, under any context, is deleted from every device, for good.`
+          }
+          onConfirm={confirm}
+        />
+      }
+    />
   );
 }

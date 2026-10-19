@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "tw-animate-css";
+@import "../cubeui-tokens.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -30,6 +30,25 @@
   --border: #30363d;
   --input: #30363d;
   --ring: #3fb950;
+
+  /* cubeui's meaning tokens, in the same GitHub-dark voice. */
+  /* `default` buttons are the row's emphasis, which here has always been the green. */
+  --neutral: #3fb950;
+  --neutral-foreground: #0d1117;
+  --hover: #21262d;
+  --active: #58a6ff;
+  --active-foreground: #0d1117;
+  --selection: #1f6feb;
+  --selection-foreground: #e6edf3;
+  --positive: #3fb950;
+  --positive-foreground: #0d1117;
+  --warning: #d29922;
+  --warning-foreground: #0d1117;
+  --info: #58a6ff;
+  --info-foreground: #0d1117;
+  --negative: #f85149;
+  --negative-foreground: #0d1117;
+  --destructive-foreground: #0d1117;
 
   /* Categorical chart slots, stepped for the #161b22 card surface. */
   --chart-1: #3987e5;

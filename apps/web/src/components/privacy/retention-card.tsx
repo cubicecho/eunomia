@@ -1,12 +1,12 @@
 import { History } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { setRetention } from '@/api';
-import { ConfirmDelete } from '@/components/confirm-delete';
+import { CardLayout } from '@/components/card-layout';
+import { ConfirmButton } from '@/components/confirm-button';
+import { FormField } from '@/components/form-field';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { useAction } from '@/hooks/use-query';
 import { useSession } from '@/session';
 
@@ -39,54 +39,60 @@ export function RetentionCard() {
     });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Retention</CardTitle>
-        <CardDescription>
+    <CardLayout
+      title="Retention"
+      description={
+        <>
           Raw pings and activities are kept <span className="text-foreground">{kept}</span>
           {me.retentionDays === null && ", the server's setting"}. After that only daily totals
           remain — enough for the charts, not for window titles or time of day.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <form
-          className="flex flex-wrap items-end gap-2"
-          onSubmit={(event) => event.preventDefault()}
-        >
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="retention-days">Keep raw history for (days)</Label>
-            <Input
-              id="retention-days"
-              className="w-40"
-              type="number"
-              min={1}
-              step={1}
-              max={me.retentionDays === null ? (me.effectiveRetentionDays ?? undefined) : undefined}
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+        </>
+      }
+      contentClassName="gap-4"
+      contentSlot={
+        <>
+          <form onSubmit={(event) => event.preventDefault()}>
+            <FormField
+              label="Keep raw history for (days)"
+              controlSlot={
+                <Input
+                  className="w-40"
+                  type="number"
+                  min={1}
+                  step={1}
+                  max={
+                    me.retentionDays === null ? (me.effectiveRetentionDays ?? undefined) : undefined
+                  }
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                />
+              }
             />
-          </div>
-          <ConfirmDelete
-            name={`raw history older than ${days} ${days === 1 ? 'day' : 'days'}`}
-            description="Within the next 15 minutes, pings and activities older than this are deleted for good, on every device. Daily totals stay. Export first if you might want them."
-            onConfirm={() => save(days)}
-          >
-            <Button disabled={!valid || days === me.retentionDays || action.pending}>
-              <History className="size-4" />
-              Save
-            </Button>
-          </ConfirmDelete>
+          </form>
+          <StatusLine status={action.status} />
+        </>
+      }
+      footerActionsSlot={
+        <>
           <Button
-            type="button"
-            variant="ghost"
+            variant="outline"
             disabled={me.retentionDays === null || action.pending}
             onClick={() => save(null)}
-          >
-            Follow the server's
-          </Button>
-        </form>
-        <StatusLine status={action.status} />
-      </CardContent>
-    </Card>
+            content="Follow the server's"
+          />
+          <ConfirmButton
+            variant="destructive"
+            disabled={!valid || days === me.retentionDays}
+            loading={action.pending}
+            iconSlot={<History />}
+            content="Save"
+            title={`Delete raw history older than ${days} ${days === 1 ? 'day' : 'days'}?`}
+            confirmLabel="Delete older history"
+            description="Within the next 15 minutes, pings and activities older than this are deleted for good, on every device. Daily totals stay. Export first if you might want them."
+            onConfirm={() => save(days)}
+          />
+        </>
+      }
+    />
   );
 }

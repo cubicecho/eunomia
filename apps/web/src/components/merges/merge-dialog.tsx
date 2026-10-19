@@ -1,18 +1,11 @@
-import { type ReactNode, useState } from 'react';
+import { Merge } from 'lucide-react';
+import { useId, useState } from 'react';
 import { createMergeRule } from '@/api';
+import { DialogLayout } from '@/components/dialog-layout';
+import { FormField } from '@/components/form-field';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { useAction } from '@/hooks/use-query';
 import type { EntryGroup } from '@/lib/summary';
 
@@ -26,7 +19,6 @@ interface Props {
   source: Source;
   /** Everything recorded, for the target suggestions. */
   groups: EntryGroup[];
-  trigger: ReactNode;
   /** Called once the merge lands — the view reloads. */
   onSaved(): void;
 }
@@ -44,43 +36,17 @@ export const entryLabel = (entry: Source): string =>
  *
  * Only the merged-away side is fixed. Which way round a merge goes is the
  * user's call, and the dialog is opened from the entry that will disappear.
+ * Its trigger is the merge icon on that entry's row.
  */
-export function MergeDialog({ source, groups, trigger, onSaved }: Props) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      {/* Mounted only while open, so every merge starts from a blank target
-          and an abandoned one leaves nothing behind. */}
-      <DialogContent className="sm:max-w-lg">
-        <MergeForm
-          source={source}
-          groups={groups}
-          onSaved={() => {
-            setOpen(false);
-            onSaved();
-          }}
-        />
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function MergeForm({
-  source,
-  groups,
-  onSaved,
-}: {
-  source: Source;
-  groups: EntryGroup[];
-  onSaved(): void;
-}) {
+export function MergeDialog({ source, groups, onSaved }: Props) {
   const action = useAction();
-  const [app, setApp] = useState(source.app);
+  const formId = useId();
+  const [open, setOpen] = useState(false);
   // Both fields start at the entry as it stands, so what gets submitted is
   // the edit the user made rather than whatever a blank field happens to
   // mean — clearing the context is a real merge (into the app's contextless
   // time), and it shouldn't be the one that's pre-filled.
+  const [app, setApp] = useState(source.app);
   const [context, setContext] = useState(source.context ?? '');
 
   // An app-wide merge renames the app and carries each entry's context across,
@@ -92,98 +58,132 @@ function MergeForm({
   };
   const changes =
     target.app !== '' && !(target.app === source.app && target.context === source.context);
+  const label = entryLabel(source);
 
   return (
-    <form
-      className="flex flex-col gap-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!changes) return;
-        action.run(
-          () =>
-            createMergeRule({
-              fromApp: source.app,
-              fromContext: source.context,
-              toApp: target.app,
-              toContext: target.context,
-            }),
-          { onDone: onSaved },
-        );
+    <DialogLayout
+      open={open}
+      onOpenChange={(next) => {
+        // Every merge starts from the entry as it is, and an abandoned one
+        // leaves nothing behind.
+        if (next) {
+          setApp(source.app);
+          setContext(source.context ?? '');
+        }
+        setOpen(next);
       }}
-    >
-      <DialogHeader>
-        <DialogTitle>Merge “{entryLabel(source)}”</DialogTitle>
-        <DialogDescription>
-          {wholeApp
-            ? 'Everything recorded under this app moves to the app you name here, keeping the context each entry already has.'
-            : 'This one entry moves to the app and context you name here. The rest of the app is untouched.'}
-        </DialogDescription>
-      </DialogHeader>
-
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="merge-target-app">Becomes app</Label>
-          <Input
-            id="merge-target-app"
-            list="merge-target-apps"
-            autoComplete="off"
-            value={app}
-            onChange={(event) => setApp(event.target.value)}
+      triggerSlot={
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label={`Merge ${label}`}
+          hint={`Merge ${label}`}
+          className="shrink-0"
+          iconSlot={<Merge />}
+        />
+      }
+      title={`Merge “${label}”`}
+      description={
+        wholeApp
+          ? 'Everything recorded under this app moves to the app you name here, keeping the context each entry already has.'
+          : 'This one entry moves to the app and context you name here. The rest of the app is untouched.'
+      }
+      hasUnsavedChanges={changes}
+      contentSlot={
+        <form
+          id={formId}
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!changes) return;
+            action.run(
+              () =>
+                createMergeRule({
+                  fromApp: source.app,
+                  fromContext: source.context,
+                  toApp: target.app,
+                  toContext: target.context,
+                }),
+              {
+                onDone: () => {
+                  setOpen(false);
+                  onSaved();
+                },
+              },
+            );
+          }}
+        >
+          <FormField
+            label="Becomes app"
             required
+            controlSlot={
+              <Input
+                list={`${formId}-apps`}
+                autoComplete="off"
+                value={app}
+                onChange={(event) => setApp(event.target.value)}
+                required
+              />
+            }
           />
-          <datalist id="merge-target-apps">
+          <datalist id={`${formId}-apps`}>
             {groups.map((group) => (
               <option key={group.app} value={group.app} />
             ))}
           </datalist>
-        </div>
 
-        {!wholeApp && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="merge-target-context">Becomes context</Label>
-            <Input
-              id="merge-target-context"
-              list="merge-target-contexts"
-              autoComplete="off"
-              placeholder="leave blank for time with no context"
-              value={context}
-              onChange={(event) => setContext(event.target.value)}
-            />
-            {/* Suggestions from the app being typed, so picking a target app
-                first narrows this to contexts that app actually has. */}
-            <datalist id="merge-target-contexts">
-              {(groups.find((group) => group.app === target.app)?.contexts ?? []).map((entry) => (
-                <option key={entry.context} value={entry.context} />
-              ))}
-            </datalist>
-          </div>
-        )}
-      </div>
+          {!wholeApp && (
+            <>
+              <FormField
+                label="Becomes context"
+                description="Leave blank for time with no context."
+                controlSlot={
+                  <Input
+                    list={`${formId}-contexts`}
+                    autoComplete="off"
+                    value={context}
+                    onChange={(event) => setContext(event.target.value)}
+                  />
+                }
+              />
+              {/* Suggestions from the app being typed, so picking a target app
+                  first narrows this to contexts that app actually has. */}
+              <datalist id={`${formId}-contexts`}>
+                {(groups.find((group) => group.app === target.app)?.contexts ?? []).map((entry) => (
+                  <option key={entry.context} value={entry.context} />
+                ))}
+              </datalist>
+            </>
+          )}
 
-      <p className="text-muted-foreground text-sm">
-        {changes ? (
-          <>
-            <span className="text-foreground font-medium">{entryLabel(source)}</span> →{' '}
-            <span className="text-foreground font-medium">{entryLabel(target)}</span>. Time already
-            recorded is rewritten now, and new pings fold under the new name.
-          </>
-        ) : (
-          'Name something different from the entry itself.'
-        )}
-      </p>
+          <p className="text-muted-foreground text-sm">
+            {changes ? (
+              <>
+                <span className="text-foreground font-medium">{label}</span> →{' '}
+                <span className="text-foreground font-medium">{entryLabel(target)}</span>. Time
+                already recorded is rewritten now, and new pings fold under the new name.
+              </>
+            ) : (
+              'Name something different from the entry itself.'
+            )}
+          </p>
 
-      <StatusLine status={action.status} />
-
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <DialogClose asChild>
-          <Button type="button" variant="outline">
-            Cancel
-          </Button>
-        </DialogClose>
-        <Button type="submit" disabled={!changes || action.pending}>
-          Merge
-        </Button>
-      </div>
-    </form>
+          <StatusLine status={action.status} />
+        </form>
+      }
+      footerActionsSlot={(close) => (
+        <>
+          <Button variant="outline" onClick={close} content="Cancel" />
+          <Button
+            type="submit"
+            form={formId}
+            variant="positive"
+            disabled={!changes}
+            loading={action.pending}
+            content="Merge"
+          />
+        </>
+      )}
+    />
   );
 }

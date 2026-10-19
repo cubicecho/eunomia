@@ -1,4 +1,4 @@
-import { ChevronDown, KeyRound } from 'lucide-react';
+import { KeyRound } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import {
   claimSetupCode,
@@ -8,12 +8,13 @@ import {
   type SsoSetup,
   verifyMagicLink,
 } from '@/api';
+import { CenteredLayout } from '@/components/centered-layout';
+import { Disclosure } from '@/components/disclosure';
+import { FormField } from '@/components/form-field';
 import { PairSsoForm } from '@/components/sso-card';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { errorMessage } from '@/hooks/use-query';
 
 interface Props {
@@ -68,46 +69,49 @@ export function SignIn({ message, onSignedIn }: Props) {
   };
 
   return (
-    <main className="flex min-h-svh items-center justify-center p-6">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle className="text-2xl">eunomia</CardTitle>
-          <CardDescription>
-            {sentTo
-              ? `Sign-in link sent to ${sentTo} — click it to finish signing in.`
-              : setupPending && !useEmail
-                ? "This server has no accounts yet. Create the first one (it becomes the admin) with the setup code from the server's log."
-                : 'Sign in with a single-use link sent to your email.'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {sentTo ? (
-            <Button variant="outline" className="w-full" onClick={() => setSentTo(null)}>
-              Use a different email
-            </Button>
-          ) : (
-            <div className="grid gap-4">
-              {sso?.signInUrl ? (
-                <>
-                  <a href={sso.signInUrl} className={buttonVariants({ className: 'w-full' })}>
-                    <KeyRound className="size-4" />
-                    Sign in with {sso.name}
-                  </a>
-                  <div className="text-muted-foreground flex items-center gap-3 text-xs">
-                    <span className="bg-border h-px flex-1" />
-                    or
-                    <span className="bg-border h-px flex-1" />
-                  </div>
-                </>
-              ) : null}
-              {setupPending && !useEmail ? (
-                <SetupCodeForm onSignedIn={onSignedIn} onUseEmail={() => setUseEmail(true)} />
-              ) : (
-                <form className="grid gap-4" onSubmit={submit}>
-                  <div className="grid gap-2">
-                    <Label htmlFor="email">Email</Label>
+    <CenteredLayout
+      level={1}
+      title="eunomia"
+      description={
+        sentTo
+          ? `Sign-in link sent to ${sentTo} — click it to finish signing in.`
+          : setupPending && !useEmail
+            ? "This server has no accounts yet. Create the first one (it becomes the admin) with the setup code from the server's log."
+            : 'Sign in with a single-use link sent to your email.'
+      }
+      contentClassName="gap-4"
+      contentSlot={
+        sentTo ? (
+          <Button
+            variant="outline"
+            onClick={() => setSentTo(null)}
+            content="Use a different email"
+          />
+        ) : (
+          <>
+            {sso?.signInUrl ? (
+              <>
+                <Button
+                  linkSlot={<a href={sso.signInUrl} />}
+                  iconSlot={<KeyRound />}
+                  content={`Sign in with ${sso.name}`}
+                />
+                <div className="text-muted-foreground flex items-center gap-3 text-xs">
+                  <span className="bg-border h-px flex-1" />
+                  or
+                  <span className="bg-border h-px flex-1" />
+                </div>
+              </>
+            ) : null}
+            {setupPending && !useEmail ? (
+              <SetupCodeForm onSignedIn={onSignedIn} onUseEmail={() => setUseEmail(true)} />
+            ) : (
+              <form className="grid gap-4" onSubmit={submit}>
+                <FormField
+                  label="Email"
+                  required
+                  controlSlot={
                     <Input
-                      id="email"
                       type="email"
                       required
                       autoFocus
@@ -116,38 +120,31 @@ export function SignIn({ message, onSignedIn }: Props) {
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                     />
-                  </div>
-                  <Button type="submit" disabled={pending}>
-                    {pending ? 'Sending…' : 'Send sign-in link'}
-                  </Button>
-                  {(error ?? message) ? (
-                    <p className="text-destructive text-sm" role="alert">
-                      {error ?? message}
-                    </p>
-                  ) : null}
-                </form>
-              )}
-              {sso?.source === 'NONE' && sso.canPair ? (
-                <Collapsible className="border-t pt-4">
-                  <CollapsibleTrigger className="text-muted-foreground hover:text-foreground group flex w-full items-center justify-between text-sm">
-                    Set up single sign-on
-                    <ChevronDown className="size-4 transition-transform group-data-[state=open]:rotate-180" />
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="pt-3">
-                    <p className="text-muted-foreground mb-3 text-xs">
-                      This server has no accounts yet, so anyone can connect a provider now. The
-                      first account to sign in becomes its admin, and only the admin can change this
-                      later.
-                    </p>
-                    <PairSsoForm onPaired={loadSso} />
-                  </CollapsibleContent>
-                </Collapsible>
-              ) : null}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </main>
+                  }
+                />
+                <Button
+                  type="submit"
+                  loading={pending}
+                  loadingLabel="Sending…"
+                  content="Send sign-in link"
+                />
+                {(error ?? message) ? (
+                  <Alert variant="destructive" title={error ?? message} />
+                ) : null}
+              </form>
+            )}
+            {sso?.source === 'NONE' && sso.canPair ? (
+              <Disclosure
+                className="border-t pt-4"
+                title="Set up single sign-on"
+                description="This server has no accounts yet, so anyone can connect a provider now. The first account to sign in becomes its admin, and only the admin can change this later."
+                contentSlot={<PairSsoForm onPaired={loadSso} />}
+              />
+            ) : null}
+          </>
+        )
+      }
+    />
   );
 }
 
@@ -173,46 +170,49 @@ function SetupCodeForm({ onSignedIn, onUseEmail }: { onSignedIn(): void; onUseEm
 
   return (
     <form className="grid gap-4" onSubmit={submit}>
-      <div className="grid gap-2">
-        <Label htmlFor="setup-code">Setup code</Label>
-        <Input
-          id="setup-code"
-          required
-          autoFocus
-          autoComplete="off"
-          spellCheck={false}
-          placeholder="ABCD-EFGH-JKMN"
-          className="font-mono uppercase"
-          value={code}
-          onChange={(event) => setCode(event.target.value)}
-        />
-        <p className="text-muted-foreground text-xs">
-          Printed when the server started: <code>docker compose logs app</code>.
-        </p>
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="setup-email">Your email</Label>
-        <Input
-          id="setup-email"
-          type="email"
-          required
-          autoComplete="email"
-          placeholder="you@example.com"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-      </div>
-      <Button type="submit" disabled={pending}>
-        {pending ? 'Creating…' : 'Create account'}
-      </Button>
-      {error ? (
-        <p className="text-destructive text-sm" role="alert">
-          {error}
-        </p>
-      ) : null}
-      <Button type="button" variant="link" size="sm" onClick={onUseEmail}>
-        Use an email link instead
-      </Button>
+      <FormField
+        label="Setup code"
+        required
+        description={
+          <>
+            Printed when the server started: <code>docker compose logs app</code>.
+          </>
+        }
+        controlSlot={
+          <Input
+            required
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="ABCD-EFGH-JKMN"
+            className="font-mono uppercase"
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+          />
+        }
+      />
+      <FormField
+        label="Your email"
+        required
+        controlSlot={
+          <Input
+            type="email"
+            required
+            autoComplete="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        }
+      />
+      <Button type="submit" loading={pending} loadingLabel="Creating…" content="Create account" />
+      {error ? <Alert variant="destructive" title={error} /> : null}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onUseEmail}
+        content="Use an email link instead"
+      />
     </form>
   );
 }

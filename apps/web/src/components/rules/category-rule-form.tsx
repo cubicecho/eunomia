@@ -1,5 +1,5 @@
 import { Plus, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type ActivitySample,
   type Category,
@@ -8,20 +8,15 @@ import {
   createCategoryRule,
   updateCategoryRule,
 } from '@/api';
+import { Combobox } from '@/components/combobox';
+import { FieldRow } from '@/components/field-row';
+import { FormField } from '@/components/form-field';
 import { MatchField } from '@/components/rules/match-field';
 import { Preview, PreviewRow } from '@/components/rules/preview';
+import type { RuleFormHost } from '@/components/rules/rule-dialog';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
-import { DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useAction } from '@/hooks/use-query';
 import { compile, type Match, parsePattern, toPattern } from '@/lib/pattern';
 
@@ -114,6 +109,8 @@ interface Props {
   draft?: RulePatterns;
   /** Called once the save lands — the dialog closes and the view reloads. */
   onSaved(): void;
+  /** The dialog around the form, which draws its Cancel and Save. */
+  host: RuleFormHost;
 }
 
 /**
@@ -122,7 +119,7 @@ interface Props {
  * mutation so a rejected pattern is reported next to the field that caused it,
  * inside the dialog, with the draft still intact.
  */
-export function CategoryRuleForm({ categories, samples, rule, draft, onSaved }: Props) {
+export function CategoryRuleForm({ categories, samples, rule, draft, onSaved, host }: Props) {
   const first = categories[0];
   const action = useAction();
   const [categoryId, setCategoryId] = useState(rule?.categoryId ?? (first ? first.id : ''));
@@ -147,12 +144,28 @@ export function CategoryRuleForm({ categories, samples, rule, draft, onSaved }: 
     [valid, samples, compiled],
   );
 
+  // What the draft is, as one string, so "has it changed since it opened" is a comparison.
+  const snapshot = JSON.stringify([categoryId, patterns, priority]);
+  const opened = useRef(snapshot);
+  const { report } = host;
+  useEffect(
+    () =>
+      report({
+        canSave: valid,
+        pending: action.pending,
+        dirty: snapshot !== opened.current,
+        saveLabel: rule ? 'Save rule' : 'Add rule',
+      }),
+    [report, valid, action.pending, snapshot, rule],
+  );
+
   const unused = FIELDS.filter((field) => !conditions.some((c) => c.field === field.value));
   const update = (index: number, condition: Condition) =>
     setConditions((current) => current.map((c, i) => (i === index ? condition : c)));
 
   return (
     <form
+      id={host.formId}
       className="flex flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault();
@@ -176,86 +189,79 @@ export function CategoryRuleForm({ categories, samples, rule, draft, onSaved }: 
         </legend>
         {conditions.map((condition, index) => (
           <div key={condition.id} className="flex flex-wrap items-start gap-2">
-            <Select
+            <Combobox
+              className="w-28"
+              aria-label="Field"
+              options={FIELDS.filter(
+                (field) =>
+                  field.value === condition.field || unused.some((u) => u.value === field.value),
+              )}
               value={condition.field}
               onValueChange={(field) => update(index, { ...condition, field: field as Field })}
-            >
-              <SelectTrigger className="w-28" aria-label="Field">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {FIELDS.filter(
-                  (field) =>
-                    field.value === condition.field || unused.some((u) => u.value === field.value),
-                ).map((field) => (
-                  <SelectItem key={field.value} value={field.value}>
-                    {field.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            />
             <MatchField
               label={FIELDS.find((f) => f.value === condition.field)?.label ?? 'value'}
               value={condition.match}
               onChange={(match) => update(index, { ...condition, match })}
             />
             <Button
-              type="button"
-              variant="ghost"
+              variant="outline"
               size="icon"
               aria-label="Remove condition"
-              className="text-muted-foreground hover:text-destructive size-9"
               disabled={conditions.length === 1}
               onClick={() => setConditions((current) => current.filter((_, i) => i !== index))}
-            >
-              <X className="size-4" />
-            </Button>
+              iconSlot={<X />}
+            />
           </div>
         ))}
         {unused.length > 0 && unused[0] && (
           <div>
             <Button
-              type="button"
               variant="outline"
               size="sm"
               onClick={() =>
                 setConditions((current) => [...current, blank(unused[0]?.value ?? 'title')])
               }
-            >
-              <Plus className="size-4" />
-              Add condition
-            </Button>
+              iconSlot={<Plus />}
+              content="Add condition"
+            />
           </div>
         )}
       </fieldset>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="rule-category">Category</Label>
-          <Select value={categoryId} onValueChange={setCategoryId}>
-            <SelectTrigger className="w-40" id="rule-category">
-              <SelectValue placeholder="Category" />
-            </SelectTrigger>
-            <SelectContent>
-              {categories.map((category) => (
-                <SelectItem key={category.id} value={category.id}>
-                  {category.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="rule-priority">Priority</Label>
-          <Input
-            id="rule-priority"
-            type="number"
-            className="w-20"
-            value={priority}
-            onChange={(event) => setPriority(event.target.value)}
-          />
-        </div>
-      </div>
+      <FieldRow
+        contentSlot={
+          <>
+            <FormField
+              label="Category"
+              controlSlot={(wired) => (
+                <Combobox
+                  {...wired}
+                  placeholder="Category"
+                  options={categories.map((category) => ({
+                    value: category.id,
+                    label: category.name,
+                    color: category.color ?? undefined,
+                  }))}
+                  value={categoryId}
+                  onValueChange={setCategoryId}
+                />
+              )}
+            />
+            <FormField
+              label="Priority"
+              description="Lower runs first."
+              controlSlot={
+                <Input
+                  type="number"
+                  value={priority}
+                  onChange={(event) => setPriority(event.target.value)}
+                />
+              }
+            />
+          </>
+        }
+      />
 
       {valid && (
         <Preview total={samples.length} count={hits.length} noun={['activity', 'activities']}>
@@ -271,17 +277,6 @@ export function CategoryRuleForm({ categories, samples, rule, draft, onSaved }: 
       )}
 
       <StatusLine status={action.status} />
-
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <DialogClose asChild>
-          <Button type="button" variant="outline">
-            Cancel
-          </Button>
-        </DialogClose>
-        <Button type="submit" disabled={!valid || action.pending}>
-          {rule ? 'Save rule' : 'Add rule'}
-        </Button>
-      </div>
     </form>
   );
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type ActivitySample,
   type ContextRule,
@@ -6,20 +6,13 @@ import {
   createContextRule,
   updateContextRule,
 } from '@/api';
+import { Combobox } from '@/components/combobox';
+import { FormField } from '@/components/form-field';
 import { MatchField } from '@/components/rules/match-field';
 import { Preview, PreviewRow } from '@/components/rules/preview';
+import type { RuleFormHost } from '@/components/rules/rule-dialog';
 import { StatusLine } from '@/components/status-line';
-import { Button } from '@/components/ui/button';
-import { DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useAction } from '@/hooks/use-query';
 import {
   compile,
@@ -49,6 +42,8 @@ interface Props {
   rule?: ContextRule;
   /** Called once the save lands — the dialog closes and the view reloads. */
   onSaved(): void;
+  /** The dialog around the form, which draws its Cancel and Save. */
+  host: RuleFormHost;
 }
 
 /**
@@ -56,7 +51,7 @@ interface Props {
  * into the modes that wrote them, so editing “text before ‘ - novelWriter’”
  * shows exactly that and not the regex it compiled to.
  */
-export function ContextRuleForm({ samples, rule, onSaved }: Props) {
+export function ContextRuleForm({ samples, rule, onSaved, host }: Props) {
   const action = useAction();
   const [app, setApp] = useState<Match>(() =>
     rule?.appPattern != null ? parsePattern(rule.appPattern) : { mode: 'contains', value: '' },
@@ -88,8 +83,23 @@ export function ContextRuleForm({ samples, rule, onSaved }: Props) {
     return found;
   }, [valid, titlePattern, appRegex, samples]);
 
+  const snapshot = JSON.stringify([app, extract, priority]);
+  const opened = useRef(snapshot);
+  const { report } = host;
+  useEffect(
+    () =>
+      report({
+        canSave: valid,
+        pending: action.pending,
+        dirty: snapshot !== opened.current,
+        saveLabel: rule ? 'Save rule' : 'Add rule',
+      }),
+    [report, valid, action.pending, snapshot, rule],
+  );
+
   return (
     <form
+      id={host.formId}
       className="flex flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault();
@@ -119,23 +129,15 @@ export function ContextRuleForm({ samples, rule, onSaved }: Props) {
           …use this part of the window title as the context:
         </legend>
         <div className="flex flex-wrap items-start gap-2">
-          <Select
+          <Combobox
+            className="w-36"
+            aria-label="How to extract the context"
+            options={EXTRACT_MODES}
             value={extract.mode}
             onValueChange={(mode) =>
               setExtract((current) => ({ ...current, mode: mode as ExtractMode }))
             }
-          >
-            <SelectTrigger className="w-36" aria-label="How to extract the context">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {EXTRACT_MODES.map((mode) => (
-                <SelectItem key={mode.value} value={mode.value}>
-                  {mode.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
           <Input
             className={cn(
               'min-w-48 max-w-md grow',
@@ -173,18 +175,18 @@ export function ContextRuleForm({ samples, rule, onSaved }: Props) {
         )}
       </fieldset>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="context-priority">Priority</Label>
+      <FormField
+        label="Priority"
+        description="Lower runs first."
+        controlSlot={
           <Input
-            id="context-priority"
             type="number"
-            className="w-20"
+            className="w-24"
             value={priority}
             onChange={(event) => setPriority(event.target.value)}
           />
-        </div>
-      </div>
+        }
+      />
 
       {valid && (
         <Preview total={samples.length} count={hits.length} noun={['title', 'titles']}>
@@ -198,17 +200,6 @@ export function ContextRuleForm({ samples, rule, onSaved }: Props) {
       )}
 
       <StatusLine status={action.status} />
-
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <DialogClose asChild>
-          <Button type="button" variant="outline">
-            Cancel
-          </Button>
-        </DialogClose>
-        <Button type="submit" disabled={!valid || action.pending}>
-          {rule ? 'Save rule' : 'Add rule'}
-        </Button>
-      </div>
     </form>
   );
 }

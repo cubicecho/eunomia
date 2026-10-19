@@ -1,6 +1,6 @@
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { Swatch } from '@/components/rules/swatch';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatSeconds } from '@/lib/format';
 import type { KindTotal } from '@/lib/kinds';
 
@@ -17,17 +17,18 @@ export function KindBreakdown({ kinds }: Props) {
   const total = kinds.reduce((sum, kind) => sum + kind.seconds, 0);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Time by kind</CardTitle>
-        <CardDescription>
+    <CardLayout
+      title="Time by kind"
+      description={
+        <>
           Each category’s kind — set on the Rules tab — adds up here. Uncategorized time has no kind
           and stays apart.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {total === 0 ? (
-          <EmptyState>No activity in this range.</EmptyState>
+        </>
+      }
+      contentClassName="gap-3"
+      contentSlot={
+        total === 0 ? (
+          <EmptyState compact title="No activity in this range." />
         ) : (
           <>
             <div className="flex h-3.5 gap-[2px] overflow-hidden rounded-sm">
@@ -54,8 +55,8 @@ export function KindBreakdown({ kinds }: Props) {
               ))}
             </ul>
           </>
-        )}
-      </CardContent>
-    </Card>
+        )
+      }
+    />
   );
 }

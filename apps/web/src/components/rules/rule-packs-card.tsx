@@ -1,11 +1,10 @@
-import { ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { installRulePack, type RulePack } from '@/api';
+import { CardLayout } from '@/components/card-layout';
+import { Disclosure } from '@/components/disclosure';
 import { StatusLine } from '@/components/status-line';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { errorMessage } from '@/hooks/use-query';
 import { kindInfo } from '@/lib/kinds';
 
@@ -51,30 +50,27 @@ export function RulePacksCard({ packs, reload }: Props) {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Rule packs</CardTitle>
-        <CardDescription>
-          Ready-made rules for well-known apps and sites. A pack adds a category (or fills yours of
-          the same name) and ordinary rules you can edit or delete afterwards. Installing again
-          never duplicates a rule.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <ul className="flex flex-col">
-          {packs.map((pack) => (
-            <PackRow
-              key={pack.id}
-              pack={pack}
-              pending={installing === pack.id}
-              disabled={installing !== null}
-              onInstall={() => install(pack)}
-            />
-          ))}
-        </ul>
-        <StatusLine status={status} />
-      </CardContent>
-    </Card>
+    <CardLayout
+      title="Rule packs"
+      description="Ready-made rules for well-known apps and sites. A pack adds a category (or fills yours of the same name) and ordinary rules you can edit or delete afterwards. Installing again never duplicates a rule."
+      contentClassName="gap-3"
+      contentSlot={
+        <>
+          <ul className="flex flex-col">
+            {packs.map((pack) => (
+              <PackRow
+                key={pack.id}
+                pack={pack}
+                pending={installing === pack.id}
+                disabled={installing !== null}
+                onInstall={() => install(pack)}
+              />
+            ))}
+          </ul>
+          <StatusLine status={status} />
+        </>
+      }
+    />
   );
 }
 
@@ -89,13 +85,12 @@ function PackRow({
   disabled: boolean;
   onInstall(): void;
 }) {
-  const [open, setOpen] = useState(false);
   const outdated = pack.installedVersion !== null && pack.installedVersion < pack.version;
   const installed = pack.installedVersion !== null && !outdated;
 
   return (
     <li className="flex items-start gap-3 border-b border-dashed py-2 last:border-0">
-      <Collapsible open={open} onOpenChange={setOpen} className="min-w-0 grow">
+      <div className="flex min-w-0 grow flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{pack.name}</span>
           {installed && <Badge variant="secondary">Installed</Badge>}
@@ -105,24 +100,28 @@ function PackRow({
           {pack.description} Category: {pack.categoryName} (
           {kindInfo(pack.categoryKind).label.toLowerCase()}).
         </p>
-        <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1 text-xs">
-          <ChevronRight className={open ? 'size-3 rotate-90' : 'size-3'} />
-          What it matches
-        </CollapsibleTrigger>
-        <CollapsibleContent className="flex flex-col gap-1 pt-1 text-xs">
-          <PackList label="Apps" values={pack.apps} />
-          <PackList label="Android packages" values={pack.packages} />
-          <PackList label="Sites" values={pack.sites} />
-        </CollapsibleContent>
-      </Collapsible>
+        <Disclosure
+          title="What it matches"
+          titleClassName="text-xs text-muted-foreground"
+          contentClassName="gap-1 text-xs"
+          contentSlot={
+            <>
+              <PackList label="Apps" values={pack.apps} />
+              <PackList label="Android packages" values={pack.packages} />
+              <PackList label="Sites" values={pack.sites} />
+            </>
+          }
+        />
+      </div>
       <Button
         size="sm"
-        variant={installed ? 'outline' : 'default'}
-        disabled={disabled}
+        variant={installed ? 'outline' : 'info'}
+        disabled={disabled && !pending}
+        loading={pending}
+        loadingLabel="Installing…"
         onClick={onInstall}
-      >
-        {pending ? 'Installing…' : outdated ? 'Update' : installed ? 'Reinstall' : 'Install'}
-      </Button>
+        content={outdated ? 'Update' : installed ? 'Reinstall' : 'Install'}
+      />
     </li>
   );
 }

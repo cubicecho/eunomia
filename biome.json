@@ -78,16 +78,29 @@
       }
     },
     {
-      "includes": ["apps/web/src/components/ui/**"],
+      "includes": [
+        "apps/web/src/components/ui/**",
+        "apps/web/src/components/card-layout.tsx",
+        "apps/web/src/components/centered-layout.tsx",
+        "apps/web/src/components/combobox.tsx",
+        "apps/web/src/components/confirm-button.tsx",
+        "apps/web/src/components/dialog-layout.tsx",
+        "apps/web/src/components/disclosure.tsx",
+        "apps/web/src/components/empty-state.tsx",
+        "apps/web/src/components/field-row.tsx",
+        "apps/web/src/components/form-field.tsx",
+        "apps/web/src/components/header-content-footer.tsx",
+        "apps/web/src/components/page-header.tsx",
+        "apps/web/src/components/query-state.tsx",
+        "apps/web/src/components/stat-tile.tsx",
+        "apps/web/src/lib/color.ts",
+        "apps/web/src/lib/readable-text-color.ts",
+        "apps/web/src/lib/select-options.ts",
+        "apps/web/src/lib/utils.ts",
+        "apps/web/cubeui-*.css"
+      ],
       "linter": {
-        "rules": {
-          "security": {
-            "noDangerouslySetInnerHtml": "off"
-          },
-          "suspicious": {
-            "noArrayIndexKey": "off"
-          }
-        }
+        "enabled": false
       }
     }
   ]

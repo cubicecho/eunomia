@@ -11,19 +11,16 @@ import {
   fetchDevices,
   fetchFocusSegments,
 } from '@/api';
-import { ConfirmDelete } from '@/components/confirm-delete';
+import { CardLayout } from '@/components/card-layout';
+import { Combobox } from '@/components/combobox';
+import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
+import { FormField } from '@/components/form-field';
+import { QueryError } from '@/components/query-state';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { addDays, dayIn, formatSeconds } from '@/lib/format';
 import { categoryColor } from '@/lib/palette';
@@ -94,109 +91,116 @@ export function TimelineView() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Timeline</CardTitle>
-          <CardDescription>
+      <CardLayout
+        title="Timeline"
+        description={
+          <>
             What was in front of you, in order, on each device. Drag across a lane to select a
             stretch of time and act on it.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              aria-label="Previous day"
-              onClick={() => goTo(addDays(day, -1))}
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Input
-              type="date"
-              aria-label="Day"
-              className="w-40"
-              value={day}
-              onChange={(event) => event.target.value && goTo(event.target.value)}
-            />
-            <Button
-              variant="outline"
-              size="icon"
-              aria-label="Next day"
-              onClick={() => goTo(addDays(day, 1))}
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-            <Button variant="ghost" onClick={() => goTo(dayIn(new Date(), timeZone))}>
-              Today
-            </Button>
-            <div className="ml-auto flex items-center gap-1" role="group" aria-label="Zoom">
-              {ZOOMS.map((level) => (
-                <Button
-                  key={level.label}
-                  size="sm"
-                  variant={zoom === level.hours ? 'default' : 'outline'}
-                  onClick={() => {
-                    setZoom(level.hours);
-                    // Zoom in on what's selected, when something is.
-                    if (selection) setCentre((selection.from + selection.to) / 2);
-                  }}
-                >
-                  {level.label}
-                </Button>
-              ))}
-              {zoom < 24 ? (
-                <>
+          </>
+        }
+        contentClassName="gap-4"
+        contentSlot={
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Previous day"
+                onClick={() => goTo(addDays(day, -1))}
+                iconSlot={<ChevronLeft />}
+              />
+              <Input
+                type="date"
+                aria-label="Day"
+                className="w-40"
+                value={day}
+                onChange={(event) => event.target.value && goTo(event.target.value)}
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Next day"
+                onClick={() => goTo(addDays(day, 1))}
+                iconSlot={<ChevronRight />}
+              />
+              <Button
+                variant="outline"
+                onClick={() => goTo(dayIn(new Date(), timeZone))}
+                content="Today"
+              />
+              <div className="ml-auto flex items-center gap-1" role="group" aria-label="Zoom">
+                {ZOOMS.map((level) => (
                   <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label="Earlier"
-                    disabled={view.from <= bounds.start}
-                    onClick={() => pan(-1)}
-                  >
-                    <ChevronLeft className="size-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label="Later"
-                    disabled={view.to >= bounds.end}
-                    onClick={() => pan(1)}
-                  >
-                    <ChevronRight className="size-4" />
-                  </Button>
-                </>
-              ) : null}
+                    key={level.label}
+                    size="sm"
+                    variant={zoom === level.hours ? 'default' : 'outline'}
+                    onClick={() => {
+                      setZoom(level.hours);
+                      // Zoom in on what's selected, when something is.
+                      if (selection) setCentre((selection.from + selection.to) / 2);
+                    }}
+                    content={level.label}
+                  />
+                ))}
+                {zoom < 24 ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      aria-label="Earlier"
+                      disabled={view.from <= bounds.start}
+                      onClick={() => pan(-1)}
+                      iconSlot={<ChevronLeft />}
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      aria-label="Later"
+                      disabled={view.to >= bounds.end}
+                      onClick={() => pan(1)}
+                      iconSlot={<ChevronRight />}
+                    />
+                  </>
+                ) : null}
+              </div>
             </div>
-          </div>
 
-          {segments.error ? (
-            <p className="text-destructive text-sm">{segments.error}</p>
-          ) : !segments.data ? (
-            <div className="bg-muted h-24 animate-pulse rounded-md" />
-          ) : shown.length === 0 ? (
-            <EmptyState>Nothing recorded on {day}.</EmptyState>
-          ) : (
-            <div className={cn('flex flex-col gap-2', segments.loading && 'opacity-60')}>
-              <Axis from={view.from} to={view.to} origin={bounds.start} timeZone={timeZone} />
-              {shown.map((device) => (
-                <Lane
-                  key={device.id}
-                  device={device}
-                  segments={byDevice.get(device.id) ?? []}
-                  from={view.from}
-                  to={view.to}
-                  timeZone={timeZone}
-                  selection={
-                    selection && (selection.deviceId ?? device.id) === device.id ? selection : null
-                  }
-                  onSelect={setSelection}
-                />
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            {segments.error && !segments.data ? (
+              <QueryError
+                compact
+                error={segments.error}
+                onRetry={segments.refetch}
+                what="this day's timeline"
+              />
+            ) : !segments.data ? (
+              <div className="bg-muted h-24 animate-pulse rounded-md" />
+            ) : shown.length === 0 ? (
+              <EmptyState compact title={`Nothing recorded on ${day}.`} />
+            ) : (
+              <div className={cn('flex flex-col gap-2', segments.loading && 'opacity-60')}>
+                <Axis from={view.from} to={view.to} origin={bounds.start} timeZone={timeZone} />
+                {shown.map((device) => (
+                  <Lane
+                    key={device.id}
+                    device={device}
+                    segments={byDevice.get(device.id) ?? []}
+                    from={view.from}
+                    to={view.to}
+                    timeZone={timeZone}
+                    selection={
+                      selection && (selection.deviceId ?? device.id) === device.id
+                        ? selection
+                        : null
+                    }
+                    onSelect={setSelection}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        }
+      />
 
       {selection ? (
         <SelectionCard
@@ -362,93 +366,93 @@ function SelectionCard(props: SelectionProps) {
     });
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-2">
-        <div className="flex flex-col gap-1.5">
-          <CardTitle>
-            {span} on {where}
-          </CardTitle>
-          <CardDescription>
-            {formatSeconds(total)} of activity across {entries.length}{' '}
-            {entries.length === 1 ? 'entry' : 'entries'}.
-          </CardDescription>
-        </div>
+    <CardLayout
+      title={`${span} on ${where}`}
+      description={`${formatSeconds(total)} of activity across ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}.`}
+      actionSlot={
         <Button
-          variant="ghost"
-          size="icon"
+          variant="outline"
+          size="icon-sm"
           aria-label="Clear selection"
           onClick={() => onChange(null)}
-        >
-          <X className="size-4" />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {selection.deviceId !== null && devices.length > 1 ? (
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="size-4"
-              checked={false}
-              onChange={() => onChange({ ...selection, deviceId: null })}
+          iconSlot={<X />}
+        />
+      }
+      contentClassName="gap-4"
+      contentSlot={
+        <>
+          {selection.deviceId !== null && devices.length > 1 ? (
+            <FormField
+              orientation="horizontal"
+              label="The same time on every device"
+              controlSlot={
+                <Checkbox
+                  checked={false}
+                  onCheckedChange={() => onChange({ ...selection, deviceId: null })}
+                />
+              }
             />
-            The same time on every device
-          </label>
-        ) : null}
+          ) : null}
 
-        {entries.length === 0 ? (
-          <EmptyState>Nothing was in front in this stretch.</EmptyState>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {entries.map((entry) => (
-              <EntryRow
-                key={`${entry.app}\n${entry.context ?? ''}\n${entry.categoryId ?? ''}`}
-                entry={entry}
-                categories={categories}
-                run={run}
-              />
-            ))}
-          </ul>
-        )}
-
-        <div className="flex flex-wrap items-center gap-2 border-t pt-4">
-          <Select value={categoryId} onValueChange={setCategoryId}>
-            <SelectTrigger className="w-48" aria-label="Category">
-              <SelectValue placeholder="Category…" />
-            </SelectTrigger>
-            <SelectContent>
-              {categories.map((category) => (
-                <SelectItem key={category.id} value={category.id}>
-                  {category.name}
-                </SelectItem>
+          {entries.length === 0 ? (
+            <EmptyState compact title="Nothing was in front in this stretch." />
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {entries.map((entry) => (
+                <EntryRow
+                  key={`${entry.app}\n${entry.context ?? ''}\n${entry.categoryId ?? ''}`}
+                  entry={entry}
+                  categories={categories}
+                  run={run}
+                />
               ))}
-            </SelectContent>
-          </Select>
-          <Button disabled={!categoryId || activityIds.length === 0} onClick={categorize}>
-            <Tag className="size-4" />
-            Categorize {activityIds.length} {activityIds.length === 1 ? 'activity' : 'activities'}
-          </Button>
-          <ConfirmDelete
-            name={`${span} on ${where}`}
-            description="Everything recorded in this stretch is deleted: pings, activities and the time in your charts. Pings from it still on their way from an agent are dropped when they arrive. This can't be undone."
-            onConfirm={() =>
-              run(() =>
-                deleteRange(new Date(selection.from), new Date(selection.to), selection.deviceId),
-              )
-            }
-          >
-            <Button variant="outline" className="ml-auto">
-              <Trash2 className="size-4" />
-              Delete this stretch
-            </Button>
-          </ConfirmDelete>
-        </div>
-        <p className="text-muted-foreground text-xs">
-          Categorizing assigns each activity in the selection as a whole, including any part of it
-          outside the selection, and rules won't move it again. To file an app from now on, make a
-          rule from its row instead.
-        </p>
-      </CardContent>
-    </Card>
+            </ul>
+          )}
+
+          <p className="text-muted-foreground text-xs">
+            Categorizing assigns each activity in the selection as a whole, including any part of it
+            outside the selection, and rules won't move it again. To file an app from now on, make a
+            rule from its row instead.
+          </p>
+        </>
+      }
+      footerSlot={
+        <ConfirmButton
+          variant="destructive-outline"
+          iconSlot={<Trash2 />}
+          content="Delete this stretch"
+          title={`Delete ${span} on ${where}?`}
+          description="Everything recorded in this stretch is deleted: pings, activities and the time in your charts. Pings from it still on their way from an agent are dropped when they arrive."
+          onConfirm={() =>
+            run(() =>
+              deleteRange(new Date(selection.from), new Date(selection.to), selection.deviceId),
+            )
+          }
+        />
+      }
+      footerActionsSlot={
+        <>
+          <Combobox
+            className="w-48"
+            aria-label="Category"
+            placeholder="Category…"
+            options={categories.map((category) => ({
+              value: category.id,
+              label: category.name,
+              color: category.color ?? undefined,
+            }))}
+            value={categoryId}
+            onValueChange={setCategoryId}
+          />
+          <Button
+            disabled={!categoryId || activityIds.length === 0}
+            onClick={categorize}
+            iconSlot={<Tag />}
+            content={`Categorize ${activityIds.length} ${activityIds.length === 1 ? 'activity' : 'activities'}`}
+          />
+        </>
+      }
+    />
   );
 }
 
@@ -490,30 +494,29 @@ function EntryRow({
       <span className="w-16 text-right tabular-nums">{formatSeconds(entry.seconds)}</span>
       {making ? (
         <>
-          <Select value={categoryId} onValueChange={setCategoryId}>
-            <SelectTrigger size="sm" className="w-40" aria-label={`Rule category for ${entry.app}`}>
-              <SelectValue placeholder="Category…" />
-            </SelectTrigger>
-            <SelectContent>
-              {categories.map((category) => (
-                <SelectItem key={category.id} value={category.id}>
-                  {category.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button size="sm" disabled={!categoryId} onClick={makeRule}>
-            Add rule
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setMaking(false)}>
-            Cancel
-          </Button>
+          <Combobox
+            className="w-40"
+            aria-label={`Rule category for ${entry.app}`}
+            placeholder="Category…"
+            options={categories.map((category) => ({
+              value: category.id,
+              label: category.name,
+              color: category.color ?? undefined,
+            }))}
+            value={categoryId}
+            onValueChange={setCategoryId}
+          />
+          <Button size="sm" disabled={!categoryId} onClick={makeRule} content="Add rule" />
+          <Button size="sm" variant="outline" onClick={() => setMaking(false)} content="Cancel" />
         </>
       ) : (
-        <Button size="sm" variant="ghost" onClick={() => setMaking(true)}>
-          <ListPlus className="size-4" />
-          Rule
-        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setMaking(true)}
+          iconSlot={<ListPlus />}
+          content="Rule"
+        />
       )}
     </li>
   );

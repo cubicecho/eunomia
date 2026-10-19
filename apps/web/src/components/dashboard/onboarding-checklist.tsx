@@ -1,9 +1,9 @@
 import { CircleCheck, CircleDashed, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { fetchAppSummary, fetchDevices, fetchRulePacks, setOnboarding } from '@/api';
+import { CardLayout } from '@/components/card-layout';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { rangeOfLastDays } from '@/lib/format';
 import { onboardingSteps, type StepId } from '@/lib/onboarding';
@@ -85,73 +85,77 @@ export function OnboardingChecklist({ onNavigate }: Props) {
     action.run(async () => setMe(await setOnboarding(flags)));
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4">
-        <div className="flex flex-col gap-1.5">
-          <CardTitle>Getting started</CardTitle>
-          <CardDescription>
-            {remaining === 0
-              ? 'All done — the dashboard has what it needs. You can put this away.'
-              : `${steps.length - remaining} of ${steps.length} done.`}
-          </CardDescription>
-        </div>
+    <CardLayout
+      title="Getting started"
+      description={
+        remaining === 0
+          ? 'All done — the dashboard has what it needs. You can put this away.'
+          : `${steps.length - remaining} of ${steps.length} done.`
+      }
+      actionSlot={
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
           disabled={action.pending}
           onClick={() => save({ dismissed: true })}
-        >
-          <X className="size-4" />
-          Dismiss
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <ol className="flex flex-col gap-3">
-          {steps.map((step) => {
-            const copy = COPY[step.id];
-            const go = copy.go;
-            return (
-              <li key={step.id} className="flex gap-3">
-                {step.done ? (
-                  <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-emerald-600" />
-                ) : (
-                  <CircleDashed
-                    aria-hidden
-                    className="text-muted-foreground mt-0.5 size-4 shrink-0"
-                  />
-                )}
-                <div className="flex grow flex-col gap-1">
-                  <span
-                    className={step.done ? 'text-muted-foreground text-sm line-through' : 'text-sm'}
-                  >
-                    {copy.title}
-                    <span className="sr-only">{step.done ? ' (done)' : ' (to do)'}</span>
-                  </span>
-                  {!step.done && <p className="text-muted-foreground text-sm">{copy.body}</p>}
-                </div>
-                {step.id === 'privacy' ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={action.pending}
-                    onClick={() => save({ privacyReviewed: !step.done })}
-                  >
-                    {step.done ? 'Undo' : 'Mark done'}
-                  </Button>
-                ) : (
-                  !step.done &&
-                  go && (
-                    <Button variant="outline" size="sm" onClick={() => onNavigate(go.view)}>
-                      {go.label}
-                    </Button>
-                  )
-                )}
-              </li>
-            );
-          })}
-        </ol>
-        <StatusLine status={action.status} />
-      </CardContent>
-    </Card>
+          iconSlot={<X />}
+          content="Dismiss"
+        />
+      }
+      contentClassName="gap-3"
+      contentSlot={
+        <>
+          <ol className="flex flex-col gap-3">
+            {steps.map((step) => {
+              const copy = COPY[step.id];
+              const go = copy.go;
+              return (
+                <li key={step.id} className="flex gap-3">
+                  {step.done ? (
+                    <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+                  ) : (
+                    <CircleDashed
+                      aria-hidden
+                      className="text-muted-foreground mt-0.5 size-4 shrink-0"
+                    />
+                  )}
+                  <div className="flex grow flex-col gap-1">
+                    <span
+                      className={
+                        step.done ? 'text-muted-foreground text-sm line-through' : 'text-sm'
+                      }
+                    >
+                      {copy.title}
+                      <span className="sr-only">{step.done ? ' (done)' : ' (to do)'}</span>
+                    </span>
+                    {!step.done && <p className="text-muted-foreground text-sm">{copy.body}</p>}
+                  </div>
+                  {step.id === 'privacy' ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={action.pending}
+                      onClick={() => save({ privacyReviewed: !step.done })}
+                      content={step.done ? 'Undo' : 'Mark done'}
+                    />
+                  ) : (
+                    !step.done &&
+                    go && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onNavigate(go.view)}
+                        content={go.label}
+                      />
+                    )
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+          <StatusLine status={action.status} />
+        </>
+      }
+    />
   );
 }

@@ -1,7 +1,7 @@
 import { fetchSummary } from '@/api';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { Swatch } from '@/components/rules/swatch';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useQuery } from '@/hooks/use-query';
 import { dayIn, formatSeconds } from '@/lib/format';
 import { compareWeeks, type Delta, type DeltaRow, weeksSpan, weekWindows } from '@/lib/trends';
@@ -34,22 +34,21 @@ export function WeekTrend({ timeZone, deviceId }: Props) {
   const comparison = data ? compareWeeks(data, windows) : null;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>This week vs last week</CardTitle>
-        <CardDescription>
-          {windows.days === 7
-            ? 'Monday to Sunday, against the whole of last week.'
-            : `Monday to ${through}, against last Monday to ${through} — like for like, so a week in progress isn’t measured against a finished one. Today counts in full even though it isn’t over.`}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {error ? (
+    <CardLayout
+      title="This week vs last week"
+      description={
+        windows.days === 7
+          ? 'Monday to Sunday, against the whole of last week.'
+          : `Monday to ${through}, against last Monday to ${through} — like for like, so a week in progress isn’t measured against a finished one. Today counts in full even though it isn’t over.`
+      }
+      contentClassName="gap-4"
+      contentSlot={
+        error ? (
           <p className="text-destructive text-sm">{error}</p>
         ) : !comparison ? (
           <p className="text-muted-foreground text-sm">Loading…</p>
         ) : comparison.total.current === 0 && comparison.total.previous === 0 ? (
-          <EmptyState>No activity either week yet.</EmptyState>
+          <EmptyState compact title="No activity either week yet." />
         ) : (
           <>
             <div className="flex items-baseline justify-between gap-3">
@@ -66,9 +65,9 @@ export function WeekTrend({ timeZone, deviceId }: Props) {
             <Section title="By kind" rows={comparison.kinds} />
             <Section title="By category" rows={comparison.categories} />
           </>
-        )}
-      </CardContent>
-    </Card>
+        )
+      }
+    />
   );
 }
 

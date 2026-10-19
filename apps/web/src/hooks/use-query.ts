@@ -5,11 +5,19 @@ import { useSession } from '@/session';
 export const errorMessage = (error: unknown): string =>
   error instanceof GraphQLError ? error.message : 'request failed';
 
-interface QueryState<T> {
+interface QueryResult<T> {
   data: T | null;
   error: string | null;
   loading: boolean;
   reload: () => void;
+  /**
+   * The same state in the shape cubeui's `QueryState` / `QueryError` read,
+   * so a view hands the result straight to them: no data yet and still
+   * loading, the last load failed, and the retry.
+   */
+  isPending: boolean;
+  isError: boolean;
+  refetch: () => void;
 }
 
 /**
@@ -17,7 +25,7 @@ interface QueryState<T> {
  * server says the caller isn't authenticated. `load` is deliberately not a
  * dependency — callers pass an inline closure, so `deps` is the honest list.
  */
-export function useQuery<T>(load: () => Promise<T>, deps: DependencyList): QueryState<T> {
+export function useQuery<T>(load: () => Promise<T>, deps: DependencyList): QueryResult<T> {
   const { expire } = useSession();
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +59,15 @@ export function useQuery<T>(load: () => Promise<T>, deps: DependencyList): Query
   }, [...deps, nonce]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
-  return { data, error, loading, reload };
+  return {
+    data,
+    error,
+    loading,
+    reload,
+    isPending: loading && data === null,
+    isError: error !== null,
+    refetch: reload,
+  };
 }
 
 /**

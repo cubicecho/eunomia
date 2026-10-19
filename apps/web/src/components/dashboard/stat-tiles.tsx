@@ -1,4 +1,4 @@
-import { Card, CardContent } from '@/components/ui/card';
+import { StatTile } from '@/components/stat-tile';
 import { type DateRange, daysInRange, formatSeconds } from '@/lib/format';
 import type { AppTotal, Series } from '@/lib/summary';
 
@@ -45,12 +45,11 @@ export function StatTiles({ range, total, categories, apps }: Props) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {tiles.map((tile) => (
-        <Card key={tile.label} className="py-4">
-          <CardContent className="px-4">
-            <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              {tile.label}
-            </p>
-            <p className="mt-1 flex items-center gap-2 truncate text-2xl font-semibold">
+        <StatTile
+          key={tile.label}
+          label={tile.label}
+          value={
+            <span className="flex items-center gap-2 truncate">
               {tile.color ? (
                 <span
                   aria-hidden
@@ -59,10 +58,10 @@ export function StatTiles({ range, total, categories, apps }: Props) {
                 />
               ) : null}
               <span className="truncate">{tile.value}</span>
-            </p>
-            <p className="text-muted-foreground mt-1 truncate text-xs">{tile.hint}</p>
-          </CardContent>
-        </Card>
+            </span>
+          }
+          hint={tile.hint}
+        />
       ))}
     </div>
   );

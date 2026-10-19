@@ -1,6 +1,6 @@
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from 'recharts';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   type ChartConfig,
   ChartContainer,
@@ -24,14 +24,14 @@ export function CategoryChart({ categories }: { categories: Series[] }) {
   );
 
   return (
-    <Card className="h-full">
-      <CardHeader>
-        <CardTitle>By category</CardTitle>
-        <CardDescription>Active time per category over the range.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-1 flex-col justify-center">
-        {categories.length === 0 ? (
-          <EmptyState>No activity in this range.</EmptyState>
+    <CardLayout
+      className="h-full"
+      title="By category"
+      description="Active time per category over the range."
+      contentClassName="flex-1 justify-center"
+      contentSlot={
+        categories.length === 0 ? (
+          <EmptyState compact title="No activity in this range." />
         ) : (
           <ChartContainer
             config={config}
@@ -84,8 +84,8 @@ export function CategoryChart({ categories }: { categories: Series[] }) {
               </Bar>
             </BarChart>
           </ChartContainer>
-        )}
-      </CardContent>
-    </Card>
+        )
+      }
+    />
   );
 }

@@ -1,10 +1,10 @@
 import { Download } from 'lucide-react';
 import { useState } from 'react';
 import { type ExportFormat, exportFile } from '@/api';
+import { CardLayout } from '@/components/card-layout';
 import { RangePicker } from '@/components/dashboard/range-picker';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAction } from '@/hooks/use-query';
 import { addDays, type DateRange, dayIn, rangeOfLastDays } from '@/lib/format';
 import { useTimeZone } from '@/session';
@@ -193,49 +193,53 @@ export function ExportCard() {
   ];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Export</CardTitle>
-        <CardDescription>
+    <CardLayout
+      title="Export"
+      description={
+        <>
           Your data as files you keep. Days are counted in{' '}
           <span className="text-foreground">{timeZone}</span>.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">Range for ActivityWatch and CSV</span>
-          <RangePicker range={range} timeZone={timeZone} onChange={setRange} />
-        </div>
-        <ul className="flex flex-col divide-y">
-          {exports.map((item) => (
-            <li
-              key={item.format}
-              className="flex flex-wrap items-center justify-between gap-2 py-3 first:pt-0 last:pb-0"
-            >
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="text-sm font-medium">{item.title}</span>
-                <span className="text-muted-foreground text-sm">{item.description}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {progress?.format === item.format && (
-                  <span className="text-muted-foreground text-sm tabular-nums">
-                    {progress.rows.toLocaleString()} rows
-                  </span>
-                )}
-                <Button
-                  variant="outline"
-                  disabled={action.pending}
-                  onClick={() => start(item.format, item.spec, item.ranged ? range : null)}
-                >
-                  <Download className="size-4" />
-                  {progress?.format === item.format ? 'Exporting…' : 'Download'}
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-        <StatusLine status={action.status} />
-      </CardContent>
-    </Card>
+        </>
+      }
+      contentClassName="gap-4"
+      contentSlot={
+        <>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium">Range for ActivityWatch and CSV</span>
+            <RangePicker range={range} timeZone={timeZone} onChange={setRange} />
+          </div>
+          <ul className="flex flex-col divide-y">
+            {exports.map((item) => (
+              <li
+                key={item.format}
+                className="flex flex-wrap items-center justify-between gap-2 py-3 first:pt-0 last:pb-0"
+              >
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="text-sm font-medium">{item.title}</span>
+                  <span className="text-muted-foreground text-sm">{item.description}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {progress?.format === item.format && (
+                    <span className="text-muted-foreground text-sm tabular-nums">
+                      {progress.rows.toLocaleString()} rows
+                    </span>
+                  )}
+                  <Button
+                    variant="outline"
+                    disabled={action.pending && progress?.format !== item.format}
+                    loading={progress?.format === item.format}
+                    loadingLabel="Exporting…"
+                    onClick={() => start(item.format, item.spec, item.ranged ? range : null)}
+                    iconSlot={<Download />}
+                    content="Download"
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+          <StatusLine status={action.status} />
+        </>
+      }
+    />
   );
 }

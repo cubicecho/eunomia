@@ -1,12 +1,5 @@
 import type { CategoryKind } from '@/api';
-import { Swatch } from '@/components/rules/swatch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Combobox } from '@/components/combobox';
 import { KINDS } from '@/lib/kinds';
 
 /**
@@ -23,19 +16,14 @@ export function KindPicker({
   onChange(kind: CategoryKind): void;
 }) {
   return (
-    <Select value={value} onValueChange={(kind) => onChange(kind as CategoryKind)}>
-      <SelectTrigger className="w-36" id={id} aria-label="Kind">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {KINDS.map((kind) => (
-          <SelectItem key={kind.value} value={kind.value}>
-            <Swatch color={kind.color} />
-            {kind.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <Combobox
+      className="w-36"
+      id={id}
+      aria-label="Kind"
+      options={KINDS.map((kind) => ({ value: kind.value, label: kind.label, color: kind.color }))}
+      value={value}
+      onValueChange={(kind) => onChange(kind as CategoryKind)}
+    />
   );
 }
 
