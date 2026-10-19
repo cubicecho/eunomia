@@ -472,6 +472,25 @@ which.
 The **Merge entries** tab drives all of this — every recorded entry with its
 total, and a merge on each.
 
+### Day timeline
+
+The dashboard's **Timeline** tab shows one day hour by hour: a lane per
+device, each focus a block in its category's colour, in the order things
+happened (from `focusSegments`). Zoom from 24 hours down to one, and step
+through days. Drag across a lane to select a stretch of time, or tick
+**The same time on every device**, and the selection lists what was in front
+during it, with three actions:
+
+- **Categorize** assigns every activity the stretch touches to a category, as
+  manual assignments rules won't move again (the whole activity, including
+  any part of it outside the stretch).
+- **Rule**, on an entry's row, writes a rule for exactly that app (and
+  context) and applies it to past time.
+- **Delete this stretch** is `deleteRange` over exactly that time.
+
+Raw activities are kept for `ACTIVITY_RETENTION_DAYS`, so older days are
+empty here even though their totals stay in the charts.
+
 ### Exporting your data
 
 The dashboard's **Settings** tab downloads your account as files, in three
