@@ -60,6 +60,9 @@ const NOTE_ROW = 'block';
  */
 const ON_HIGHLIGHT = 'group-data-[selected=true]:text-foreground';
 
+/** The muted lines on a chosen option, which is the chosen tint: muted on it is under 4.5:1. */
+const ON_CHOSEN = 'text-foreground';
+
 /** Chips drawn before a `multiple` trigger collapses to a count. */
 const DEFAULT_MAX_DISPLAY = 3;
 
@@ -303,14 +306,22 @@ function OptionRow({
       // In reading order: the end of the row, then the line under it.
       aria-describedby={[metaId, hintId].filter(Boolean).join(' ') || undefined}
       onSelect={() => onPick(option.value)}
-      // `group` so the two muted lines can answer the highlight: see `ON_HIGHLIGHT`.
-      className={cn('group', stacked && 'items-start', option.className)}
+      // `group` so the two muted lines can answer the highlight: see `ON_HIGHLIGHT`. A chosen
+      // option is the chosen tint, a step further while highlighted rather than the hover grey.
+      className={cn(
+        'group',
+        selected && 'bg-active/40',
+        selected && 'data-[selected=true]:bg-active/60',
+        stacked && 'items-start',
+        option.className,
+      )}
     >
       <Check
         className={cn(
           'size-4 shrink-0',
           stacked && 'mt-0.5',
-          selected ? 'opacity-100' : 'opacity-0',
+          // The ✓ is what says chosen without colour, so on the tint it is full ink.
+          selected ? 'text-foreground opacity-100' : 'opacity-0',
         )}
         aria-hidden
       />
@@ -322,7 +333,11 @@ function OptionRow({
         {option.hint ? (
           // Wrapped rather than truncated: a reason cut off at the edge of the popover is the
           // same as no reason.
-          <OptionLine id={hintId} slot="combobox-option-hint" className={ON_HIGHLIGHT}>
+          <OptionLine
+            id={hintId}
+            slot="combobox-option-hint"
+            className={cn(ON_HIGHLIGHT, selected && ON_CHOSEN)}
+          >
             {option.hint}
           </OptionLine>
         ) : null}
@@ -331,7 +346,7 @@ function OptionRow({
         <OptionLine
           id={metaId}
           slot="combobox-option-meta"
-          className={cn('shrink-0', ON_HIGHLIGHT, stacked && 'mt-0.5')}
+          className={cn('shrink-0', ON_HIGHLIGHT, selected && ON_CHOSEN, stacked && 'mt-0.5')}
         >
           {option.meta}
         </OptionLine>
@@ -464,11 +479,16 @@ function SearchMenu({
           {...trigger}
           className={cn(
             'h-auto min-h-10 w-full justify-between gap-2 bg-background px-3 py-1.5 font-normal',
-            'whitespace-normal aria-invalid:border-negative disabled:cursor-not-allowed',
+            // It looks like a field, so it behaves like one: no hover fill, and focus turns its
+            // border `active`, as the select trigger beside it does — not a button's fill.
+            'hover:bg-background focus-visible:bg-background focus-visible:border-active',
+            'whitespace-normal aria-invalid:border-negative aria-invalid:focus-visible:border-active disabled:cursor-not-allowed',
             className,
           )}
           content={triggerSlot}
-          trailingSlot={<ChevronsUpDown className="size-4 shrink-0 opacity-50" aria-hidden />}
+          trailingSlot={
+            <ChevronsUpDown className="size-4 shrink-0 text-foreground/60" aria-hidden />
+          }
         />
       </PopoverTrigger>
       <PopoverContent
@@ -476,7 +496,7 @@ function SearchMenu({
         // radix's popover is a `role="dialog"`, and a dialog needs a name; the device's sheet has
         // no role to name, and the title is simply the first thing read in it.
         aria-labelledby={titleId}
-        className={cn('w-[var(--radix-popover-trigger-width)] p-0', contentClassName)}
+        className={cn('w-[var(--radix-popover-trigger-width)] gap-0 p-0', contentClassName)}
       >
         <span id={titleId} className={cn('cube-rn-text', SR_ONLY, NOTE_INK)}>
           {popoverLabel}
