@@ -6,7 +6,7 @@ import {
   fetchRecentActivities,
   fetchRulePacks,
 } from '@/api';
-import { QueryError, RowSkeleton } from '@/components/query-state';
+import { LoadError, RowSkeleton } from '@/components/load-state';
 import { CategoriesCard } from '@/components/rules/categories-card';
 import { CategoryRulesCard } from '@/components/rules/category-rules-card';
 import { ContextRulesCard } from '@/components/rules/context-rules-card';
@@ -34,7 +34,7 @@ export function RulesView() {
   );
   const action = useAction();
 
-  if (error && !data) return <QueryError error={error} onRetry={refetch} what="your rules" />;
+  if (error && !data) return <LoadError error={error} onRetry={refetch} what="your rules" />;
   if (!data) return <RowSkeleton rows={3} />;
   const [categories, categoryRules, contextRules, packs, samples] = data;
   const run = (mutation: () => Promise<unknown>) => action.run(mutation, { onDone: reload });

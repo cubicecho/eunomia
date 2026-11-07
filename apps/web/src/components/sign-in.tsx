@@ -8,8 +8,8 @@ import {
   type SsoSetup,
   verifyMagicLink,
 } from '@/api';
-import { CenteredLayout } from '@/components/centered-layout';
-import { Disclosure } from '@/components/disclosure';
+import { CenteredCardLayout } from '@/components/centered-card-layout';
+import { Collapsible } from '@/components/collapsible';
 import { FormField } from '@/components/form-field';
 import { PairSsoForm } from '@/components/sso-card';
 import { Alert } from '@/components/ui/alert';
@@ -69,7 +69,7 @@ export function SignIn({ message, onSignedIn }: Props) {
   };
 
   return (
-    <CenteredLayout
+    <CenteredCardLayout
       level={1}
       title="eunomia"
       description={
@@ -134,7 +134,7 @@ export function SignIn({ message, onSignedIn }: Props) {
               </form>
             )}
             {sso?.source === 'NONE' && sso.canPair ? (
-              <Disclosure
+              <Collapsible
                 className="border-t pt-4"
                 title="Set up single sign-on"
                 description="This server has no accounts yet, so anyone can connect a provider now. The first account to sign in becomes its admin, and only the admin can change this later."

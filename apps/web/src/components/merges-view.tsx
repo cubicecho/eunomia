@@ -1,7 +1,7 @@
 import { fetchAppSummary, fetchMergeRules } from '@/api';
+import { LoadError, RowSkeleton } from '@/components/load-state';
 import { EntriesCard } from '@/components/merges/entries-card';
 import { MergesCard } from '@/components/merges/merges-card';
-import { QueryError, RowSkeleton } from '@/components/query-state';
 import { StatusLine } from '@/components/status-line';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { rangeOfEverything } from '@/lib/format';
@@ -25,7 +25,7 @@ export function MergesView() {
   const action = useAction();
 
   if (error && !data)
-    return <QueryError error={error} onRetry={refetch} what="your recorded entries" />;
+    return <LoadError error={error} onRetry={refetch} what="your recorded entries" />;
   if (!data) return <RowSkeleton rows={3} />;
   const [rows, rules] = data;
   const run = (mutation: () => Promise<unknown>) => action.run(mutation, { onDone: reload });

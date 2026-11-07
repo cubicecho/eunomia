@@ -11,7 +11,7 @@ import { DashboardSkeleton } from '@/components/dashboard/skeleton';
 import { StatTiles } from '@/components/dashboard/stat-tiles';
 import { TopApps } from '@/components/dashboard/top-apps';
 import { WeekTrend } from '@/components/dashboard/week-trend';
-import { QueryError } from '@/components/query-state';
+import { LoadError } from '@/components/load-state';
 import { useQuery } from '@/hooks/use-query';
 import { rangeOfLastDays } from '@/lib/format';
 import { kindTotals } from '@/lib/kinds';
@@ -55,7 +55,7 @@ export function DashboardView({ onNavigate }: { onNavigate(view: View): void }) 
         <DevicePicker devices={devices.data ?? []} selected={deviceId} onChange={setDeviceId} />
       </div>
       {error && !data ? (
-        <QueryError error={error} onRetry={refetch} what="your dashboard" />
+        <LoadError error={error} onRetry={refetch} what="your dashboard" />
       ) : !data ? (
         <DashboardSkeleton />
       ) : (

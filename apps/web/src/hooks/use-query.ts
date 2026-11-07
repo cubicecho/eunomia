@@ -11,7 +11,7 @@ interface QueryResult<T> {
   loading: boolean;
   reload: () => void;
   /**
-   * The same state in the shape cubeui's `QueryState` / `QueryError` read,
+   * The same state in the shape cubeui's `LoadState` / `LoadError` read,
    * so a view hands the result straight to them: no data yet and still
    * loading, the last load failed, and the retry.
    */
