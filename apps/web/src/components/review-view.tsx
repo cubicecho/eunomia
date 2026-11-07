@@ -15,7 +15,7 @@ import { CardLayout } from '@/components/card-layout';
 import { Combobox } from '@/components/combobox';
 import { RangePicker } from '@/components/dashboard/range-picker';
 import { EmptyState } from '@/components/empty-state';
-import { QueryError, RowSkeleton } from '@/components/query-state';
+import { LoadError, RowSkeleton } from '@/components/load-state';
 import { CategoryRuleForm, type RulePatterns } from '@/components/rules/category-rule-form';
 import { RuleDialog } from '@/components/rules/rule-dialog';
 import { StatusLine } from '@/components/status-line';
@@ -77,7 +77,7 @@ export function ReviewView() {
         <SuggestionsCard range={range} configured={llm.data.source !== 'NONE'} onSaved={reload} />
       ) : null}
       {error && !data ? (
-        <QueryError error={error} onRetry={refetch} what="the review queue" />
+        <LoadError error={error} onRetry={refetch} what="the review queue" />
       ) : !data ? (
         <RowSkeleton rows={3} />
       ) : (

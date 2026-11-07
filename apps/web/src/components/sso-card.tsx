@@ -4,7 +4,7 @@ import { fetchSsoSetup, pairSso, unpairSso } from '@/api';
 import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
 import { FormField } from '@/components/form-field';
-import { QueryError } from '@/components/query-state';
+import { LoadError } from '@/components/load-state';
 import { StatusLine } from '@/components/status-line';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -82,7 +82,7 @@ export function SsoCard() {
       contentSlot={
         <>
           {setup.error ? (
-            <QueryError
+            <LoadError
               compact
               error={setup.error}
               onRetry={setup.refetch}

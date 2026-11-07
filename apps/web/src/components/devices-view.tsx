@@ -7,7 +7,7 @@ import { ConfirmButton } from '@/components/confirm-button';
 import { DeviceLinkCard } from '@/components/device-link-card';
 import { DialogLayout } from '@/components/dialog-layout';
 import { EmptyState } from '@/components/empty-state';
-import { QueryError } from '@/components/query-state';
+import { LoadError } from '@/components/load-state';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,7 +24,7 @@ export function DevicesView() {
   const action = useAction();
 
   if (query.error && !data) {
-    return <QueryError error={query.error} onRetry={query.refetch} what="your devices" />;
+    return <LoadError error={query.error} onRetry={query.refetch} what="your devices" />;
   }
   const run = (mutation: () => Promise<unknown>) => action.run(mutation, { onDone: reload });
 

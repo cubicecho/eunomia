@@ -13,9 +13,9 @@ import { ApiKeysView } from '@/components/api-keys-view';
 import { ClockMark } from '@/components/clock-mark';
 import { DashboardView } from '@/components/dashboard/dashboard-view';
 import { DevicesView } from '@/components/devices-view';
+import { LoadError } from '@/components/load-state';
 import { MergesView } from '@/components/merges-view';
 import { PageHeader } from '@/components/page-header';
-import { QueryError } from '@/components/query-state';
 import { ReviewView } from '@/components/review-view';
 import { RulesView } from '@/components/rules-view';
 import { SettingsView } from '@/components/settings-view';
@@ -129,7 +129,7 @@ export function App() {
   if (screen.error) {
     return (
       <div className="mx-auto max-w-md p-6">
-        <QueryError
+        <LoadError
           error={screen.error}
           what="your account"
           onRetry={() => setScreen({ kind: 'signed-in', me: null })}

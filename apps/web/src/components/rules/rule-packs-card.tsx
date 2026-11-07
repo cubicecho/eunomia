@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { installRulePack, type RulePack } from '@/api';
 import { CardLayout } from '@/components/card-layout';
-import { Disclosure } from '@/components/disclosure';
+import { Collapsible } from '@/components/collapsible';
 import { StatusLine } from '@/components/status-line';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -100,7 +100,7 @@ function PackRow({
           {pack.description} Category: {pack.categoryName} (
           {kindInfo(pack.categoryKind).label.toLowerCase()}).
         </p>
-        <Disclosure
+        <Collapsible
           title="What it matches"
           titleClassName="text-xs text-muted-foreground"
           contentClassName="gap-1 text-xs"

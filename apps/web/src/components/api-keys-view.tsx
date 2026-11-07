@@ -8,7 +8,7 @@ import { DialogLayout } from '@/components/dialog-layout';
 import { EmptyState } from '@/components/empty-state';
 import { FieldRow } from '@/components/field-row';
 import { FormField } from '@/components/form-field';
-import { QueryError } from '@/components/query-state';
+import { LoadError } from '@/components/load-state';
 import { StatusLine } from '@/components/status-line';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -44,7 +44,7 @@ export function ApiKeysView() {
   const [issued, setIssued] = useState<{ name: string; token: string } | null>(null);
 
   if (query.error && !data) {
-    return <QueryError error={query.error} onRetry={query.refetch} what="your API keys" />;
+    return <LoadError error={query.error} onRetry={query.refetch} what="your API keys" />;
   }
 
   const run = (mutation: () => Promise<unknown>) => action.run(mutation, { onDone: reload });

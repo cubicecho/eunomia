@@ -5,7 +5,7 @@ import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
 import { FieldRow } from '@/components/field-row';
 import { FormField } from '@/components/form-field';
-import { QueryError } from '@/components/query-state';
+import { LoadError } from '@/components/load-state';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -56,7 +56,7 @@ export function LlmCard() {
       contentSlot={
         <>
           {settings.error && !data ? (
-            <QueryError
+            <LoadError
               compact
               error={settings.error}
               onRetry={settings.refetch}

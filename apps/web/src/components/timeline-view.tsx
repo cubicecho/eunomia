@@ -16,7 +16,7 @@ import { Combobox } from '@/components/combobox';
 import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { FormField } from '@/components/form-field';
-import { QueryError } from '@/components/query-state';
+import { LoadError } from '@/components/load-state';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -167,7 +167,7 @@ export function TimelineView() {
             </div>
 
             {segments.error && !segments.data ? (
-              <QueryError
+              <LoadError
                 compact
                 error={segments.error}
                 onRetry={segments.refetch}
