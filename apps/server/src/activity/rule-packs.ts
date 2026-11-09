@@ -578,7 +578,7 @@ export interface PackInstall {
  * - A slot already at this version is left exactly as it is, edits and all.
  *
  * The category is the one the pack's surviving rules already point at, else
- * the user's category of the pack's name, else a new one.
+ * the user's category of the pack's name (in any case), else a new one.
  *
  * Then the rules are swept over history, the same sweep applyCategoryRules
  * runs: the point of installing a pack is the uncategorized time already on
@@ -601,7 +601,16 @@ export async function installRulePack(db: Db, userId: string, id: string): Promi
       const [named] = await tx
         .select({ id: categories.id })
         .from(categories)
-        .where(and(eq(categories.userId, userId), eq(categories.name, pack.category.name)));
+        .where(
+          and(
+            eq(categories.userId, userId),
+            sql`lower(${categories.name}) = lower(${pack.category.name})`,
+          ),
+        )
+        // Names are unique only as typed, so "gaming" and "Gaming" can both
+        // exist: the exact spelling wins, then the oldest.
+        .orderBy(sql`${categories.name} <> ${pack.category.name}`, categories.createdAt)
+        .limit(1);
       categoryId =
         named?.id ??
         (

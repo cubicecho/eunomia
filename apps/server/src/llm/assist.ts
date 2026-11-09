@@ -1,4 +1,5 @@
 import { ask, askJson } from '@cubicecho/agent-core';
+import { CATEGORY_KINDS } from '../db/schema.ts';
 import { endpointFor, type LlmConfig } from './settings.ts';
 
 // What the language model is asked (issue #41), and what is done with its
@@ -65,7 +66,8 @@ const SUGGESTION_SCHEMA = {
           },
           category: {
             type: 'string',
-            description: 'An existing category name, exactly as listed, or a short new one.',
+            description:
+              'An existing category name, exactly as listed and without its kind, or a short new one.',
           },
           reason: { type: 'string', description: 'One short sentence on why.' },
         },
@@ -121,6 +123,14 @@ function describeEntries(entries: UncategorizedEntry[]): string {
     .join('\n');
 }
 
+// A category's kind as the prompt lists it ("— kind: personal") or as the
+// older prompt did ("(personal)"), for when the model echoes it back.
+const KINDS = CATEGORY_KINDS.join('|');
+const KIND_SUFFIX = new RegExp(
+  `\\s*(?:\\((?:kind:\\s*)?(?:${KINDS})\\)|—\\s*kind:\\s*(?:${KINDS}))$`,
+  'i',
+);
+
 /**
  * Asks for categories for the uncategorized entries and turns the answer into
  * rules the server can stand behind. Invalid or duplicate picks are dropped.
@@ -135,7 +145,7 @@ export async function suggestRules(
   const known =
     categories.length === 0
       ? '(none yet)'
-      : categories.map((category) => `- ${category.name} (${category.kind})`).join('\n');
+      : categories.map((category) => `- ${category.name} — kind: ${category.kind}`).join('\n');
   const user = `Categories they have:\n${known}\n\nUncategorized entries, largest first:\n${describeEntries(entries)}`;
 
   const answer = await askJson<{ suggestions?: ModelSuggestion[] }>(
@@ -161,7 +171,11 @@ export async function suggestRules(
     const key = `${appPattern}\n${contextPattern ?? ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const existing = byName.get(name.toLowerCase());
+    // Models sometimes echo a category back with its kind attached
+    // ("Gaming (personal)"). The exact name wins, so a category really named
+    // that still matches; otherwise drop the kind and look again.
+    const existing =
+      byName.get(name.toLowerCase()) ?? byName.get(name.replace(KIND_SUFFIX, '').toLowerCase());
     out.push({
       app: entry.app,
       context: byContext ? entry.context : null,

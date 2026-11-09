@@ -295,8 +295,31 @@ describe('bring-your-own language model', () => {
     expect(sent.auth).toBe('Bearer sk-test-secret');
     expect(sent.body.model).toBe('test-model');
     expect(lastUserMessage()).toContain('firefox — shop.example');
-    expect(lastUserMessage()).toContain('Work (work)');
+    expect(lastUserMessage()).toContain('Work — kind: work');
     expect(JSON.stringify(sent.body)).not.toContain('private title');
+  });
+
+  it('matches an existing category the model echoed back with its kind', async () => {
+    await db
+      .insert(categories)
+      .values({ id: 'cat-gaming', userId: 'admin', name: 'Gaming', kind: 'personal' });
+    await configure();
+    endpoint.reply = JSON.stringify({
+      suggestions: [
+        { entry: 1, scope: 'context', category: 'Gaming (personal)', reason: '' },
+        { entry: 2, scope: 'app', category: 'Work — kind: work', reason: '' },
+        // A kind-looking word that isn't a suffix stays a new name.
+        { entry: 3, scope: 'app', category: 'Self-work', reason: '' },
+      ],
+    });
+    const { suggestRules } = await data<{ suggestRules: Record<string, unknown>[] }>(
+      `{ suggestRules(${RANGE}) { app categoryId categoryName isNewCategory } }`,
+    );
+    expect(suggestRules).toEqual([
+      { app: 'firefox', categoryId: 'cat-gaming', categoryName: 'Gaming', isNewCategory: false },
+      { app: 'slack', categoryId: 'cat-work', categoryName: 'Work', isNewCategory: false },
+      { app: 'terminal', categoryId: null, categoryName: 'Self-work', isNewCategory: true },
+    ]);
   });
 
   it('sends window titles only when asked to', async () => {
