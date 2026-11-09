@@ -1,4 +1,3 @@
-import { History } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { setRetention } from '@/api';
 import { CardLayout } from '@/components/card-layout';
@@ -6,6 +5,7 @@ import { ConfirmButton } from '@/components/confirm-button';
 import { FormField } from '@/components/form-field';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
+import { RotateCcwClock } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { useAction } from '@/hooks/use-query';
 import { useSession } from '@/session';
@@ -84,7 +84,7 @@ export function RetentionCard() {
             variant="destructive"
             disabled={!valid || days === me.retentionDays}
             loading={action.pending}
-            iconSlot={<History />}
+            iconSlot={<RotateCcwClock />}
             content="Save"
             title={`Delete raw history older than ${days} ${days === 1 ? 'day' : 'days'}?`}
             confirmLabel="Delete older history"

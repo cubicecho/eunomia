@@ -1,4 +1,3 @@
-import { Trash2 } from 'lucide-react';
 import { type ActivitySample, type Category, type CategoryRule, deleteCategoryRule } from '@/api';
 import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
@@ -9,6 +8,7 @@ import { Pattern } from '@/components/rules/pattern';
 import { addRuleTrigger, editRuleTrigger, RuleDialog } from '@/components/rules/rule-dialog';
 import { Swatch } from '@/components/rules/swatch';
 import { Badge } from '@/components/ui/badge';
+import { Trash2 } from '@/components/ui/icons';
 import {
   Table,
   TableBody,

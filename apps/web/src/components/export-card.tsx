@@ -1,10 +1,10 @@
-import { Download } from 'lucide-react';
 import { useState } from 'react';
 import { type ExportFormat, exportFile } from '@/api';
 import { CardLayout } from '@/components/card-layout';
 import { RangePicker } from '@/components/dashboard/range-picker';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
+import { Download } from '@/components/ui/icons';
 import { useAction } from '@/hooks/use-query';
 import { addDays, type DateRange, dayIn, rangeOfLastDays } from '@/lib/format';
 import { useTimeZone } from '@/session';

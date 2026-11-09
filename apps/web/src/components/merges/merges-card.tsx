@@ -1,4 +1,3 @@
-import { ArrowRight, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { applyMergeRules, deleteMergeRule, type MergeRule } from '@/api';
 import { CardLayout } from '@/components/card-layout';
@@ -6,6 +5,7 @@ import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { entryLabel } from '@/components/merges/merge-dialog';
 import { Button } from '@/components/ui/button';
+import { ArrowRight, Trash2 } from '@/components/ui/icons';
 import { errorMessage, type Run } from '@/hooks/use-query';
 
 interface Props {

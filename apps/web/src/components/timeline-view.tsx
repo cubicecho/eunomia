@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, ListPlus, Tag, Trash2, X } from 'lucide-react';
+import { ListPlus } from 'lucide-react';
 import { type PointerEvent, useMemo, useRef, useState } from 'react';
 import {
   applyCategoryRules,
@@ -20,6 +20,7 @@ import { LoadError } from '@/components/load-state';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ChevronLeft, ChevronRight, Tag, Trash2, X } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { addDays, dayIn, formatSeconds } from '@/lib/format';

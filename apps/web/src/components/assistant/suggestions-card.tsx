@@ -1,4 +1,3 @@
-import { Plus, Sparkles, X } from 'lucide-react';
 import { useState } from 'react';
 import { acceptSuggestion, type RuleSuggestion, suggestRules } from '@/api';
 import { IncludeTitles } from '@/components/assistant/include-titles';
@@ -7,6 +6,7 @@ import { EmptyState } from '@/components/empty-state';
 import { StatusLine } from '@/components/status-line';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Plus, Sparkles, X } from '@/components/ui/icons';
 import { useAction } from '@/hooks/use-query';
 import { type DateRange, formatSeconds } from '@/lib/format';
 import { DEFAULT_KIND } from '@/lib/kinds';

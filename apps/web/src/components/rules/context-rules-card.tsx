@@ -1,4 +1,3 @@
-import { Trash2 } from 'lucide-react';
 import { type ActivitySample, type ContextRule, deleteContextRule } from '@/api';
 import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
@@ -6,6 +5,7 @@ import { EmptyState } from '@/components/empty-state';
 import { ContextRuleForm } from '@/components/rules/context-rule-form';
 import { Pattern } from '@/components/rules/pattern';
 import { addRuleTrigger, editRuleTrigger, RuleDialog } from '@/components/rules/rule-dialog';
+import { Trash2 } from '@/components/ui/icons';
 import {
   Table,
   TableBody,

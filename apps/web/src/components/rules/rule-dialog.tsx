@@ -1,7 +1,7 @@
-import { Pencil, Plus } from 'lucide-react';
 import { type ReactNode, useCallback, useId, useMemo, useRef, useState } from 'react';
 import { DialogLayout } from '@/components/dialog-layout';
 import { Button } from '@/components/ui/button';
+import { Pencil, Plus } from '@/components/ui/icons';
 import type { SlotNode } from '@/lib/utils';
 
 /** What a rule form tells the dialog around it, so the dialog can draw the footer. */

@@ -1,4 +1,3 @@
-import { Plus, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type ActivitySample,
@@ -16,6 +15,7 @@ import { Preview, PreviewRow } from '@/components/rules/preview';
 import type { RuleFormHost } from '@/components/rules/rule-dialog';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
+import { Plus, X } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { useAction } from '@/hooks/use-query';
 import { compile, type Match, parsePattern, toPattern } from '@/lib/pattern';

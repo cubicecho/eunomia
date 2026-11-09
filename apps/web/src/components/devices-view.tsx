@@ -1,4 +1,4 @@
-import { CircleAlert, Merge } from 'lucide-react';
+import { Merge } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { type Device, deleteDevice, fetchDevices, mergeDevice, renameDevice } from '@/api';
 import { CardLayout } from '@/components/card-layout';
@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/empty-state';
 import { LoadError } from '@/components/load-state';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
+import { CircleAlert } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { ago } from '@/lib/format';

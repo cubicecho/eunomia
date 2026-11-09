@@ -1,4 +1,3 @@
-import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useId, useState } from 'react';
 import {
   type Category,
@@ -17,6 +16,7 @@ import { KindHints, KindPicker } from '@/components/rules/kind-picker';
 import { Swatch } from '@/components/rules/swatch';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
+import { Pencil, Plus, Trash2 } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { type Run, useAction } from '@/hooks/use-query';
 import { DEFAULT_KIND, kindInfo } from '@/lib/kinds';

@@ -1,4 +1,3 @@
-import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { deleteRange, fetchDevices, type RangeDeletion } from '@/api';
 import { CardLayout } from '@/components/card-layout';
@@ -8,6 +7,7 @@ import { FieldRow } from '@/components/field-row';
 import { FormField } from '@/components/form-field';
 import { StatusLine } from '@/components/status-line';
 import { Alert } from '@/components/ui/alert';
+import { Trash2 } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { dayIn, instantIn, localIn } from '@/lib/format';

@@ -1,9 +1,9 @@
-import { ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { MergeDialog } from '@/components/merges/merge-dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ChevronRight } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { formatSeconds } from '@/lib/format';
 import type { EntryGroup } from '@/lib/summary';

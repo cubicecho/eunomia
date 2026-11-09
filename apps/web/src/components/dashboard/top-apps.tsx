@@ -1,9 +1,9 @@
-import { ChevronRight } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { Swatch } from '@/components/rules/swatch';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ChevronRight } from '@/components/ui/icons';
 import { formatSeconds } from '@/lib/format';
 import { UNCATEGORIZED_COLOR } from '@/lib/palette';
 import { type AppTotal, appCategories, type Segment } from '@/lib/summary';
