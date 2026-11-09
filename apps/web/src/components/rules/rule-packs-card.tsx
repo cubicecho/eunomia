@@ -97,8 +97,8 @@ function PackRow({
           {outdated && <Badge variant="outline">Update available</Badge>}
         </div>
         <p className="text-muted-foreground text-sm">
-          {pack.description} Category: {pack.categoryName} (
-          {kindInfo(pack.categoryKind).label.toLowerCase()}).
+          {pack.description} Files into {pack.categoryName}, a{' '}
+          {kindInfo(pack.categoryKind).label.toLowerCase()} category.
         </p>
         <Collapsible
           title="What it matches"

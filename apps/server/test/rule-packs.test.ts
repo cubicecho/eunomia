@@ -160,6 +160,21 @@ describe('starter rule packs', () => {
       ]);
     });
 
+    it('reuses a category whose name differs only in case, preferring the exact one', async () => {
+      const { createCategory: lower } = await data(
+        'mutation { createCategory(name: "gaming") { id } }',
+      );
+      expect((await install('gaming')).categoryId).toBe(lower.id);
+      expect((await data('{ categories { name } }')).categories).toEqual([{ name: 'gaming' }]);
+
+      // Both spellings: the pack's own wins over the older lowercase one.
+      const { createCategory: exact } = await data(
+        'mutation { createCategory(name: "Gaming") { id } }',
+      );
+      await db.delete(categoryRules);
+      expect((await install('gaming')).categoryId).toBe(exact.id);
+    });
+
     it('leaves an edited rule alone, and restores a deleted one', async () => {
       const { categoryId } = await install('gaming');
       const tagged = await rules();
