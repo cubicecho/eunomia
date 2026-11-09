@@ -1,4 +1,3 @@
-import { Upload } from 'lucide-react';
 import { useState } from 'react';
 import { fetchDevices, fetchMe, type ImportSource, type ImportTarget, importChunk } from '@/api';
 import { CardLayout } from '@/components/card-layout';
@@ -7,6 +6,7 @@ import { FieldRow } from '@/components/field-row';
 import { FormField } from '@/components/form-field';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
+import { Upload } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { useAction, useQuery } from '@/hooks/use-query';
 import {

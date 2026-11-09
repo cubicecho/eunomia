@@ -1,4 +1,3 @@
-import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { type AppPurge, fetchAppSummary, purgeApp } from '@/api';
 import { CardLayout } from '@/components/card-layout';
@@ -6,6 +5,7 @@ import { ConfirmButton } from '@/components/confirm-button';
 import { FieldRow } from '@/components/field-row';
 import { FormField } from '@/components/form-field';
 import { StatusLine } from '@/components/status-line';
+import { Trash2 } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { rangeOfEverything } from '@/lib/format';

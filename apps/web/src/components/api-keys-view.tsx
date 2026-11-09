@@ -1,4 +1,3 @@
-import { KeyRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { type ApiKey, createApiKey, fetchApiKeys, renameApiKey, revokeApiKey } from '@/api';
 import { CardLayout } from '@/components/card-layout';
@@ -15,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CodeBlock } from '@/components/ui/code';
 import { CopyButton } from '@/components/ui/copy-button';
+import { KeyRound } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { ago } from '@/lib/format';

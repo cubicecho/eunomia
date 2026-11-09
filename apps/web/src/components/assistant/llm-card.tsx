@@ -1,4 +1,4 @@
-import { Bot, Unplug } from 'lucide-react';
+import { Unplug } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { clearLlmSettings, fetchLlmSettings, setLlmSettings } from '@/api';
 import { CardLayout } from '@/components/card-layout';
@@ -8,6 +8,7 @@ import { FormField } from '@/components/form-field';
 import { LoadError } from '@/components/load-state';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
+import { Bot } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { useAction, useQuery } from '@/hooks/use-query';
 

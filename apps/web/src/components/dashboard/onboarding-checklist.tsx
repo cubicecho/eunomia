@@ -1,9 +1,10 @@
-import { CircleCheck, CircleDashed, X } from 'lucide-react';
+import { CircleDashed } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { fetchAppSummary, fetchDevices, fetchRulePacks, setOnboarding } from '@/api';
 import { CardLayout } from '@/components/card-layout';
 import { StatusLine } from '@/components/status-line';
 import { Button } from '@/components/ui/button';
+import { CircleCheck, X } from '@/components/ui/icons';
 import { useAction, useQuery } from '@/hooks/use-query';
 import { rangeOfLastDays } from '@/lib/format';
 import { onboardingSteps, type StepId } from '@/lib/onboarding';

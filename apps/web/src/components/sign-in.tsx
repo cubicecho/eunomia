@@ -1,4 +1,3 @@
-import { KeyRound } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import {
   claimSetupCode,
@@ -14,6 +13,7 @@ import { FormField } from '@/components/form-field';
 import { PairSsoForm } from '@/components/sso-card';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { KeyRound } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { errorMessage } from '@/hooks/use-query';
 

@@ -1,4 +1,4 @@
-import { KeyRound, Link2 } from 'lucide-react';
+import { Link2 } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { fetchSsoSetup, pairSso, unpairSso } from '@/api';
 import { CardLayout } from '@/components/card-layout';
@@ -8,6 +8,7 @@ import { LoadError } from '@/components/load-state';
 import { StatusLine } from '@/components/status-line';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { KeyRound } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { errorMessage, useAction, useQuery } from '@/hooks/use-query';
 
