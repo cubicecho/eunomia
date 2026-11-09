@@ -1343,6 +1343,13 @@ type Mutation {
   deleted is written again.
   """
   installRulePack(id: String!): RulePackInstall!
+
+  """
+  Folds category `id` into `intoId`: its activities (manual ones included),
+  rolled-up time and rules move to the target, and `id` is removed. A moved
+  rule identical to one the target already has is dropped. Returns the target.
+  """
+  mergeCategory(id: String!, intoId: String!): Categories!
   mergeDevice(id: String!, intoId: String!): Devices!
   pairSso(setupUrl: String!): SsoSetup!
 

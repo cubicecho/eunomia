@@ -1,5 +1,6 @@
 import type { MutationCreateCategoryArgs, MutationResolvers } from '@eunomia/gql/resolvers';
-import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
+import { and, eq, exists, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { entryMatch, ownDeviceIds } from '../activity/merge-rules.ts';
 import {
   addSeconds,
@@ -8,7 +9,7 @@ import {
   ownerJoin,
 } from '../activity/rollup.ts';
 import type { Db } from '../db/client.ts';
-import { activities, categories, devices, summaries, user } from '../db/schema.ts';
+import { activities, categories, categoryRules, devices, summaries, user } from '../db/schema.ts';
 import { badInput, notFound } from '../errors.ts';
 import { requireOwned, requireUser } from './guards.ts';
 import { liveDayBounds, parseRange, summaryDayBounds } from './summaries.ts';
@@ -23,6 +24,9 @@ import { liveDayBounds, parseRange, summaryDayBounds } from './summaries.ts';
  * left to the index, a duplicate is a constraint violation, which reaches the
  * client masked as "Unexpected error." rather than as something to fix.
  * `exceptId` is the category being renamed, which may keep its own name.
+ *
+ * The check ignores case, unlike the index: "gaming" next to "Gaming" is
+ * almost always the same bucket made twice, and splits its time in two.
  */
 async function categoryValues(
   db: Db,
@@ -33,17 +37,23 @@ async function categoryValues(
   const name = args.name.trim();
   if (!name) throw badInput('A category needs a name');
   const [clash] = await db
-    .select({ id: categories.id })
+    .select({ id: categories.id, name: categories.name })
     .from(categories)
     .where(
       and(
         eq(categories.userId, userId),
-        eq(categories.name, name),
+        sql`lower(${categories.name}) = lower(${name})`,
         exceptId ? ne(categories.id, exceptId) : undefined,
       ),
     )
     .limit(1);
-  if (clash) throw badInput(`There is already a category called “${name}”`);
+  if (clash) {
+    throw badInput(
+      clash.name === name
+        ? `There is already a category called “${name}”`
+        : `“${name}” is the same name as “${clash.name}”. Merge them instead of keeping both`,
+    );
+  }
   // A blank color is no color: the charts fall back to a stable palette slot.
   const color = args.color?.trim();
   // Omitted is neutral on update too: the dialog always sends the whole
@@ -83,6 +93,57 @@ export function categoryFields(db: Db) {
       await mergeCategorySummaries(db, category.id);
       await db.delete(categories).where(eq(categories.id, category.id));
       return true;
+    },
+    // Folds one category into another: its activities, rolled-up time and
+    // rules all become the target's, then it is removed. Unlike delete, no
+    // rule is lost and no time goes back to uncategorized. Manual
+    // assignments move too and stay manual — the person put them in that
+    // bucket, and the bucket is now the target.
+    mergeCategory: async (_source, args, ctx) => {
+      const userId = requireUser(ctx);
+      if (args.id === args.intoId) throw badInput('Pick a different category to merge into');
+      const owned = await db
+        .select()
+        .from(categories)
+        .where(and(eq(categories.userId, userId), inArray(categories.id, [args.id, args.intoId])));
+      const source = owned.find((category) => category.id === args.id);
+      const target = owned.find((category) => category.id === args.intoId);
+      if (!source || !target) throw notFound('Unknown category');
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(activities)
+          .set({ categoryId: target.id })
+          .where(eq(activities.categoryId, source.id));
+        await mergeCategorySummaries(tx, source.id, target.id);
+        // A rule the target already has, pattern for pattern, would only
+        // match twice: keep the target's and drop the moved copy.
+        const kept = alias(categoryRules, 'kept');
+        await tx.delete(categoryRules).where(
+          and(
+            eq(categoryRules.categoryId, source.id),
+            exists(
+              tx
+                .select({ id: kept.id })
+                .from(kept)
+                .where(
+                  and(
+                    eq(kept.categoryId, target.id),
+                    sql`${kept.appPattern} is not distinct from ${categoryRules.appPattern}`,
+                    sql`${kept.titlePattern} is not distinct from ${categoryRules.titlePattern}`,
+                    sql`${kept.contextPattern} is not distinct from ${categoryRules.contextPattern}`,
+                  ),
+                ),
+            ),
+          ),
+        );
+        await tx
+          .update(categoryRules)
+          .set({ categoryId: target.id })
+          .where(eq(categoryRules.categoryId, source.id));
+        await tx.delete(categories).where(eq(categories.id, source.id));
+      });
+      return target;
     },
     // Sets (or, with a null categoryId, clears) an activity's category.
     assignActivity: async (_source, args, ctx) => {

@@ -298,12 +298,16 @@ export async function rebucketSummaries(
 }
 
 /**
- * Folds a category's summary rows into the matching uncategorized rows — run
- * before deleting the category, mirroring what its FK set-null does to raw
- * activities (a plain set-null on summaries would collide with the unique
- * key's existing uncategorized rows).
+ * Folds a category's summary rows into the matching rows of `intoId` — the
+ * uncategorized ones by default, which is what deleting the category needs
+ * (its FK set-null on activities, mirrored). A plain update of categoryId
+ * would collide with the unique key wherever the target already has a row.
  */
-export async function mergeCategorySummaries(db: Db, categoryId: string): Promise<void> {
+export async function mergeCategorySummaries(
+  db: Db,
+  categoryId: string,
+  intoId: string | null = null,
+): Promise<void> {
   const rows = await db.select().from(summaries).where(eq(summaries.categoryId, categoryId));
   for (const row of rows) {
     await addSeconds(
@@ -313,7 +317,7 @@ export async function mergeCategorySummaries(db: Db, categoryId: string): Promis
         day: row.day,
         app: row.app,
         context: row.context,
-        categoryId: null,
+        categoryId: intoId,
       },
       row.seconds,
     );

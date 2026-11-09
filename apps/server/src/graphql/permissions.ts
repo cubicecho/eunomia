@@ -167,6 +167,7 @@ export const permissions = {
     createCategory: authenticated,
     updateCategory: authenticated,
     deleteCategory: authenticated,
+    mergeCategory: authenticated,
     assignActivity: authenticated,
     assignEntry: authenticated,
     createCategoryRule: authenticated,

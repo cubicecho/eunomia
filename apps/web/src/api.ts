@@ -313,6 +313,8 @@ export const updateCategory = (
 ): Promise<unknown> => sdk.UpdateCategory({ id, name, color, kind });
 
 export const deleteCategory = (id: string): Promise<unknown> => sdk.DeleteCategory({ id });
+export const mergeCategory = (id: string, intoId: string): Promise<unknown> =>
+  sdk.MergeCategory({ id, intoId });
 
 export const createCategoryRule = (rule: CategoryRuleInput): Promise<unknown> =>
   sdk.CreateCategoryRule(rule);

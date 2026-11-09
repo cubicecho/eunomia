@@ -307,6 +307,12 @@ type Mutation {
   """
   updateCategory(id: String!, name: String!, color: String, kind: CategoriesKindEnum): Categories!
   deleteCategory(id: String!): Boolean!
+  """
+  Folds category `id` into `intoId`: its activities (manual ones included),
+  rolled-up time and rules move to the target, and `id` is removed. A moved
+  rule identical to one the target already has is dropped. Returns the target.
+  """
+  mergeCategory(id: String!, intoId: String!): Categories!
   assignActivity(activityId: String!, categoryId: String): Activities!
   """
   Assigns every uncategorized second of one entry — an app, or one context

@@ -60,6 +60,7 @@ describe('graphql schema', () => {
       'deviceSignInLink',
       'importChunk',
       'installRulePack',
+      'mergeCategory',
       'mergeDevice',
       'pairSso',
       'purgeApp',
