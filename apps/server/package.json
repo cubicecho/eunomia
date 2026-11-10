@@ -16,7 +16,7 @@
   "dependencies": {
     "@better-auth/api-key": "^1.6.29",
     "@casl/ability": "^6.7.0",
-    "@cubicecho/agent-core": "^4.2.0",
+    "@cubicecho/agent-core": "^4.5.0",
     "@cubicecho/graphql-mcp": "^2.5.0",
     "@eunomia/gql": "*",
     "@modelcontextprotocol/sdk": "^1.30.0",

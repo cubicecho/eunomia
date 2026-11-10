@@ -128,7 +128,7 @@ export function llmQueryFields(db: Db) {
 
       let suggestions: Awaited<ReturnType<typeof suggestRules>>;
       try {
-        suggestions = await suggestRules(config, entries, known);
+        suggestions = await suggestRules(config, entries, known, { signal: ctx.signal });
       } catch (error) {
         throw modelFailed(config, error);
       }
@@ -165,16 +165,20 @@ export function llmQueryFields(db: Db) {
       );
       let text: string;
       try {
-        text = await draftStandup(config, {
-          day: summary.day,
-          totalSeconds: summary.totalSeconds,
-          categories: summary.categories.map((row) => ({
-            name: row.name ?? 'Uncategorized',
-            kind: row.kind,
-            seconds: row.seconds,
-          })),
-          top,
-        });
+        text = await draftStandup(
+          config,
+          {
+            day: summary.day,
+            totalSeconds: summary.totalSeconds,
+            categories: summary.categories.map((row) => ({
+              name: row.name ?? 'Uncategorized',
+              kind: row.kind,
+              seconds: row.seconds,
+            })),
+            top,
+          },
+          { signal: ctx.signal },
+        );
       } catch (error) {
         throw modelFailed(config, error);
       }

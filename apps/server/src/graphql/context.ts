@@ -21,4 +21,9 @@ export interface Context {
   keyScopes?: KeyScope[] | undefined;
   /** Original request headers — signOut needs them to find the session to revoke. */
   headers: Headers;
+  /**
+   * Fires when the caller goes away. Set by /graphql from Yoga's request, so
+   * a closed dashboard stops a slow model instead of holding it until timeout.
+   */
+  signal?: AbortSignal | undefined;
 }

@@ -675,9 +675,13 @@ without one.
   to copy and edit. Nothing is saved.
 - **What is sent:** app and context (site, project) names with their totals,
   and your category names. Window titles only when you tick **Include window
-  titles** for that request — they are where the private detail is.
+  titles** for that request — they are where the private detail is. All of
+  it was read off your screen, and a web page picks its own title, so it goes
+  to the model fenced as untrusted data rather than as instructions.
 
-Both are dashboard-only: API keys and the MCP endpoint can't call them.
+Both are dashboard-only: API keys and the MCP endpoint can't call them. A
+request the dashboard abandons — the tab closed, the page left — stops the
+model call rather than leaving it to run out its timeout.
 
 ### Exporting your data
 
