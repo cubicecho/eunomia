@@ -108,6 +108,7 @@ export function createMcpHandler(
       'Query.ssoSetup',
       'Query.setupCodePending',
       'Query.llmSettings',
+      'Query.llmModels',
       'Query.suggestRules',
       'Query.draftStandup',
     ],

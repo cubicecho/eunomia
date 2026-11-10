@@ -1,4 +1,4 @@
-import { ask, askJson } from '@cubicecho/agent-core';
+import { ask, askJson, UNTRUSTED_PREFACE, untrusted } from '@cubicecho/agent-core';
 import { endpointFor, type LlmConfig } from './settings.ts';
 
 // What the language model is asked (issue #41), and what is done with its
@@ -13,6 +13,11 @@ import { endpointFor, type LlmConfig } from './settings.ts';
 // category; the server builds the anchored, escaped pattern itself. So a
 // suggestion can't be a regex that matches everything, and the preview the
 // dashboard shows is exactly what the saved rule will do.
+//
+// Every app name, context and window title was read off someone's screen, and
+// a web page chooses its own title. So the entries go to the model fenced as
+// untrusted (agent-core's `untrusted()`), and each system prompt says what the
+// fence means. Category names are the person's own and stay outside it.
 
 export interface UncategorizedEntry {
   app: string;
@@ -82,11 +87,15 @@ const SUGGEST_SYSTEM = `You help someone sort the time an activity tracker recor
 You are given the entries no rule matched yet (an app, sometimes a context such as a website or project, and how long it was used) and the categories they already have.
 For each entry you are confident about, suggest a category. Prefer their existing categories; propose a new one only when none fits, with a short plain name.
 Choose "context" when the context decides the category (one website in a browser), and "app" when the app alone does (an editor, a chat app).
-Skip entries you cannot place with confidence. Never suggest the same entry twice.`;
+Skip entries you cannot place with confidence. Never suggest the same entry twice.
+
+${UNTRUSTED_PREFACE}`;
 
 const STANDUP_SYSTEM = `You write a short, plain daily summary of someone's tracked computer time, in their own voice, for a standup.
 Use only what the data shows; do not invent tasks or outcomes. Lead with where most of the time went.
-Write 3 to 6 short bullet points in Markdown, then nothing else. Round times to the nearest 5 minutes.`;
+Write 3 to 6 short bullet points in Markdown, then nothing else. Round times to the nearest 5 minutes.
+
+${UNTRUSTED_PREFACE}`;
 
 /**
  * `^text$` with every regex metacharacter escaped: matches the value exactly.
@@ -121,6 +130,12 @@ function describeEntries(entries: UncategorizedEntry[]): string {
     .join('\n');
 }
 
+/** The entries inside one untrusted block, or a placeholder when there are none. */
+const fencedEntries = (entries: UncategorizedEntry[]): string =>
+  entries.length === 0
+    ? '(nothing)'
+    : untrusted(describeEntries(entries), { source: 'recorded activity' });
+
 /**
  * Asks for categories for the uncategorized entries and turns the answer into
  * rules the server can stand behind. Invalid or duplicate picks are dropped.
@@ -136,7 +151,7 @@ export async function suggestRules(
     categories.length === 0
       ? '(none yet)'
       : categories.map((category) => `- ${category.name} (${category.kind})`).join('\n');
-  const user = `Categories they have:\n${known}\n\nUncategorized entries, largest first:\n${describeEntries(entries)}`;
+  const user = `Categories they have:\n${known}\n\nUncategorized entries, largest first:\n${fencedEntries(entries)}`;
 
   const answer = await askJson<{ suggestions?: ModelSuggestion[] }>(
     endpointFor(config),
@@ -193,7 +208,7 @@ export async function draftStandup(
   const categories = facts.categories
     .map((row) => `- ${row.name}${row.kind ? ` (${row.kind})` : ''}: ${duration(row.seconds)}`)
     .join('\n');
-  const user = `Day: ${facts.day}\nTotal tracked: ${duration(facts.totalSeconds)}\n\nBy category:\n${categories || '(nothing)'}\n\nMost used:\n${describeEntries(facts.top) || '(nothing)'}`;
+  const user = `Day: ${facts.day}\nTotal tracked: ${duration(facts.totalSeconds)}\n\nBy category:\n${categories || '(nothing)'}\n\nMost used:\n${fencedEntries(facts.top)}`;
   return ask(endpointFor(config), config.model, STANDUP_SYSTEM, user, {
     maxTokens: 600,
     temperature: 0.3,

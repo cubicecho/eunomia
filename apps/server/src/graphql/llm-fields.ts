@@ -1,3 +1,4 @@
+import { listModels } from '@cubicecho/agent-core';
 import type { MutationResolvers, QueryResolvers } from '@eunomia/gql/resolvers';
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import { ownerJoin } from '../activity/rollup.ts';
@@ -8,6 +9,7 @@ import { draftStandup, suggestRules, type UncategorizedEntry } from '../llm/assi
 import {
   clearLlm,
   effectiveLlm,
+  endpointFor,
   type LlmConfig,
   normalizeBaseUrl,
   saveLlm,
@@ -28,6 +30,9 @@ import { liveDayBounds, parseRange } from './summaries.ts';
 // are the dashboard's numbers.
 
 const TITLES_PER_ENTRY = 3;
+
+const BAD_BASE_URL =
+  'The base URL must be an http(s) address with no credentials, query or fragment, like http://localhost:11434/v1.';
 
 async function settingsFor(db: Db, ctx: Context) {
   const { config, source } = await effectiveLlm(db);
@@ -51,17 +56,55 @@ async function requireModel(db: Db): Promise<LlmConfig> {
   return config;
 }
 
+function hostOf(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+}
+
+const detailOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
 /** The model's failure, as something the dashboard can say. The key never appears in it. */
 function modelFailed(config: LlmConfig, error: unknown): Error {
-  const host = (() => {
-    try {
-      return new URL(config.baseUrl).host;
-    } catch {
-      return config.baseUrl;
+  return unavailable(
+    `The language model at ${hostOf(config.baseUrl)} (${config.model}) didn't answer: ${detailOf(error)}`,
+  );
+}
+
+/**
+ * The endpoint `llmModels` asks: the one in use, or the one the admin is
+ * typing into the form, which is not saved yet and may never be.
+ *
+ * The stored key goes only to the stored base URL. A key issued for one
+ * endpoint has no business being posted to another, so a different URL with
+ * no key of its own is asked with none.
+ */
+async function endpointToList(
+  db: Db,
+  ctx: Context,
+  args: { baseUrl?: string | null; apiKey?: string | null },
+): Promise<LlmConfig> {
+  if (args.baseUrl == null) {
+    if (!ctx.userId || ctx.keyId || !(await isAdmin(db, ctx.userId))) {
+      throw forbidden('Only the admin can list the language model’s models.');
     }
-  })();
-  const detail = error instanceof Error ? error.message : String(error);
-  return unavailable(`The language model at ${host} (${config.model}) didn't answer: ${detail}`);
+    return requireModel(db);
+  }
+  // Any other address is the server fetching wherever it is told, so it
+  // takes exactly what saving that address would.
+  await requireEditor(db, ctx);
+  const baseUrl = normalizeBaseUrl(args.baseUrl);
+  if (!baseUrl) throw badInput(BAD_BASE_URL);
+  const { config } = await effectiveLlm(db);
+  const apiKey =
+    args.apiKey != null
+      ? args.apiKey.trim() || null
+      : config?.baseUrl === baseUrl
+        ? config.apiKey
+        : null;
+  return { baseUrl, model: '', apiKey };
 }
 
 /** A few distinct window titles seen under an entry in the window, most recent first. */
@@ -101,6 +144,23 @@ export function llmQueryFields(db: Db) {
   return {
     llmSettings: (_source, _args, ctx) => settingsFor(db, ctx),
 
+    // A fresh request every time: it is what the form's "Test connection"
+    // asks, and a remembered list would answer for an endpoint that is down.
+    llmModels: async (_source, args, ctx) => {
+      const config = await endpointToList(db, ctx, args);
+      try {
+        const models = await listModels(endpointFor(config), { signal: ctx.signal });
+        return models.map((model) => ({
+          id: model.id,
+          contextLength: model.contextLength > 0 ? model.contextLength : null,
+        }));
+      } catch (error) {
+        throw unavailable(
+          `The endpoint at ${hostOf(config.baseUrl)} didn't answer: ${detailOf(error)}`,
+        );
+      }
+    },
+
     suggestRules: async (_source, args, ctx) => {
       const userId = requireUser(ctx);
       const config = await requireModel(db);
@@ -128,7 +188,7 @@ export function llmQueryFields(db: Db) {
 
       let suggestions: Awaited<ReturnType<typeof suggestRules>>;
       try {
-        suggestions = await suggestRules(config, entries, known);
+        suggestions = await suggestRules(config, entries, known, { signal: ctx.signal });
       } catch (error) {
         throw modelFailed(config, error);
       }
@@ -165,23 +225,27 @@ export function llmQueryFields(db: Db) {
       );
       let text: string;
       try {
-        text = await draftStandup(config, {
-          day: summary.day,
-          totalSeconds: summary.totalSeconds,
-          categories: summary.categories.map((row) => ({
-            name: row.name ?? 'Uncategorized',
-            kind: row.kind,
-            seconds: row.seconds,
-          })),
-          top,
-        });
+        text = await draftStandup(
+          config,
+          {
+            day: summary.day,
+            totalSeconds: summary.totalSeconds,
+            categories: summary.categories.map((row) => ({
+              name: row.name ?? 'Uncategorized',
+              kind: row.kind,
+              seconds: row.seconds,
+            })),
+            top,
+          },
+          { signal: ctx.signal },
+        );
       } catch (error) {
         throw modelFailed(config, error);
       }
       if (!text.trim()) throw modelFailed(config, new Error('it sent back an empty answer'));
       return { day: summary.day, text };
     },
-  } satisfies Pick<QueryResolvers, 'llmSettings' | 'suggestRules' | 'draftStandup'>;
+  } satisfies Pick<QueryResolvers, 'llmSettings' | 'llmModels' | 'suggestRules' | 'draftStandup'>;
 }
 
 /** Refuses anyone but the admin, and a setting the environment owns. */
@@ -200,11 +264,7 @@ export function llmFields(db: Db) {
     setLlmSettings: async (_source, args, ctx) => {
       await requireEditor(db, ctx);
       const baseUrl = normalizeBaseUrl(args.baseUrl);
-      if (!baseUrl) {
-        throw badInput(
-          'The base URL must be an http(s) address with no credentials, query or fragment, like http://localhost:11434/v1.',
-        );
-      }
+      if (!baseUrl) throw badInput(BAD_BASE_URL);
       const model = args.model.trim();
       if (!model) throw badInput('Name the model to use, like llama3.1:8b.');
       const apiKey =

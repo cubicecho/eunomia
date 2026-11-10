@@ -27,6 +27,7 @@ describe('graphql schema', () => {
       'devices',
       'draftStandup',
       'focusSegments',
+      'llmModels',
       'llmSettings',
       'me',
       'mergeRules',

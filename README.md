@@ -658,7 +658,10 @@ without one.
 - **Set it up** under **Settings → Language model** (the admin), or with
   `LLM_BASE_URL`, `LLM_MODEL` and optionally `LLM_API_KEY` in the environment,
   which then wins. The API key is write-only: the dashboard only ever learns
-  whether one is set.
+  whether one is set. The model is picked from what the endpoint lists (or
+  typed, for one it doesn't), and **Test connection** asks the endpoint with
+  the address and key in the form before you save them. The stored key is
+  only ever sent to the stored address.
 - **Locally, with Ollama:** `ollama pull llama3.1:8b`, then base URL
   `http://localhost:11434/v1` and model `llama3.1:8b`. From inside
   `docker compose`, `localhost` is the container — use
@@ -675,9 +678,13 @@ without one.
   to copy and edit. Nothing is saved.
 - **What is sent:** app and context (site, project) names with their totals,
   and your category names. Window titles only when you tick **Include window
-  titles** for that request — they are where the private detail is.
+  titles** for that request — they are where the private detail is. All of
+  it was read off your screen, and a web page picks its own title, so it goes
+  to the model fenced as untrusted data rather than as instructions.
 
-Both are dashboard-only: API keys and the MCP endpoint can't call them.
+Both are dashboard-only: API keys and the MCP endpoint can't call them. A
+request the dashboard abandons — the tab closed, the page left — stops the
+model call rather than leaving it to run out its timeout.
 
 ### Exporting your data
 

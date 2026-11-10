@@ -23,6 +23,7 @@ import {
   type ImportChunkMutation,
   type ImportChunkMutationVariables,
   type InstallRulePackMutation,
+  type LlmModelsQuery,
   type LlmSettingsQuery,
   type MeQuery,
   type MergeRulesQuery,
@@ -453,10 +454,18 @@ export const revokeApiKey = (id: string): Promise<unknown> => sdk.RevokeApiKey({
 // --- bring-your-own language model (#41) ---
 
 export type LlmSettings = LlmSettingsQuery['llmSettings'];
+export type LlmModel = LlmModelsQuery['llmModels'][number];
 export type RuleSuggestion = SuggestRulesQuery['suggestRules'][number];
 
 export const fetchLlmSettings = (): Promise<LlmSettings> =>
   sdk.LlmSettings().then((d) => d.llmSettings);
+
+/**
+ * What an endpoint lists. The server sends the stored key only when `baseUrl`
+ * is the stored one, so a blank key field tests the saved key, never leaks it.
+ */
+export const fetchLlmModels = (baseUrl: string, apiKey?: string): Promise<LlmModel[]> =>
+  sdk.LlmModels(apiKey ? { baseUrl, apiKey } : { baseUrl }).then((d) => d.llmModels);
 
 /** `apiKey` undefined keeps the stored key; null or "" removes it. */
 export const setLlmSettings = (

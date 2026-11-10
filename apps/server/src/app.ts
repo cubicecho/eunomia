@@ -58,6 +58,9 @@ export function createApp(
   const contextFor = createContextFactory(db, host);
   return createYoga<Record<string, never>, Context>({
     schema,
-    context: ({ request }) => contextFor(request.headers),
+    context: async ({ request }) => ({
+      ...(await contextFor(request.headers)),
+      signal: request.signal,
+    }),
   });
 }
