@@ -545,6 +545,15 @@ query LlmSettings {
   }
 }
 
+# The endpoint's models, for the picker. Asked afresh each time, so it is also
+# the form's connection test.
+query LlmModels($baseUrl: String, $apiKey: String) {
+  llmModels(baseUrl: $baseUrl, apiKey: $apiKey) {
+    id
+    contextLength
+  }
+}
+
 mutation SetLlmSettings($baseUrl: String!, $model: String!, $apiKey: String) {
   setLlmSettings(baseUrl: $baseUrl, model: $model, apiKey: $apiKey) {
     source

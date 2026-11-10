@@ -51,6 +51,30 @@ const readBody = (req: IncomingMessage) =>
 beforeAll(async () => {
   server = createServer(async (req, res) => {
     const text = await readBody(req);
+    if (req.method === 'GET' && req.url?.endsWith('/models')) {
+      endpoint.requests.push({ path: req.url, auth: req.headers.authorization, body: {} });
+      if (endpoint.status !== 200) {
+        res.writeHead(endpoint.status).end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          object: 'list',
+          data: [
+            { id: 'qwen2.5:7b', object: 'model', created: 0, owned_by: 'library' },
+            {
+              id: 'llama3.1:8b',
+              object: 'model',
+              created: 0,
+              owned_by: 'library',
+              context_length: 8192,
+            },
+          ],
+        }),
+      );
+      return;
+    }
     if (req.method !== 'POST' || !req.url?.endsWith('/chat/completions')) {
       res.writeHead(404).end();
       return;
@@ -394,5 +418,57 @@ describe('bring-your-own language model', () => {
     expect(await code(`{ suggestRules(${RANGE}) { app } }`, ctx)).toBe('UNAVAILABLE');
     expect(await code('{ draftStandup(day: "2026-08-16") { text } }', ctx)).toBe('UNAVAILABLE');
     expect(endpoint.requests).toEqual([]);
+  });
+
+  it('lists the endpoint’s models for the admin, sending the stored key only where it belongs', async () => {
+    const models = (args = '', ctx?: Context) =>
+      run(`{ llmModels${args} { id contextLength } }`, ctx);
+
+    // Nothing in use yet, but the address being typed can be asked.
+    expect(await code('{ llmModels { id } }')).toBe('FAILED_PRECONDITION');
+    const typed = await models(`(baseUrl: "${endpoint.url}/")`);
+    expect(typed.errors).toBeUndefined();
+    expect(typed.data?.llmModels).toEqual([
+      { id: 'llama3.1:8b', contextLength: 8192 },
+      { id: 'qwen2.5:7b', contextLength: null },
+    ]);
+    expect(endpoint.requests.at(-1)?.auth).toBe('Bearer agent-core');
+
+    await configure();
+    // Asked again, not remembered: this is the form's connection test.
+    endpoint.requests = [];
+    expect((await models()).errors).toBeUndefined();
+    expect((await models(`(baseUrl: "${endpoint.url}")`)).errors).toBeUndefined();
+    expect(endpoint.requests.map((request) => request.auth)).toEqual([
+      'Bearer sk-test-secret',
+      'Bearer sk-test-secret',
+    ]);
+
+    // Another address never gets the stored key; one typed in is sent as given.
+    const elsewhere = endpoint.url.replace('127.0.0.1', 'localhost');
+    expect((await models(`(baseUrl: "${elsewhere}")`)).errors).toBeUndefined();
+    expect(endpoint.requests.at(-1)?.auth).toBe('Bearer agent-core');
+    expect((await models(`(baseUrl: "${elsewhere}", apiKey: " sk-new ")`)).errors).toBeUndefined();
+    expect(endpoint.requests.at(-1)?.auth).toBe('Bearer sk-new');
+
+    expect(await code('{ llmModels(baseUrl: "ftp://x/v1") { id } }')).toBe('BAD_USER_INPUT');
+    expect(await code('{ llmModels { id } }', as('member'))).toBe('FORBIDDEN');
+    expect(await code(`{ llmModels(baseUrl: "${endpoint.url}") { id } }`, as('member'))).toBe(
+      'FORBIDDEN',
+    );
+    expect(await code('{ llmModels { id } }', as('admin', 'key-1'))).toBe('UNAUTHENTICATED');
+
+    endpoint.status = 500;
+    const down = await models();
+    expect(down.errors?.[0]?.extensions?.code).toBe('UNAVAILABLE');
+    expect(JSON.stringify(down)).not.toContain('sk-test-secret');
+  });
+
+  it('lists the environment’s endpoint but asks no other while LLM_BASE_URL is set', async () => {
+    process.env.LLM_BASE_URL = endpoint.url;
+    process.env.LLM_MODEL = 'env-model';
+    const listed = await data<{ llmModels: { id: string }[] }>('{ llmModels { id } }');
+    expect(listed.llmModels.map((model) => model.id)).toEqual(['llama3.1:8b', 'qwen2.5:7b']);
+    expect(await code(`{ llmModels(baseUrl: "${endpoint.url}") { id } }`)).toBe('FORBIDDEN');
   });
 });

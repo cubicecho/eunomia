@@ -1123,6 +1123,17 @@ input IntFilter {
   notInArray: [Int!]
 }
 
+"""A model an endpoint lists."""
+type LlmModel {
+  """
+  The context window it lists for the model, in tokens. Null when it didn't say.
+  """
+  contextLength: Int
+
+  """The id to save as the model, exactly as the endpoint names it."""
+  id: String!
+}
+
 type LlmSettings {
   baseUrl: String
 
@@ -1584,6 +1595,27 @@ type Query {
     orderBy: FocusSegmentsOrderBy
     where: FocusSegmentsFilters
   ): [FocusSegments!]!
+
+  """
+  The models an OpenAI-compatible endpoint lists, for choosing one. Asks the
+  endpoint every time, so it doubles as a test that this server can reach it.
+  `baseUrl` omitted asks the endpoint in use. The admin only, from a signed-in
+  session; with `baseUrl`, also FORBIDDEN when LLM_BASE_URL names the
+  endpoint. BAD_USER_INPUT for a base URL `setLlmSettings` would refuse;
+  UNAVAILABLE when the endpoint doesn't answer.
+  """
+  llmModels(
+    """
+    Its API key. Omitted, the stored key is sent only when `baseUrl` is the
+    stored base URL; a different endpoint is asked with none.
+    """
+    apiKey: String
+
+    """
+    An endpoint to ask instead of the one in use, as `setLlmSettings` takes it.
+    """
+    baseUrl: String
+  ): [LlmModel!]!
 
   """
   The language model this instance asks for suggestions and summaries, if any.

@@ -165,6 +165,24 @@ extend type Query {
   llmSettings: LlmSettings!
 
   """
+  The models an OpenAI-compatible endpoint lists, for choosing one. Asks the
+  endpoint every time, so it doubles as a test that this server can reach it.
+  `baseUrl` omitted asks the endpoint in use. The admin only, from a signed-in
+  session; with `baseUrl`, also FORBIDDEN when LLM_BASE_URL names the
+  endpoint. BAD_USER_INPUT for a base URL `setLlmSettings` would refuse;
+  UNAVAILABLE when the endpoint doesn't answer.
+  """
+  llmModels(
+    "An endpoint to ask instead of the one in use, as `setLlmSettings` takes it."
+    baseUrl: String
+    """
+    Its API key. Omitted, the stored key is sent only when `baseUrl` is the
+    stored base URL; a different endpoint is asked with none.
+    """
+    apiKey: String
+  ): [LlmModel!]!
+
+  """
   Asks the language model which category the largest uncategorized entries
   belong to, and returns rules it would make — nothing is created or changed.
   Each comes with its preview, as `previewCategoryRule` would give. Sends app
@@ -759,6 +777,14 @@ type LlmSettings {
   hasApiKey: Boolean!
   "Whether the caller may change it: the admin, and only when it isn't set by the environment."
   canEdit: Boolean!
+}
+
+"A model an endpoint lists."
+type LlmModel {
+  "The id to save as the model, exactly as the endpoint names it."
+  id: String!
+  "The context window it lists for the model, in tokens. Null when it didn't say."
+  contextLength: Int
 }
 
 "A rule the language model proposes. Nothing is created until the caller does it."

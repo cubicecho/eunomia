@@ -96,6 +96,8 @@ export const permissions = {
     // Each call spends the admin's model (and maybe their API credits), and
     // the settings name where it is.
     llmSettings: sessionAuthenticated,
+    // The admin check is the resolver's, as for setLlmSettings.
+    llmModels: sessionAuthenticated,
     suggestRules: sessionAuthenticated,
     draftStandup: sessionAuthenticated,
     // Public by design: returns the caller or null.
