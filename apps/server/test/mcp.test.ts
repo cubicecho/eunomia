@@ -171,6 +171,16 @@ describe('mcp over http', () => {
     expect(response.status).toBe(400);
   });
 
+  it('refuses a body larger than any MCP request before parsing it', async () => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ padding: 'x'.repeat(1_000_001) }),
+    });
+
+    expect(response.status).toBe(413);
+  });
+
   describe('categorization write tools', () => {
     const writes = [
       'apply_category_rules',
