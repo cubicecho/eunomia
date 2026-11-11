@@ -1,6 +1,5 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import { connectServer, createServerFactory } from '@cubicecho/graphql-mcp';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { IncomingHttpHeaders } from 'node:http';
+import { createHttpHandler, createServerFactory } from '@cubicecho/graphql-mcp';
 import type { GraphQLSchema } from 'graphql';
 import type { Context } from './graphql/context.ts';
 import { VERSION } from './health.ts';
@@ -28,29 +27,12 @@ import { registerPrompts } from './mcp-prompts.ts';
  */
 
 /** Refuse bodies larger than this. MCP requests are small; anything else is not a client. */
-const MAX_BODY_BYTES = 1024 * 1024;
-
-/**
- * Reads and parses the JSON body. The MCP transport expects it already parsed
- * on `req.body` (Express's `express.json()` does this); this server is plain
- * node:http, so that is this function's job.
- */
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += (chunk as Buffer).length;
-    if (size > MAX_BODY_BYTES) throw new Error('request body too large');
-    chunks.push(chunk as Buffer);
-  }
-  if (size === 0) return undefined;
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-}
+const MAX_BODY_BYTES = 1_000_000;
 
 /** node's header bag as a `Headers`, which is what the context factory reads. */
-function toHeaders(req: IncomingMessage): Headers {
+function toHeaders(bag: IncomingHttpHeaders): Headers {
   const headers = new Headers();
-  for (const [name, value] of Object.entries(req.headers)) {
+  for (const [name, value] of Object.entries(bag)) {
     if (Array.isArray(value)) for (const one of value) headers.append(name, one);
     else if (value !== undefined) headers.set(name, value);
   }
@@ -121,33 +103,23 @@ export function createMcpHandler(
     include: ['Query.*', ...CATEGORIZE_TOOLS.map((field) => `Mutation.${field}`)],
   });
 
-  return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    let body: unknown;
-    try {
-      body = await readJsonBody(req);
-    } catch {
-      res.writeHead(400, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'invalid JSON body' }));
-      return;
-    }
+  // The handler reads the body under the cap, owns the per-request transport
+  // and closes it with the server when the response ends; what is this
+  // server's is who is calling and what they are offered.
+  return createHttpHandler({
+    schema,
     // Identity comes from the same headers GraphQL reads, resolved by the same
     // function: `x-api-key` for a key, `Authorization: Bearer` for a session.
     // An anonymous call reaches the permissions layer and is refused there,
     // exactly as it would over /graphql.
-    const ctx = await contextFor(toHeaders(req));
-    const writes = canCategorize(ctx);
-    const server = (writes ? categorize : readOnly)(() => ctx);
-    registerPrompts(server, schema, ctx, writes);
-
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
-    });
-    res.on('close', () => {
-      void transport.close();
-      void server.close();
-    });
-    await connectServer(server, transport);
-    await transport.handleRequest(req, res, body);
-  };
+    contextFromRequest: (req) => contextFor(toHeaders(req.headers)),
+    serverFor: (_req, context) => {
+      const ctx = context as Context;
+      const writes = canCategorize(ctx);
+      const server = (writes ? categorize : readOnly)(() => ctx);
+      registerPrompts(server, schema, ctx, writes);
+      return server;
+    },
+    maxBodyBytes: MAX_BODY_BYTES,
+  });
 }

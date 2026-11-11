@@ -1,4 +1,4 @@
-import { listModels } from '@cubicecho/agent-core';
+import { EndpointProbeError, normalizeBaseUrl, probeEndpoint } from '@cubicecho/agent-core';
 import type { MutationResolvers, QueryResolvers } from '@eunomia/gql/resolvers';
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import { ownerJoin } from '../activity/rollup.ts';
@@ -11,8 +11,8 @@ import {
   effectiveLlm,
   endpointFor,
   type LlmConfig,
-  normalizeBaseUrl,
   saveLlm,
+  storedKeyFor,
 } from '../llm/settings.ts';
 import { isAdmin } from '../oidc/settings.ts';
 import { addDays, agentQueryFields, window } from './agent-fields.ts';
@@ -98,12 +98,7 @@ async function endpointToList(
   const baseUrl = normalizeBaseUrl(args.baseUrl);
   if (!baseUrl) throw badInput(BAD_BASE_URL);
   const { config } = await effectiveLlm(db);
-  const apiKey =
-    args.apiKey != null
-      ? args.apiKey.trim() || null
-      : config?.baseUrl === baseUrl
-        ? config.apiKey
-        : null;
+  const apiKey = args.apiKey != null ? args.apiKey.trim() || null : storedKeyFor(baseUrl, config);
   return { baseUrl, model: '', apiKey };
 }
 
@@ -146,17 +141,24 @@ export function llmQueryFields(db: Db) {
 
     // A fresh request every time: it is what the form's "Test connection"
     // asks, and a remembered list would answer for an endpoint that is down.
+    // probeEndpoint rather than listModels, which pools a client per URL and
+    // keeps what it was told — a client left behind for every address typed.
+    // It also follows no redirect, so a typed key stays with the typed host.
     llmModels: async (_source, args, ctx) => {
       const config = await endpointToList(db, ctx, args);
       try {
-        const models = await listModels(endpointFor(config), { signal: ctx.signal });
+        const models = await probeEndpoint(endpointFor(config), { signal: ctx.signal });
         return models.map((model) => ({
           id: model.id,
           contextLength: model.contextLength > 0 ? model.contextLength : null,
         }));
       } catch (error) {
+        // A probe's own message is a sentence that names the endpoint by its
+        // origin, written for a form; anything else gets this server's words.
         throw unavailable(
-          `The endpoint at ${hostOf(config.baseUrl)} didn't answer: ${detailOf(error)}`,
+          error instanceof EndpointProbeError
+            ? error.message
+            : `The endpoint at ${hostOf(config.baseUrl)} didn't answer: ${detailOf(error)}`,
         );
       }
     },

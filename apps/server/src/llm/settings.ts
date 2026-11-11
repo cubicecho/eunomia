@@ -1,4 +1,4 @@
-import type { Endpoint } from '@cubicecho/agent-core';
+import { type Endpoint, NO_KEY, normalizeBaseUrl, resolveApiKey } from '@cubicecho/agent-core';
 import type { Db } from '../db/client.ts';
 import { llmSettings } from '../db/schema.ts';
 
@@ -33,7 +33,13 @@ function fromEnv(env: NodeJS.ProcessEnv): LlmConfig | null {
   const baseUrl = env.LLM_BASE_URL?.trim();
   const model = env.LLM_MODEL?.trim();
   if (!baseUrl || !model) return null;
-  return { baseUrl, model, apiKey: env.LLM_API_KEY?.trim() || null };
+  // Written the way a stored one is, so the two compare alike. One the rule
+  // refuses is still used as given: the environment is the operator's say.
+  return {
+    baseUrl: normalizeBaseUrl(baseUrl) ?? baseUrl,
+    model,
+    apiKey: env.LLM_API_KEY?.trim() || null,
+  };
 }
 
 /** The environment's endpoint when LLM_BASE_URL and LLM_MODEL are set, otherwise the stored one. */
@@ -75,17 +81,20 @@ export async function clearLlm(db: Db): Promise<void> {
   await db.delete(llmSettings);
 }
 
-/** A base URL worth storing: http(s), no credentials in it, no query or fragment. */
-export function normalizeBaseUrl(raw: string): string | null {
-  let url: URL;
-  try {
-    url = new URL(raw.trim());
-  } catch {
-    return null;
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-  if (url.username || url.password || url.search || url.hash) return null;
-  return url.toString().replace(/\/+$/, '');
+/**
+ * The key to ask `baseUrl` with when the admin typed none: the stored one, but
+ * only where `baseUrl` is the stored endpoint. A key issued for one endpoint
+ * has no business being posted to another. "The same endpoint" is
+ * agent-core's rule, the one every host compares by.
+ */
+export function storedKeyFor(baseUrl: string, stored: LlmConfig | null): string | null {
+  const key = resolveApiKey(
+    { baseUrl },
+    stored ? { baseUrl: stored.baseUrl, apiKey: stored.apiKey ?? undefined } : undefined,
+    // Not $OPENAI_API_KEY: this server's key is LLM_API_KEY, read above.
+    {},
+  );
+  return key === NO_KEY ? null : key;
 }
 
 /** agent-core's endpoint for a config. */

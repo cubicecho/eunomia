@@ -51,6 +51,11 @@ const readBody = (req: IncomingMessage) =>
 beforeAll(async () => {
   server = createServer(async (req, res) => {
     const text = await readBody(req);
+    if (req.url?.startsWith('/moved/')) {
+      // Somewhere else to send a listing, to see whether a key goes with it.
+      res.writeHead(302, { location: `${endpoint.url}/models` }).end();
+      return;
+    }
     if (req.method === 'GET' && req.url?.endsWith('/models')) {
       endpoint.requests.push({ path: req.url, auth: req.headers.authorization, body: {} });
       if (endpoint.status !== 200) {
@@ -246,13 +251,15 @@ describe('bring-your-own language model', () => {
   });
 
   it('defers to the environment when LLM_BASE_URL is set', async () => {
-    process.env.LLM_BASE_URL = endpoint.url;
+    // Written as a stored one would be, trailing slash and all.
+    process.env.LLM_BASE_URL = `${endpoint.url}/`;
     process.env.LLM_MODEL = 'env-model';
     const { llmSettings } = await data<{ llmSettings: Record<string, unknown> }>(
-      '{ llmSettings { source model canEdit hasApiKey } }',
+      '{ llmSettings { source baseUrl model canEdit hasApiKey } }',
     );
     expect(llmSettings).toEqual({
       source: 'ENV',
+      baseUrl: endpoint.url,
       model: 'env-model',
       canEdit: false,
       hasApiKey: false,
@@ -432,7 +439,8 @@ describe('bring-your-own language model', () => {
       { id: 'llama3.1:8b', contextLength: 8192 },
       { id: 'qwen2.5:7b', contextLength: null },
     ]);
-    expect(endpoint.requests.at(-1)?.auth).toBe('Bearer agent-core');
+    // No key is no header, not a placeholder bearer.
+    expect(endpoint.requests.at(-1)?.auth).toBeUndefined();
 
     await configure();
     // Asked again, not remembered: this is the form's connection test.
@@ -447,9 +455,22 @@ describe('bring-your-own language model', () => {
     // Another address never gets the stored key; one typed in is sent as given.
     const elsewhere = endpoint.url.replace('127.0.0.1', 'localhost');
     expect((await models(`(baseUrl: "${elsewhere}")`)).errors).toBeUndefined();
-    expect(endpoint.requests.at(-1)?.auth).toBe('Bearer agent-core');
+    expect(endpoint.requests.at(-1)?.auth).toBeUndefined();
     expect((await models(`(baseUrl: "${elsewhere}", apiKey: " sk-new ")`)).errors).toBeUndefined();
     expect(endpoint.requests.at(-1)?.auth).toBe('Bearer sk-new');
+
+    // The same endpoint spelled another way is still the same endpoint.
+    const respelled = `${endpoint.url.replace('http:', 'HTTP:')}/`;
+    expect((await models(`(baseUrl: "${respelled}")`)).errors).toBeUndefined();
+    expect(endpoint.requests.at(-1)?.auth).toBe('Bearer sk-test-secret');
+
+    // A redirect is not followed, so a typed key never reaches a host nobody typed.
+    endpoint.requests = [];
+    const moved = endpoint.url.replace('/v1', '/moved/v1');
+    expect(await code(`{ llmModels(baseUrl: "${moved}", apiKey: "sk-typed") { id } }`)).toBe(
+      'UNAVAILABLE',
+    );
+    expect(endpoint.requests).toEqual([]);
 
     expect(await code('{ llmModels(baseUrl: "ftp://x/v1") { id } }')).toBe('BAD_USER_INPUT');
     expect(await code('{ llmModels { id } }', as('member'))).toBe('FORBIDDEN');
