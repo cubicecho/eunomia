@@ -181,6 +181,122 @@ describe('categories', () => {
     await createCategory('user-2');
   });
 
+  it('refuses a name that differs from another only in case, pointing at merge', async () => {
+    const work = await createCategory();
+    const play = await run('mutation { createCategory(name: "Play") { id } }');
+    const playId = (play.data as any).createCategory.id;
+
+    for (const source of [
+      'mutation { createCategory(name: "work") { id } }',
+      `mutation { updateCategory(id: "${playId}", name: "WORK") { id } }`,
+    ]) {
+      const result = await run(source);
+      expect(result.errors?.[0]?.extensions?.code).toBe('BAD_USER_INPUT');
+      expect(result.errors?.[0]?.message).toMatch(/same name as “Work”.*Merge/);
+    }
+
+    // Re-casing its own name is a rename, not a clash.
+    const recased = await run(
+      `mutation { updateCategory(id: "${work.id}", name: "WORK") { name } }`,
+    );
+    expect(recased.errors).toBeUndefined();
+  });
+
+  describe('merging', () => {
+    const create = async (name: string) =>
+      ((await run(`mutation { createCategory(name: "${name}") { id } }`)).data as any)
+        .createCategory.id as string;
+
+    const rule = (categoryId: string, appPattern: string) =>
+      run(
+        `mutation { createCategoryRule(categoryId: "${categoryId}", appPattern: "${appPattern}") { id } }`,
+      );
+
+    it('moves activities, rolled time and rules into the target, then removes the source', async () => {
+      const gaming = await create('Gaming');
+      const games = await create('games');
+      await db
+        .update(activities)
+        .set({ categoryId: games, categorySource: 'manual' })
+        .where(eq(activities.id, 'activity-1'));
+      await db.insert(summaries).values([
+        // Same key on both sides: the seconds add up into one row.
+        {
+          id: 's-1',
+          deviceId: 'device-1',
+          day: '2026-08-10',
+          app: 'steam',
+          categoryId: gaming,
+          seconds: 100,
+        },
+        {
+          id: 's-2',
+          deviceId: 'device-1',
+          day: '2026-08-10',
+          app: 'steam',
+          categoryId: games,
+          seconds: 50,
+        },
+        {
+          id: 's-3',
+          deviceId: 'device-1',
+          day: '2026-08-11',
+          app: 'lutris',
+          categoryId: games,
+          seconds: 30,
+        },
+      ]);
+      await rule(gaming, '^steam$');
+      await rule(games, '^steam$');
+      await rule(games, '^lutris$');
+
+      const result = await run(
+        `mutation { mergeCategory(id: "${games}", intoId: "${gaming}") { id name } }`,
+      );
+      expect(result.errors).toBeUndefined();
+      expect((result.data as any).mergeCategory).toEqual({ id: gaming, name: 'Gaming' });
+
+      expect(await db.select().from(categories).where(eq(categories.id, games))).toEqual([]);
+      const [moved] = await db.select().from(activities).where(eq(activities.id, 'activity-1'));
+      expect(moved).toMatchObject({ categoryId: gaming, categorySource: 'manual' });
+
+      const rows = await db.select().from(summaries);
+      expect(rows.map((row) => [row.day, row.app, row.categoryId, row.seconds]).sort()).toEqual([
+        ['2026-08-10', 'steam', gaming, 150],
+        ['2026-08-11', 'lutris', gaming, 30],
+      ]);
+
+      // The duplicate ^steam$ is dropped; ^lutris$ moves.
+      const rules = await db.select().from(categoryRules);
+      expect(rules.map((r) => [r.categoryId, r.appPattern]).sort()).toEqual([
+        [gaming, '^lutris$'],
+        [gaming, '^steam$'],
+      ]);
+    });
+
+    it('refuses itself and anything not the caller’s', async () => {
+      const gaming = await create('Gaming');
+      const self = await run(
+        `mutation { mergeCategory(id: "${gaming}", intoId: "${gaming}") { id } }`,
+      );
+      expect(self.errors?.[0]?.extensions?.code).toBe('BAD_USER_INPUT');
+
+      const theirs = (
+        (await run('mutation { createCategory(name: "Theirs") { id } }', 'user-2')).data as any
+      ).createCategory.id;
+      for (const [id, intoId] of [
+        [gaming, theirs],
+        [theirs, gaming],
+      ]) {
+        const result = await run(
+          `mutation { mergeCategory(id: "${id}", intoId: "${intoId}") { id } }`,
+        );
+        expect(result.errors?.[0]?.message).toBe('Unknown category');
+      }
+      expect(await db.select().from(categories)).toHaveLength(2);
+    });
+  });
+
   it("refuses to update another user's category", async () => {
     const category = await createCategory();
     const result = await run(

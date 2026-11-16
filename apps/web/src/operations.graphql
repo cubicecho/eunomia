@@ -328,6 +328,12 @@ mutation DeleteCategory($id: String!) {
   deleteCategory(id: $id)
 }
 
+mutation MergeCategory($id: String!, $intoId: String!) {
+  mergeCategory(id: $id, intoId: $intoId) {
+    id
+  }
+}
+
 mutation CreateCategoryRule(
   $categoryId: String!
   $appPattern: String
