@@ -5,6 +5,7 @@ import { fixedAuthHost } from '../src/auth-host.ts';
 import { user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { keyContext, sessionContext, tokenContext } from './helpers/context.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
 // Integration keys: what the dashboard issues so another app can talk to this
@@ -18,12 +19,10 @@ describe('integration keys', () => {
   let schema: ReturnType<typeof createSchema>;
 
   /** A signed-in dashboard user: userId, no key. */
-  const asSession = (userId: string | undefined): Context =>
-    ({ db, userId, keyId: undefined, deviceId: undefined, headers: new Headers() }) as Context;
+  const asSession = (userId: string | undefined): Context => sessionContext(db, userId);
 
   /** The same user, but reached through one of their API keys. */
-  const asKey = (userId: string, keyId: string, deviceId?: string): Context =>
-    ({ db, userId, keyId, deviceId, headers: new Headers() }) as Context;
+  const asKey = (userId: string, keyId: string): Context => keyContext(db, userId, keyId);
 
   const run = (source: string, contextValue: Context) => graphql({ schema, source, contextValue });
 
@@ -138,23 +137,20 @@ describe('integration keys', () => {
     expect(await list(asSession('user-2'))).toEqual([expect.objectContaining({ name: 'theirs' })]);
   });
 
-  it('leaves device keys to the Devices tab', async () => {
-    const registered = await data(
-      'mutation { registerDevice(name: "laptop", platform: "linux") { apiKey device { id } } }',
-      asSession('user-1'),
-    );
+  it('never lists or revokes a device key left over from before agents signed in', async () => {
+    const legacy = await auth.api.createApiKey({
+      body: { userId: 'user-1', name: 'laptop', metadata: { deviceId: 'device-1' } },
+    });
     const integration = await create('mcp client');
 
-    // Both are rows in the same table; only the device-less one is an
-    // integration, so only it is listed and only it is revocable here.
     expect(await list()).toEqual([expect.objectContaining({ id: integration.key.id })]);
-
     const result = await run(
-      `mutation { revokeApiKey(id: ${JSON.stringify(registered.registerDevice.device.id)}) }`,
+      `mutation { revokeApiKey(id: ${JSON.stringify(legacy.id)}) }`,
       asSession('user-1'),
     );
     expect(result.errors?.[0]?.extensions?.code).toBe('NOT_FOUND');
-    expect(await verifyApiKey(auth, registered.registerDevice.apiKey)).not.toBeNull();
+    // And it signs nobody in.
+    expect(await verifyApiKey(auth, legacy.key)).toBeNull();
   });
 
   it('renames a key without reissuing it', async () => {
@@ -217,9 +213,9 @@ describe('integration keys', () => {
       expect(result.errors?.[0]?.extensions?.code).toBe('UNAUTHENTICATED');
     }
 
-    // A device key is refused for the same reason.
-    const device = asKey('user-1', 'device-key-id', 'device-1');
-    expect((await run('{ apiKeys { id } }', device)).errors?.[0]?.extensions?.code).toBe(
+    // And so is a provider access token, which acts as its user everywhere else.
+    const agent = tokenContext(db, 'user-1');
+    expect((await run('{ apiKeys { id } }', agent)).errors?.[0]?.extensions?.code).toBe(
       'UNAUTHENTICATED',
     );
 

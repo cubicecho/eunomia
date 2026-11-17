@@ -15,8 +15,8 @@ import {
   summaries,
   user,
 } from '../src/db/schema.ts';
-import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { sessionContext } from './helpers/context.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
@@ -28,13 +28,7 @@ describe('rollup', () => {
     graphql({
       schema,
       source,
-      contextValue: {
-        db,
-        userId,
-        deviceId: undefined,
-        keyId: undefined,
-        headers: new Headers(),
-      } as Context,
+      contextValue: sessionContext(db, userId),
     });
 
   const activity = (

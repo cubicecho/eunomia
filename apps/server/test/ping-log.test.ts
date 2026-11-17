@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { ingestPings } from '../src/activity/ingest.ts';
 import { prunePings, type RawPing } from '../src/activity/ping-log.ts';
 import { activities, type Device, devices, pings, user } from '../src/db/schema.ts';
-import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { sessionContext } from './helpers/context.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
@@ -54,13 +54,7 @@ describe('raw ping log', () => {
           { capturedAt: "2026-08-16T12:00:20.000Z", idleSeconds: 200 }
         ])
       }`,
-      contextValue: {
-        db,
-        userId: 'user-1',
-        deviceId: undefined,
-        keyId: undefined,
-        headers: new Headers(),
-      } as Context,
+      contextValue: sessionContext(db, 'user-1'),
     });
     expect(result.errors).toBeUndefined();
 

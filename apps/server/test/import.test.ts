@@ -17,7 +17,6 @@ import {
   user,
 } from '../src/db/schema.ts';
 import { type ExportArgs, exportChunk } from '../src/export/chunk.ts';
-import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 import {
   type AwEvent,
@@ -28,6 +27,7 @@ import {
 } from '../src/import/activitywatch.ts';
 import { type ImportArgs, importChunk, MAX_IMPORT_RECORDS } from '../src/import/chunk.ts';
 import { csvFields, readHeader } from '../src/import/rescuetime.ts';
+import { sessionContext } from './helpers/context.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
@@ -224,13 +224,7 @@ describe('imports', () => {
     const result = await graphql({
       schema,
       source,
-      contextValue: {
-        db,
-        userId,
-        deviceId: undefined,
-        keyId: undefined,
-        headers: new Headers(),
-      } as Context,
+      contextValue: sessionContext(db, userId),
     });
     expect(result.errors).toBeUndefined();
     return result.data as any;

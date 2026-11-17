@@ -4,6 +4,7 @@ import { createAuth, createAuthGateway } from '../src/auth.ts';
 import { fixedAuthHost } from '../src/auth-host.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { sessionContext } from './helpers/context.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
 // Magic-link login over GraphQL only: requestMagicLink emails a link (or, in
@@ -25,14 +26,7 @@ describe('magic-link auth', () => {
     });
   });
 
-  const anonymous = (): Context =>
-    ({
-      db,
-      userId: undefined,
-      deviceId: undefined,
-      keyId: undefined,
-      headers: new Headers(),
-    }) as Context;
+  const anonymous = (): Context => sessionContext(db, undefined);
 
   const makeSchema = (exposeMagicLinkToken: boolean) =>
     createSchema(

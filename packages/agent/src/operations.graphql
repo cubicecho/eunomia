@@ -3,9 +3,9 @@
 
 # The upload path. One request, one server-side transaction: the whole batch
 # lands or none of it does, so a retry after a timeout can never double-count
-# folded time. The device comes from the API key.
-mutation RecordPings($pings: [PingInput!]!) {
-  recordPings(pings: $pings)
+# folded time. The agent names its device; the bearer says who it is.
+mutation RecordPings($deviceId: String!, $pings: [PingInput!]!) {
+  recordPings(deviceId: $deviceId, pings: $pings)
 }
 
 mutation RequestMagicLink($email: String!) {
@@ -20,37 +20,19 @@ mutation VerifyMagicLink($token: String!) {
   }
 }
 
-# Whether the server signs in through an OIDC provider, and where to start.
+# Whether the server signs in through an OIDC provider, and whether agents may
+# use its device flow (the provider and audience are in the server's
+# protected-resource metadata).
 query SsoSetup {
   ssoSetup {
     name
-    signInUrl
-  }
-}
-
-# The token an OIDC sign-in handed back to the agent, with the verifier behind
-# the challenge the agent started it with.
-mutation VerifyOneTimeToken($token: String!, $codeVerifier: String) {
-  verifyOneTimeToken(token: $token, codeVerifier: $codeVerifier) {
-    token
+    deviceClientId
   }
 }
 
 mutation RegisterDevice($name: String!, $platform: String!) {
   registerDevice(name: $name, platform: $platform) {
-    device {
-      id
-    }
-    apiKey
-  }
-}
-
-mutation RotateDeviceKey($id: String!) {
-  rotateDeviceKey(id: $id) {
-    device {
-      id
-    }
-    apiKey
+    id
   }
 }
 
@@ -63,11 +45,4 @@ mutation RenameDevice($id: String!, $name: String!) {
 
 mutation SignOut {
   signOut
-}
-
-mutation SessionFromDeviceKey {
-  sessionFromDeviceKey {
-    token
-    userId
-  }
 }

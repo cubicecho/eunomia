@@ -1,11 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createAuth, createAuthGateway, verifyApiKey } from '../src/auth.ts';
+import { createAuth, createAuthGateway } from '../src/auth.ts';
 import { fixedAuthHost } from '../src/auth-host.ts';
 import { activities, devices, focusSegments, pings, summaries, user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { sessionContext } from './helpers/context.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
 describe('device management', () => {
@@ -13,8 +14,7 @@ describe('device management', () => {
   let auth: ReturnType<typeof createAuth>;
   let schema: ReturnType<typeof createSchema>;
 
-  const asUser = (userId: string | undefined): Context =>
-    ({ db, userId, deviceId: undefined, keyId: undefined, headers: new Headers() }) as Context;
+  const asUser = (userId: string | undefined): Context => sessionContext(db, userId);
 
   beforeEach(async () => {
     db = await createMigratedTestDb();
@@ -29,18 +29,28 @@ describe('device management', () => {
     ]);
   });
 
-  const register = async (userId: string): Promise<{ deviceId: string; apiKey: string }> => {
+  const register = async (userId: string): Promise<{ deviceId: string }> => {
     const result = await graphql({
       schema,
       source: `mutation {
-        registerDevice(name: "laptop", platform: "linux") { apiKey device { id } }
+        registerDevice(name: "laptop", platform: "linux") { id }
       }`,
       contextValue: asUser(userId),
     });
     expect(result.errors).toBeUndefined();
-    const payload = (result.data as any).registerDevice;
-    return { deviceId: payload.device.id, apiKey: payload.apiKey };
+    return { deviceId: (result.data as any).registerDevice.id };
   };
+
+  /** One ping from the agent on `deviceId`, signed in as `userId`. */
+  const ping = (userId: string, deviceId: string) =>
+    graphql({
+      schema,
+      source: `mutation ($id: String!) {
+        recordPing(deviceId: $id, capturedAt: "2026-08-10T09:00:00Z", app: "code", idleSeconds: 0) { id }
+      }`,
+      variableValues: { id: deviceId },
+      contextValue: asUser(userId),
+    });
 
   const rename = (userId: string | undefined, deviceId: string, name: string) =>
     graphql({
@@ -49,16 +59,6 @@ describe('device management', () => {
         renameDevice(id: $id, name: $name) { id name }
       }`,
       variableValues: { id: deviceId, name },
-      contextValue: asUser(userId),
-    });
-
-  const rotate = (userId: string | undefined, deviceId: string) =>
-    graphql({
-      schema,
-      source: `mutation ($id: String!) {
-        rotateDeviceKey(id: $id) { apiKey device { id name } }
-      }`,
-      variableValues: { id: deviceId },
       contextValue: asUser(userId),
     });
 
@@ -111,34 +111,8 @@ describe('device management', () => {
     expect(result.errors?.[0]?.message).toBe('Unknown device');
   });
 
-  it('rotates a key: same device, new key works, old one is revoked', async () => {
-    const { deviceId, apiKey } = await register('user-1');
-    const survivor = await register('user-1');
-
-    const result = await rotate('user-1', deviceId);
-    expect(result.errors).toBeUndefined();
-    const payload = (result.data as any).rotateDeviceKey;
-    expect(payload.device).toEqual({ id: deviceId, name: 'laptop' });
-    expect(payload.apiKey).not.toBe(apiKey);
-
-    // The device (and its history) stays put; only the credential changes.
-    expect(await verifyApiKey(auth, payload.apiKey)).toMatchObject({ userId: 'user-1', deviceId });
-    expect(await verifyApiKey(auth, apiKey)).toBeNull();
-    expect(await verifyApiKey(auth, survivor.apiKey)).toMatchObject({
-      userId: 'user-1',
-      deviceId: survivor.deviceId,
-    });
-  });
-
-  it("rejects rotating another user's device key", async () => {
-    const { deviceId, apiKey } = await register('user-1');
-    const result = await rotate('user-2', deviceId);
-    expect(result.errors?.[0]?.message).toBe('Unknown device');
-    expect(await verifyApiKey(auth, apiKey)).not.toBeNull();
-  });
-
-  it('deletes a device, cascading activities and revoking its API key', async () => {
-    const { deviceId, apiKey } = await register('user-1');
+  it("deletes a device, cascading activities and refusing its agent's uploads", async () => {
+    const { deviceId } = await register('user-1');
     const survivor = await register('user-1');
     await db.insert(activities).values({
       id: 'act-1',
@@ -148,24 +122,20 @@ describe('device management', () => {
       lastActiveAt: new Date(),
       activeSeconds: 10,
     });
-    expect(await verifyApiKey(auth, apiKey)).toMatchObject({ userId: 'user-1', deviceId });
 
     const result = await remove('user-1', deviceId);
     expect(result.errors).toBeUndefined();
     expect((result.data as any).deleteDevice).toBe(true);
 
-    // Device and its activities are gone; the key no longer authenticates.
+    // Device and its activities are gone; its agent's next upload is refused.
     expect(await db.query.devices.findMany()).toEqual([
       expect.objectContaining({ id: survivor.deviceId }),
     ]);
     expect(await db.query.activities.findMany()).toEqual([]);
-    expect(await verifyApiKey(auth, apiKey)).toBeNull();
+    expect((await ping('user-1', deviceId)).errors?.[0]?.message).toBe('Unknown device');
 
-    // The surviving device's key is untouched.
-    expect(await verifyApiKey(auth, survivor.apiKey)).toMatchObject({
-      userId: 'user-1',
-      deviceId: survivor.deviceId,
-    });
+    // The surviving device's agent keeps uploading.
+    expect((await ping('user-1', survivor.deviceId)).errors).toBeUndefined();
   });
 
   it('merges a duplicate device into the one that stays, keeping its history', async () => {
@@ -230,12 +200,9 @@ describe('device management', () => {
     const [kept] = await db.select().from(devices).where(eq(devices.id, keeper.deviceId));
     expect(kept?.lastSeenAt).toEqual(new Date('2026-08-10T10:05:00Z'));
 
-    // Only the retired device's key is revoked — the running agent keeps going.
-    expect(await verifyApiKey(auth, duplicate.apiKey)).toBeNull();
-    expect(await verifyApiKey(auth, keeper.apiKey)).toMatchObject({
-      userId: 'user-1',
-      deviceId: keeper.deviceId,
-    });
+    // Only the retired device is refused — the running agent keeps going.
+    expect((await ping('user-1', duplicate.deviceId)).errors?.[0]?.message).toBe('Unknown device');
+    expect((await ping('user-1', keeper.deviceId)).errors).toBeUndefined();
   });
 
   it('moves the raw ping log along with the history', async () => {
@@ -317,15 +284,14 @@ describe('device management', () => {
       'Unknown device',
     );
     // Both devices survive untouched.
-    expect(await verifyApiKey(auth, theirs.apiKey)).not.toBeNull();
-    expect(await verifyApiKey(auth, mine.apiKey)).not.toBeNull();
+    expect(await db.query.devices.findMany()).toHaveLength(2);
   });
 
   it("rejects deleting another user's device", async () => {
-    const { deviceId, apiKey } = await register('user-1');
+    const { deviceId } = await register('user-1');
     const result = await remove('user-2', deviceId);
     expect(result.errors?.[0]?.message).toBe('Unknown device');
-    expect(await verifyApiKey(auth, apiKey)).not.toBeNull();
+    expect((await ping('user-1', deviceId)).errors).toBeUndefined();
   });
 
   it('rejects unauthenticated calls', async () => {

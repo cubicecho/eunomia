@@ -1,4 +1,4 @@
-import type { SsoCredential, StoredConfig } from '@eunomia/agent';
+import type { AgentCredential, DeviceCode, SavedConfig, StoredConfig } from '@eunomia/agent';
 
 // The seam between the shared agent UI and the shell running it.
 //
@@ -50,11 +50,11 @@ export interface HostCapabilities {
    */
   pause: boolean;
   /**
-   * The agent can sign in through the server's OIDC provider in the system
-   * browser and get the answer back: a loopback port on desktop, the app's
-   * `eunomia://` scheme on Android. Off in a plain browser.
+   * The agent can sign in through the server's OIDC provider with the device
+   * flow: it shows a code, opens the provider's page in the system browser,
+   * and waits for the person to approve it there. Off in a plain browser.
    */
-  sso: boolean;
+  deviceSignIn: boolean;
 }
 
 /** Whether recording is paused right now, read back from the shell. */
@@ -117,16 +117,16 @@ export interface HostInfo {
   /** The ping log's directory, shown the way the tray shows it. */
   pingLogPath: string;
   logPath: string;
-  /**
-   * Env vars are supplying the server connection, so a config.json written
-   * here applies to the running agent but is ignored the next time it starts.
-   * Always false on Android, which has no environment to read.
-   */
-  envConfigured: boolean;
 }
 
 export interface AgentHost extends HostInfo {
   loadConfig(): Promise<StoredConfig | null>;
+  /**
+   * What config.json holds even when it can't start an agent — a config from
+   * before agents signed in as their person still names its server, device
+   * and settings, which setup keeps.
+   */
+  loadSavedConfig(): Promise<SavedConfig | null>;
   saveConfig(config: StoredConfig): Promise<void>;
 
   /** Pings waiting in the outbox, without running a sync. */
@@ -162,9 +162,19 @@ export interface AgentHost extends HostInfo {
   pause?(ms: number | null): Promise<PauseState>;
   resume?(): Promise<PauseState>;
   /**
-   * Signs in through the server's OIDC provider in the system browser, starting
-   * at `signInUrl` (the server's ssoSetup.signInUrl), and resolves to what it
-   * handed back. Rejects with a message to show when it didn't work.
+   * The device flow, present iff `capabilities.deviceSignIn`. Run by the shell
+   * rather than this UI: under Electron the provider's endpoints are called
+   * from the main process, which no renderer CORS rule reaches.
    */
-  ssoSignIn?(signInUrl: string): Promise<SsoCredential>;
+  /** What the server's provider is called, when it lets agents sign in through it; else null. */
+  deviceSignInProvider?(serverUrl: string): Promise<string | null>;
+  /**
+   * Starts a sign-in and opens the provider's page in the system browser.
+   * Resolves to the code to show; one sign-in at a time, so starting another
+   * cancels the last.
+   */
+  startDeviceSignIn?(serverUrl: string): Promise<DeviceCode>;
+  /** Waits for the started sign-in to be approved. Rejects with a message to show. */
+  finishDeviceSignIn?(): Promise<AgentCredential>;
+  cancelDeviceSignIn?(): Promise<void>;
 }

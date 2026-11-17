@@ -73,8 +73,6 @@ describe('graphql schema', () => {
       'replayDevice',
       'requestMagicLink',
       'revokeApiKey',
-      'rotateDeviceKey',
-      'sessionFromDeviceKey',
       'setLlmSettings',
       'setOnboarding',
       'setRetention',

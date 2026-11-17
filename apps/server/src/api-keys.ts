@@ -10,18 +10,14 @@ import { apikey } from './db/schema.ts';
  * stored, so deleting a row IS the revocation; there is nothing to expire out
  * of a cache.
  *
- * Two kinds of key share the table, told apart by the metadata minted into
- * them:
+ * Every key here is an integration key, issued from the dashboard for anything
+ * that talks to this server other than an agent — an MCP client, a script —
+ * and managed only from a signed-in session (see permissions.ts).
  *
- * - **device keys** carry `{ deviceId }`. One per registered agent, issued by
- *   `registerDevice`/`rotateDeviceKey` and revoked with the device.
- * - **integration keys** carry no deviceId. Issued from the dashboard for
- *   anything else that talks to this server — an MCP client, a script — and
- *   managed only from a signed-in session (see permissions.ts).
- *
- * A key of either kind authenticates as its owner; the difference is that a
- * device key also *is* a device, so ingestion can omit deviceId and
- * `sessionFromDeviceKey` has something to hand the desktop dashboard.
+ * Agents used to hold **device keys** too, told apart by a `{ deviceId }` in
+ * their metadata. They sign in as their person now (a provider access token,
+ * or a session from a sign-in link), so any device key still stored is
+ * deleted at boot (`deleteDeviceKeys`), never listed, and refused if presented.
  */
 
 /** One row of the caller's key list. Never carries the key or its hash. */
@@ -68,8 +64,8 @@ export function scopesFrom(metadata: Record<string, unknown> | string | null): K
 }
 
 /**
- * The deviceId a stored apikey row was minted for, or null for an integration
- * key. The better-auth plugin JSON-serializes the metadata column
+ * The deviceId a stored apikey row was minted for (a legacy device key), or
+ * null for an integration key. The better-auth plugin JSON-serializes the metadata column
  * (double-encoded in some versions), so tolerate both encodings and anything
  * unparseable.
  */
@@ -78,7 +74,7 @@ export function keyMetadataDeviceId(metadata: string | null): string | null {
   return typeof deviceId === 'string' ? deviceId : null;
 }
 
-/** Every key the user holds, both kinds, with the metadata still attached. */
+/** Every key the user holds, with the metadata still attached. */
 async function ownKeys(db: Db, userId: string) {
   return db
     .select({
@@ -96,9 +92,8 @@ async function ownKeys(db: Db, userId: string) {
 }
 
 /**
- * The user's integration keys, newest first — device keys excluded, because
- * they belong to the Devices tab and revoking one there means retiring an
- * agent, not withdrawing an integration.
+ * The user's integration keys, newest first — any legacy device key still
+ * stored is left out.
  *
  * The kind is decided in JS rather than in SQL: the plugin owns the metadata
  * column's encoding, and `keyMetadataDeviceId` already tolerates every version
@@ -142,13 +137,15 @@ export async function renameKey(db: Db, userId: string, id: string, name: string
 }
 
 /**
- * Deletes every stored key minted for a device. Only hashes are kept, so
- * dropping the rows is a full revocation.
+ * Deletes every device key left over from when the agents held one, across
+ * all users. Only hashes are kept, so dropping the rows is a full revocation.
+ * Run at boot; returns how many there were.
  */
-export async function revokeDeviceKeys(db: Db, userId: string, deviceId: string): Promise<void> {
-  const keys = await ownKeys(db, userId);
+export async function deleteDeviceKeys(db: Db): Promise<number> {
+  const keys = await db.select({ id: apikey.id, metadata: apikey.metadata }).from(apikey);
   const stale = keys
-    .filter((key) => keyMetadataDeviceId(key.metadata) === deviceId)
+    .filter((key) => keyMetadataDeviceId(key.metadata) !== null)
     .map((key) => key.id);
   if (stale.length > 0) await db.delete(apikey).where(inArray(apikey.id, stale));
+  return stale.length;
 }

@@ -1,11 +1,11 @@
 import type { MutationResolvers, QueryResolvers } from '@eunomia/gql/resolvers';
 import { accept, deny, type PermissionsMap, type Rule } from '@vantreeseba/graphql-casl';
 import { unauthenticated } from '../errors.ts';
-import type { Context } from './context.ts';
+import { type Context, isSession } from './context.ts';
 
 /**
- * Passes only when the request carries an identity (session bearer token or
- * device API key). Row-level scoping is NOT done here — graphql-middleware
+ * Passes only when the request carries an identity (a session, an
+ * integration key, or a provider access token). Row-level scoping is NOT done here — graphql-middleware
  * gates fields but can't rewrite queries, so ownership fences live below: the
  * generated reads are fenced at build time (scope.ts) and the domain mutations
  * check ownership themselves. This layer guarantees no protected field ever
@@ -17,25 +17,17 @@ const authenticated: Rule = (resolve, parent, args, context: Context, info) => {
 };
 
 /**
- * Passes only for device API keys (deviceId is set solely on x-api-key
- * requests). Keeps session bearers from minting further sessions.
- */
-const deviceAuthenticated: Rule = (resolve, parent, args, context: Context, info) => {
-  if (!context.userId || !context.deviceId) return Promise.reject(unauthenticated());
-  return resolve(parent, args, context, info);
-};
-
-/**
- * Passes only for a signed-in session — an API key of either kind is refused
- * even though it authenticates as the same user.
+ * Passes only for a signed-in session — an integration key or a provider
+ * access token is refused even though it authenticates as the same user.
  *
  * This is what fences off key management. A key that could mint keys would
  * survive its own revocation: whoever held the leaked one issues a successor
- * before anyone notices, and revoking what leaked accomplishes nothing.
+ * before anyone notices, and revoking what leaked accomplishes nothing. A
+ * provider token that could would outlive the provider's say over it.
  * Issuing and withdrawing credentials stays with the human who can sign in.
  */
 const sessionAuthenticated: Rule = (resolve, parent, args, context: Context, info) => {
-  if (!context.userId || context.keyId) return Promise.reject(unauthenticated());
+  if (!isSession(context)) return Promise.reject(unauthenticated());
   return resolve(parent, args, context, info);
 };
 
@@ -116,8 +108,6 @@ export const permissions = {
     verifyMagicLink: accept,
     // Public: reports false for sessionless calls rather than erroring.
     signOut: accept,
-    // Desktop dashboard hand-off: only a device key may trade itself for a session.
-    sessionFromDeviceKey: deviceAuthenticated,
     // Public: the last leg of an OIDC sign-in, made before there is a session.
     verifyOneTimeToken: accept,
     // Public: the first account is made before there is anyone to be. The
@@ -149,7 +139,6 @@ export const permissions = {
     deleteAccount: sessionAuthenticated,
     registerDevice: authenticated,
     renameDevice: authenticated,
-    rotateDeviceKey: authenticated,
     mergeDevice: authenticated,
     // Session-only: a rebuild rewrites a device's whole derived history and
     // holds its fold lock while it does. Something a human asks for, not

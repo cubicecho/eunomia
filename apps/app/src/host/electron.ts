@@ -20,6 +20,7 @@ export async function createElectronHost(): Promise<AgentHost> {
   return {
     ...info,
     loadConfig: () => bridge.loadConfig(),
+    loadSavedConfig: () => bridge.loadSavedConfig(),
     saveConfig: (config: StoredConfig) => bridge.saveConfig(config),
     pendingCount: () => bridge.pendingCount(),
     syncNow: () => bridge.syncNow(),
@@ -31,7 +32,10 @@ export async function createElectronHost(): Promise<AgentHost> {
     pauseState: () => bridge.pauseState(),
     pause: (ms: number | null) => bridge.pause(ms),
     resume: () => bridge.resume(),
-    ssoSignIn: (signInUrl: string) => bridge.ssoSignIn(signInUrl),
+    deviceSignInProvider: (serverUrl: string) => bridge.deviceSignInProvider(serverUrl),
+    startDeviceSignIn: (serverUrl: string) => bridge.startDeviceSignIn(serverUrl),
+    finishDeviceSignIn: () => bridge.finishDeviceSignIn(),
+    cancelDeviceSignIn: () => bridge.cancelDeviceSignIn(),
     // Nothing to grant: the desktop agent reads the focused window directly,
     // and macOS's screen-recording prompt is the OS's to raise, not ours.
     usageAccessGranted: async () => true,

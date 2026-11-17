@@ -5,8 +5,8 @@ import { ingestPings } from '../src/activity/ingest.ts';
 import type { RawPing } from '../src/activity/ping-log.ts';
 import { activities, categories, type Device, devices, user } from '../src/db/schema.ts';
 import { addDays } from '../src/graphql/agent-fields.ts';
-import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { sessionContext } from './helpers/context.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
@@ -33,13 +33,7 @@ describe('agent-shaped reads', () => {
     const result = await graphql({
       schema: createSchema(db as never, stubAuthGateway()),
       source,
-      contextValue: {
-        db,
-        userId: userId ?? undefined,
-        deviceId: undefined,
-        keyId: undefined,
-        headers: new Headers(),
-      } as Context,
+      contextValue: sessionContext(db, userId ?? undefined),
     });
     return result;
   };

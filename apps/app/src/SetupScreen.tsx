@@ -1,27 +1,32 @@
 import {
-  fetchSsoProvider,
+  type AgentCredential,
+  type DeviceCode,
   normalizeServerUrl,
   provisionDevice,
   requestMagicLink,
-  type SsoCredential,
   type StoredConfig,
+  verifyMagicLink,
 } from '@eunomia/agent';
 import { useEffect, useState } from 'react';
 import { Button, Text, TextInput, View } from 'react-native';
 import type { AgentHost } from './host/index.ts';
 import { Screen, ui } from './ui.tsx';
 
-// Onboarding, on every shell: server URL + device name, then a magic-link
-// sign-in (email) or — when the server has an OIDC provider and this shell can
-// run a browser sign-in — "Sign in with …" in the system browser. Then
-// provisionDevice hands back a device key the host writes to its
-// config.json and syncing starts. One flow, shared with the `--provision` CLI
-// — down to re-keying an existing device rather than registering a twin.
+// Onboarding, on every shell: server URL + device name, then a sign-in as the
+// person this device records for. When the server's provider lets agents sign
+// in through it, "Sign in with …" runs its device flow: the provider's page
+// opens in the system browser, the person approves eunomia there, and the
+// agent gets a token it keeps fresh. Otherwise (or by choice) a sign-in link by
+// email, traded for a session. Then provisionDevice puts this machine on the
+// server and the host writes config.json. One flow, shared with the
+// `--provision` CLI — down to keeping an existing device rather than
+// registering a twin.
 //
 // The same screen reconnects an install that already has a config (status →
-// "Change server / API key…"). Which of register-or-re-key that means is
-// provisionDevice's call, from the config passed as `existing`; this screen
-// only collects the answers and saves what comes back.
+// "Change server / sign in again…"), and one whose sign-in lapsed. Which of
+// keep-or-register that means is provisionDevice's call, from the saved config
+// passed as `existing`; this screen only collects the answers and saves what
+// comes back.
 
 interface Props {
   host: AgentHost;
@@ -36,8 +41,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** How long typing in the server URL settles before asking it about SSO. */
-const SSO_LOOKUP_DELAY_MS = 600;
+/** How long typing in the server URL settles before asking it about device sign-in. */
+const PROVIDER_LOOKUP_DELAY_MS = 600;
+
+type Stage = 'details' | 'link' | 'device';
 
 export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
   const reconfigure = current !== null;
@@ -45,43 +52,47 @@ export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
   const [email, setEmail] = useState('');
   const [deviceName, setDeviceName] = useState(current?.deviceName ?? host.defaultDeviceName);
   const [pastedLink, setPastedLink] = useState('');
-  const [stage, setStage] = useState<'details' | 'link'>('details');
+  const [stage, setStage] = useState<Stage>('details');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [sso, setSso] = useState<{ name: string; signInUrl: string } | null>(null);
+  const [provider, setProvider] = useState<string | null>(null);
+  const [deviceCode, setDeviceCode] = useState<DeviceCode | null>(null);
 
-  // Whether the server as typed signs in through an OIDC provider. Any failure
-  // (a half-typed URL, an older server without the field) just means no button.
-  const canSso = host.capabilities.sso && host.ssoSignIn !== undefined;
+  // Whether the server as typed lets agents sign in through its provider. Any
+  // failure (a half-typed URL, an older server) just means no button.
+  const canDeviceSignIn = host.capabilities.deviceSignIn && host.deviceSignInProvider !== undefined;
   useEffect(() => {
-    setSso(null);
+    setProvider(null);
     const url = serverUrl.trim();
-    if (!canSso || !/^https?:\/\/./.test(url)) return;
+    if (!canDeviceSignIn || !/^https?:\/\/./.test(url)) return;
     let cancelled = false;
     const timer = setTimeout(() => {
-      fetchSsoProvider(normalizeServerUrl(url)).then(
-        (provider) => {
-          if (!cancelled) setSso(provider);
+      host.deviceSignInProvider?.(normalizeServerUrl(url)).then(
+        (name) => {
+          if (!cancelled) setProvider(name);
         },
         () => {},
       );
-    }, SSO_LOOKUP_DELAY_MS);
+    }, PROVIDER_LOOKUP_DELAY_MS);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [serverUrl, canSso]);
+  }, [serverUrl, canDeviceSignIn, host]);
 
-  const finish = async (
-    signIn: { tokenOrLink: string } | { sso: SsoCredential },
-  ): Promise<void> => {
-    // Whatever is on disk decides register-or-re-key; privacy rules and the
-    // sync interval on it are the user's and carry across a reconnect.
-    const existing = current ?? (await host.loadConfig());
+  // Leaving mid-sign-in stops the shell polling for a token nobody will use.
+  useEffect(() => () => void host.cancelDeviceSignIn?.(), [host]);
+
+  const finish = async (credential: AgentCredential): Promise<void> => {
+    // Whatever is on disk decides keep-or-register; privacy rules and the
+    // sync interval on it are the user's and carry across a reconnect. Read
+    // as saved, so a config whose sign-in can no longer start an agent still
+    // hands over its device and settings.
+    const existing = current ?? (await host.loadSavedConfig());
     const name = deviceName.trim();
     const provisioned = await provisionDevice({
       serverUrl,
-      ...signIn,
+      credential,
       name,
       platform: host.platform,
       existing,
@@ -89,14 +100,20 @@ export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
     const config: StoredConfig = {
       ...existing,
       serverUrl: provisioned.serverUrl,
-      apiKey: provisioned.apiKey,
-      // Recorded so setting this device up again re-keys it rather than
+      // Recorded so setting this device up again keeps it rather than
       // stranding its history on a device nothing uploads to any more.
       deviceId: provisioned.deviceId,
+      credential,
       deviceName: name,
     };
     await host.saveConfig(config);
     onDone(config);
+  };
+
+  /** A sign-in link's token, traded for a session the agent keeps. */
+  const finishWithLink = async (tokenOrLink: string): Promise<void> => {
+    const url = normalizeServerUrl(serverUrl);
+    await finish({ kind: 'session', token: await verifyMagicLink(url, tokenOrLink) });
   };
 
   const submitDetails = async (): Promise<void> => {
@@ -107,7 +124,7 @@ export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
         normalizeServerUrl(serverUrl),
         email.trim().toLowerCase(),
       );
-      if (token) await finish({ tokenOrLink: token });
+      if (token) await finishWithLink(token);
       else setStage('link');
     } catch (err) {
       setError(errorMessage(err));
@@ -116,24 +133,32 @@ export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
     }
   };
 
-  const signInWithSso = async (): Promise<void> => {
-    if (!sso || !host.ssoSignIn) return;
+  const signInWithProvider = async (): Promise<void> => {
+    if (!host.startDeviceSignIn || !host.finishDeviceSignIn) return;
     setBusy(true);
     setError('');
     try {
-      await finish({ sso: await host.ssoSignIn(sso.signInUrl) });
+      setDeviceCode(await host.startDeviceSignIn(normalizeServerUrl(serverUrl)));
+      setStage('device');
+      await finish(await host.finishDeviceSignIn());
     } catch (err) {
+      setStage('details');
       setError(errorMessage(err));
     } finally {
+      setDeviceCode(null);
       setBusy(false);
     }
+  };
+
+  const cancelDeviceSignIn = (): void => {
+    void host.cancelDeviceSignIn?.();
   };
 
   const submitLink = async (): Promise<void> => {
     setBusy(true);
     setError('');
     try {
-      await finish({ tokenOrLink: pastedLink.trim() });
+      await finishWithLink(pastedLink.trim());
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -146,20 +171,11 @@ export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
       title={reconfigure ? 'Change server' : 'Set up eunomia'}
       subtitle={
         reconfigure
-          ? 'Sign in to move this device to another server, or to issue it a new API key.'
+          ? 'Sign in again, or move this device to another server.'
           : 'Connect this device to your eunomia server.'
       }
       onBack={onCancel}
     >
-      {host.envConfigured ? (
-        // EUNOMIA_SERVER_URL/EUNOMIA_API_KEY are supplying the connection, so
-        // what is saved here runs the agent now and is ignored the next time it
-        // starts. Better said than silently discovered.
-        <Text style={ui.notice}>
-          This agent's server and API key come from its environment. What you set here applies until
-          the agent restarts, then the environment wins again.
-        </Text>
-      ) : null}
       {stage === 'details' ? (
         <>
           <Text style={ui.label}>Server URL</Text>
@@ -173,12 +189,12 @@ export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
           />
           <Text style={ui.label}>Device name</Text>
           <TextInput style={ui.input} value={deviceName} onChangeText={setDeviceName} />
-          {sso ? (
+          {provider ? (
             <>
               <View style={ui.button}>
                 <Button
-                  title={busy ? 'Waiting for the browser…' : `Sign in with ${sso.name}`}
-                  onPress={() => void signInWithSso()}
+                  title={`Sign in with ${provider}`}
+                  onPress={() => void signInWithProvider()}
                   disabled={busy || !deviceName.trim()}
                 />
               </View>
@@ -207,6 +223,24 @@ export function SetupScreen({ host, current = null, onDone, onCancel }: Props) {
               onPress={() => void submitDetails()}
               disabled={busy || !serverUrl.trim() || !email.trim() || !deviceName.trim()}
             />
+          </View>
+        </>
+      ) : stage === 'device' && deviceCode ? (
+        <>
+          <Text style={ui.sub}>
+            Approve eunomia in the {deviceCode.providerName} page that opened in your browser, and
+            check it shows this code:
+          </Text>
+          <Text style={ui.code} selectable>
+            {deviceCode.userCode}
+          </Text>
+          <Text style={ui.sub}>If no page opened, go to:</Text>
+          <Text style={ui.sub} selectable>
+            {deviceCode.verificationUriComplete ?? deviceCode.verificationUri}
+          </Text>
+          <Text style={ui.sub}>Waiting for you to approve it…</Text>
+          <View style={ui.button}>
+            <Button title="Cancel" onPress={cancelDeviceSignIn} />
           </View>
         </>
       ) : (

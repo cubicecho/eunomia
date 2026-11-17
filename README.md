@@ -148,19 +148,19 @@ npm run db:migrate -w @eunomia/server   # apply committed migrations
 npm run dev:server                      # http://localhost:4000/graphql
 
 # desktop agent — on first run it opens a setup window (server URL, then a
-# magic-link or single sign-on sign-in, registers this machine), then lives in
-# the tray. That
+# single sign-on device sign-in or a magic link, registers this machine), then
+# lives in the tray. That
 # window is the Expo app rendered by react-native-web, so `dev:desktop` runs
 # `expo export --platform web` first; re-run it after editing the UI, or point
 # EUNOMIA_DEV_SERVER at `npm run web -w @eunomia/app` to skip the export.
 # `npm run provision -w @eunomia/app` is the terminal equivalent.
 # Tray → "Open Dashboard" (or a double-click on the tray icon, on
-# Windows/macOS) shows the server-hosted dashboard, signed in via the device
-# key (needs a server that serves the web build, i.e. WEB_DIST — the docker
+# Windows/macOS) shows the server-hosted dashboard, signed in as the agent is
+# (needs a server that serves the web build, i.e. WEB_DIST — the docker
 # image does; a bare `npm run dev:server` has no dashboard at /).
-# Tray → "Change server / API key…" reopens that setup window later: point the
-# agent at a different server, or sign in again to issue this device a fresh
-# API key (same server ⇒ the device keeps its identity and history).
+# Tray → "Change server / sign in again…" reopens that setup window later:
+# point the agent at a different server, or sign it in again (same server ⇒
+# the device keeps its identity and history).
 npm run dev:desktop
 
 # web dashboard (proxies /graphql to the server; set EUNOMIA_SERVER_URL to
@@ -170,7 +170,7 @@ npm run dev:web                         # http://localhost:5173
 # mobile agent (Android) — needs a dev build (native module), not Expo Go:
 #   cd apps/app && npx expo run:android
 # then grant "Usage access" from the in-app prompt. Set up mirrors desktop:
-# server URL, then magic link or single sign-on. Syncs on foreground + ~15 min
+# server URL, then single sign-on or a magic link. Syncs on foreground + ~15 min
 # in background.
 npm run dev:mobile
 
@@ -520,17 +520,42 @@ The sign-in itself never puts a session in a cookie or a URL: the provider's
 callback ends with a one-time token on `/?sso=…`, which the dashboard swaps for
 its usual bearer session.
 
-The desktop and Android agents offer **Sign in with …** on their setup screen
-too, once the server URL they're given has a provider. The sign-in runs in the
-system browser, and the result comes back to the agent: on desktop to a port
-it opens on `127.0.0.1` for that one sign-in, on Android to the app's
-`eunomia://` link. Either could in principle be caught by something else on
-the same device, so the agent starts the sign-in with a challenge
-(`code_challenge`, as in PKCE) and the server only accepts the returned token
-together with the secret behind it. The server sends a sign-in back only to
-those two kinds of address. The Android build gained two native modules for
-this (`expo-web-browser`, `expo-crypto`) and an app link scheme, so it needs a
-new APK. An over-the-air update can't deliver it.
+### Signing the agents in
+
+The desktop and Android agents sign in as you, the same way the other cubicecho
+apps' device clients do (the Home Assistant integrations, for one). They hold no
+key of their own.
+
+- **Through the provider (device flow).** When pairing, eunomia registers a
+  second, public client with the provider for its agents, if the provider offers
+  the OAuth device flow ([RFC 8628](https://www.rfc-editor.org/rfc/rfc8628)).
+  heautou holds that client's device flow back until its admin turns it on.
+  Once it's on, the agents' setup screen (and `--provision`) offers **Sign in
+  with …**: it shows a code, opens the provider's page in the system browser,
+  and waits while you approve eunomia there. The agent gets an access token for
+  eunomia's API, which it keeps fresh with a refresh token, and eunomia accepts
+  it as you. With a provider set in the environment, set
+  `OIDC_DEVICE_CLIENT_ID` to the public client the agents should use.
+  `OIDC_API_AUDIENCE` overrides the audience tokens must carry (default
+  `<BETTER_AUTH_URL>/graphql`).
+- **With a sign-in link.** Otherwise, or by choice, the agent asks for a magic
+  link (or takes one the dashboard's **Sign an agent in** card made) and keeps
+  the session it opens.
+
+Agents find the provider and the audience to ask for in eunomia's
+protected-resource metadata
+([RFC 9728](https://www.rfc-editor.org/rfc/rfc9728)), at
+`/.well-known/oauth-protected-resource`. A provider token is mapped to the
+eunomia account that signed in through that provider, by the provider's user
+id, never by email. So **sign in to the dashboard with the provider once**
+before setting up an agent that way. A provider token, like an API key, can't
+do the session-only things (manage keys, delete history, change settings).
+
+Revoking an agent is the provider's job: end its grant there (or sign a
+link-opened session out). Deleting the device in **Devices** refuses its
+uploads from then on. Agents set up before this change held a device API key.
+The server deletes those keys at boot, and each agent asks to be signed in once
+more, keeping its device, history and settings.
 
 ### API keys (for other apps)
 
@@ -550,10 +575,8 @@ The one thing a key cannot do is manage keys. `apiKeys`, `createApiKey`,
 API-key request with `UNAUTHENTICATED`, so a leaked key can neither enumerate
 its siblings nor mint a successor that would outlive its revocation.
 
-Device keys live in the same table but are handed out by the pairing flow and
-managed under **Devices** — they carry a `deviceId` and are deliberately not
-listed or revocable here. Both kinds are described in
-`apps/server/src/api-keys.ts`.
+The agents don't use API keys: they sign in as you (see "Signing the agents
+in").
 
 ### Contexts (sites, projects, books, workspaces)
 

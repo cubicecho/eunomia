@@ -1,4 +1,5 @@
 import type { AgentConfig } from './api.ts';
+import { type AgentCredential, parseCredential } from './credential.ts';
 import { type CaptureLevel, isCaptureLevel } from './privacy.ts';
 
 // The on-disk agent config, parsed and serialized. Pure data — no IO, no node,
@@ -9,12 +10,6 @@ import { type CaptureLevel, isCaptureLevel } from './privacy.ts';
 
 /** Everything a shell may persist, beyond the server connection itself. */
 export interface StoredConfig extends AgentConfig {
-  /**
-   * The device this install registered as. Lets the agent re-key itself
-   * (rotateDeviceKey) instead of registering a second device — absent in
-   * configs written before that existed, which fall back to re-registering.
-   */
-  deviceId?: string;
   /** Name the device was registered under; shown when reconnecting. */
   deviceName?: string;
   /** Desktop: launch at login (packaged builds only). Default true. */
@@ -82,22 +77,37 @@ const BOOLEAN_KEYS = [
   'launchableAppsOnly',
 ] as const satisfies readonly (keyof StoredConfig)[];
 
-const STRING_KEYS = ['deviceId', 'deviceName'] as const satisfies readonly (keyof StoredConfig)[];
+const STRING_KEYS = ['deviceName'] as const satisfies readonly (keyof StoredConfig)[];
 
 /**
- * Parses `config.json`. Returns null unless the server connection is complete:
- * a config without both halves cannot start an agent, and treating it as
- * absent is what sends the shell to its setup screen.
+ * What a config file holds whether or not it can start an agent: everything
+ * but the device and the credential is optional to have. A config from before
+ * agents signed in as their person has an `apiKey` and no credential; read
+ * this way it still names its server, its device and the person's settings,
+ * so setting it up again keeps all three.
+ */
+export type SavedConfig = Omit<StoredConfig, 'deviceId' | 'credential'> & {
+  deviceId?: string;
+  credential?: AgentCredential;
+};
+
+/**
+ * Parses what a config file holds, or null without a server URL.
  *
  * Unknown keys are dropped rather than carried, so a field a newer build wrote
  * cannot survive a downgrade in a shape this build would then re-serialize.
  */
-export function parseConfig(raw: unknown): StoredConfig | null {
-  const parsed = raw as Partial<StoredConfig> | null;
+export function parseSavedConfig(raw: unknown): SavedConfig | null {
+  const parsed = raw as Partial<Record<keyof StoredConfig, unknown>> | null;
   if (!parsed || typeof parsed !== 'object') return null;
-  if (typeof parsed.serverUrl !== 'string' || typeof parsed.apiKey !== 'string') return null;
+  if (typeof parsed.serverUrl !== 'string') return null;
 
-  const config: StoredConfig = { serverUrl: parsed.serverUrl, apiKey: parsed.apiKey };
+  const config: SavedConfig = { serverUrl: parsed.serverUrl };
+  if (typeof parsed.deviceId === 'string' && parsed.deviceId !== '') {
+    config.deviceId = parsed.deviceId;
+  }
+  const credential = parseCredential(parsed.credential);
+  if (credential) config.credential = credential;
   for (const key of STRING_KEYS) {
     const value = parsed[key];
     if (typeof value === 'string') config[key] = value;
@@ -120,6 +130,32 @@ export function parseConfig(raw: unknown): StoredConfig | null {
   const localApi = parseLocalApiConfig(parsed.localApi);
   if (localApi) config.localApi = localApi;
   return config;
+}
+
+/** Whether a saved config can start an agent: it names its device and holds a credential. */
+export function isComplete(config: SavedConfig | null): config is StoredConfig {
+  return Boolean(config?.deviceId && config.credential);
+}
+
+/**
+ * Parses `config.json`. Returns null unless the server connection is complete
+ * (the server, the device, and a credential): a config without all three
+ * cannot start an agent, and treating it as absent is what sends the shell to
+ * its setup screen. What such a file does hold is `parseSavedConfig`'s.
+ */
+export function parseConfig(raw: unknown): StoredConfig | null {
+  const saved = parseSavedConfig(raw);
+  return isComplete(saved) ? saved : null;
+}
+
+/** Parses saved-config text, tolerating an unreadable file the way a missing one is. */
+export function parseSavedConfigText(text: string | null): SavedConfig | null {
+  if (text === null) return null;
+  try {
+    return parseSavedConfig(JSON.parse(text));
+  } catch {
+    return null;
+  }
 }
 
 /** Parses config text, tolerating an unreadable file the way a missing one is. */

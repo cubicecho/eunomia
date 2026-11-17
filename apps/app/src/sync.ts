@@ -10,6 +10,7 @@ import {
 } from '@eunomia/agent';
 import UsageEvents, { type NativeUsageEvent } from '../modules/usage-events';
 import {
+  agentTokens,
   getOutbox,
   loadConfig,
   loadPauses,
@@ -153,7 +154,10 @@ async function syncOnce(): Promise<SyncResult> {
 
   let uploadError: string | null = null;
   if (config) {
-    const uploader = createUploader(config, outbox);
+    const uploader = createUploader(
+      { serverUrl: config.serverUrl, deviceId: config.deviceId, tokens: agentTokens(config) },
+      outbox,
+    );
     await uploader.flush();
     uploadError = uploader.status().error;
   }

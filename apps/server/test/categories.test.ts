@@ -12,6 +12,7 @@ import {
 } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { sessionContext } from './helpers/context.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
@@ -19,8 +20,7 @@ describe('categories', () => {
   let db: Awaited<ReturnType<typeof createMigratedTestDb>>;
   let schema: ReturnType<typeof createSchema>;
 
-  const asUser = (userId: string): Context =>
-    ({ db, userId, deviceId: undefined, keyId: undefined, headers: new Headers() }) as Context;
+  const asUser = (userId: string): Context => sessionContext(db, userId);
 
   const run = (source: string, userId = 'user-1') =>
     graphql({ schema, source, contextValue: asUser(userId) });
@@ -323,13 +323,7 @@ describe('assignEntry', () => {
     graphql({
       schema,
       source,
-      contextValue: {
-        db,
-        userId,
-        deviceId: undefined,
-        keyId: undefined,
-        headers: new Headers(),
-      } as Context,
+      contextValue: sessionContext(db, userId),
     });
 
   const activity = (

@@ -6,6 +6,7 @@ import { type CategoryRule, matchRule } from '../src/activity/rules.ts';
 import { categoryRules, devices, user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { sessionContext } from './helpers/context.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
@@ -100,8 +101,7 @@ describe('starter rule packs', () => {
     let db: Awaited<ReturnType<typeof createMigratedTestDb>>;
     let schema: ReturnType<typeof createSchema>;
 
-    const asUser = (userId: string): Context =>
-      ({ db, userId, deviceId: 'device-1', keyId: undefined, headers: new Headers() }) as Context;
+    const asUser = (userId: string): Context => sessionContext(db, userId);
 
     const data = async (source: string, userId = 'user-1') => {
       const result = await graphql({ schema, source, contextValue: asUser(userId) });
@@ -224,6 +224,7 @@ describe('starter rule packs', () => {
     it('categorizes the uncategorized time already recorded', async () => {
       const ping = (second: number, app: string, title?: string, context?: string) =>
         data(`mutation { recordPing(
+      deviceId: "device-1",
           capturedAt: "2026-08-17T12:00:${String(second).padStart(2, '0')}.000Z", app: "${app}",
           ${title ? `title: "${title}",` : ''} ${context ? `context: "${context}",` : ''} idleSeconds: 0
         ) { id } }`);

@@ -123,7 +123,7 @@ export function createSchema(db: Db, auth: AuthGateway) {
     Mutation: {
       ...authFields(auth),
       ...ssoFields(db, auth),
-      ...deviceFields(db, auth),
+      ...deviceFields(db),
       ...apiKeyFields(db, auth),
       ...categoryFields(db),
       ...ruleFields(db),

@@ -7,9 +7,18 @@ import {
   type ServerResponse,
 } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { fetchSsoProvider, provisionDevice, ssoStartUrl, ssoTokenFrom } from '@eunomia/agent';
+import {
+  createTokenSource,
+  DEVICE_CODE_GRANT,
+  discoverProvider,
+  fetchDeviceSignIn,
+  pollDeviceToken,
+  provisionDevice,
+  startDeviceAuthorization,
+  uploadBatch,
+} from '@eunomia/agent';
 import { eq } from 'drizzle-orm';
-import { exportJWK, generateKeyPair, SignJWT } from 'jose';
+import { exportJWK, generateKeyPair, type JWTPayload, SignJWT } from 'jose';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deleteAccount } from '../src/activity/deletion.ts';
 import { createApp } from '../src/app.ts';
@@ -17,24 +26,33 @@ import { createAuthGateway } from '../src/auth.ts';
 import { type AuthHost, createAuthHost } from '../src/auth-host.ts';
 import { user } from '../src/db/schema.ts';
 import { oidcEnvProblem, SSO_CALLBACK_PATH, SSO_START_PATH } from '../src/oidc/config.ts';
-import { s256 } from '../src/oidc/handoff.ts';
+import { forgetDeviceClientCheck } from '../src/oidc/device-client.ts';
 import { createSsoHandler } from '../src/oidc/http.ts';
 import { PairingFailure, parseSetupUrl } from '../src/oidc/pairing.ts';
+import {
+  createProtectedResourceHandler,
+  PROTECTED_RESOURCE_PATH,
+} from '../src/oidc/protected-resource.ts';
 import { isAdmin, readPairedOidc } from '../src/oidc/settings.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
 // OIDC sign-in and pairing through the real HTTP surface, against a stand-in
 // for heautou (oidc-provider): discovery, a JWKS, a code flow with the client
-// secret in a Basic header, PKCE, a signed id token carrying the nonce — and
-// Dynamic Client Registration (RFC 7591) with deletion (RFC 7592).
+// secret in a Basic header, PKCE, a signed id token carrying the nonce —
+// Dynamic Client Registration (RFC 7591) with reading and deletion (RFC 7592),
+// and the device flow (RFC 8628) issuing JWT access tokens for eunomia's API
+// (RFC 9068) to the device client pairing registered beside eunomia's own.
 
 const SECRET = 'test-secret-test-secret-test-secret';
 const SETUP_TOKEN = 'iat-good';
 const CLIENT_ID = 'eunomia-client';
 const CLIENT_SECRET = 'eunomia-secret';
 const RAT = 'rat-1';
+const DEVICE_CLIENT_ID = 'eunomia-device';
+const DEVICE_RAT = 'rat-device';
 
 const SETUP = '{ ssoSetup { source name signInUrl issuer canPair redirectUri } }';
+const DEVICE_SETUP = '{ ssoSetup { deviceClientId } }';
 const PAIR = 'mutation ($url: String!) { pairSso(setupUrl: $url) { source name canPair } }';
 const UNPAIR = 'mutation { unpairSso { source name signInUrl } }';
 const VERIFY = 'mutation ($token: String!) { verifyOneTimeToken(token: $token) { token userId } }';
@@ -57,8 +75,16 @@ interface FakeProvider {
   registrations: { body: Record<string, unknown>; authorization: string | undefined }[];
   deletions: (string | undefined)[];
   deleteStatus: number;
+  /** Whether discovery offers the device flow, so pairing registers a device client. */
+  deviceFlow: boolean;
+  /** Whether the provider's admin has turned the device client's device flow on. */
+  deviceGrantOn: boolean;
   /** Plays the browser at the authorize endpoint: the code and state it would be sent back with. */
   authorize(url: string): { code: string; state: string };
+  /** Plays the person approving a device code at the provider. */
+  approve(userCode: string): void;
+  /** An access token for eunomia's API, signed by this provider unless the header says otherwise. */
+  accessToken(claims?: JWTPayload, header?: { alg?: string; typ?: string }): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -93,7 +119,25 @@ async function startProvider(): Promise<FakeProvider> {
     string,
     { nonce: string; challenge: string; redirectUri: string; profile: Profile }
   >();
+  /** Device codes waiting for approval, by user code. */
+  const devices = new Map<
+    string,
+    { deviceCode: string; resource: string; approved: boolean; profile: Profile }
+  >();
+  const refreshes = new Map<string, { resource: string; profile: Profile }>();
   let fake!: FakeProvider;
+
+  /** An RFC 9068 access token for `audience`, as heautou issues for an API. */
+  const signAccessToken = (profile: Profile, audience: string) =>
+    new SignJWT({ client_id: DEVICE_CLIENT_ID })
+      .setProtectedHeader({ alg: 'RS256', kid: 'k1', typ: 'at+jwt' })
+      .setJti(randomUUID())
+      .setIssuer(fake.issuer)
+      .setAudience(audience)
+      .setSubject(profile.sub)
+      .setIssuedAt()
+      .setExpirationTime('5m')
+      .sign(privateKey);
 
   const { server, origin } = await listen((req, res) => {
     void (async () => {
@@ -107,18 +151,82 @@ async function startProvider(): Promise<FakeProvider> {
           userinfo_endpoint: `${issuer}/me`,
           jwks_uri: `${issuer}/jwks`,
           ...(fake.canRegister ? { registration_endpoint: `${issuer}/reg` } : {}),
+          ...(fake.deviceFlow
+            ? {
+                device_authorization_endpoint: `${issuer}/device/auth`,
+                grant_types_supported: ['authorization_code', 'refresh_token', DEVICE_CODE_GRANT],
+              }
+            : {}),
           id_token_signing_alg_values_supported: ['RS256'],
           token_endpoint_auth_methods_supported: ['client_secret_basic'],
         });
       } else if (url.pathname === '/oidc/jwks') {
         sendJson(res, 200, { keys: [jwk] });
+      } else if (url.pathname === '/oidc/device/auth' && req.method === 'POST') {
+        const form = new URLSearchParams(await readBody(req));
+        if (form.get('client_id') !== DEVICE_CLIENT_ID || !fake.deviceGrantOn) {
+          sendJson(res, 400, { error: 'unauthorized_client' });
+          return;
+        }
+        const userCode = `CODE-${devices.size + 1}`;
+        const deviceCode = randomUUID();
+        devices.set(userCode, {
+          deviceCode,
+          resource: form.get('resource') ?? '',
+          approved: false,
+          profile: fake.profile,
+        });
+        sendJson(res, 200, {
+          device_code: deviceCode,
+          user_code: userCode,
+          verification_uri: `${issuer}/device`,
+          verification_uri_complete: `${issuer}/device?user_code=${userCode}`,
+          expires_in: 600,
+          interval: 5,
+        });
       } else if (url.pathname === '/oidc/token' && req.method === 'POST') {
+        const form = new URLSearchParams(await readBody(req));
+        if (form.get('grant_type') === DEVICE_CODE_GRANT) {
+          const waiting = [...devices.values()].find(
+            (device) => device.deviceCode === form.get('device_code'),
+          );
+          if (!waiting || form.get('client_id') !== DEVICE_CLIENT_ID) {
+            sendJson(res, 400, { error: 'invalid_grant' });
+          } else if (!waiting.approved) {
+            sendJson(res, 400, { error: 'authorization_pending' });
+          } else {
+            const refreshToken = randomUUID();
+            refreshes.set(refreshToken, waiting);
+            sendJson(res, 200, {
+              access_token: await signAccessToken(waiting.profile, waiting.resource),
+              token_type: 'Bearer',
+              expires_in: 300,
+              refresh_token: refreshToken,
+            });
+          }
+          return;
+        }
+        if (form.get('grant_type') === 'refresh_token') {
+          const grant = refreshes.get(form.get('refresh_token') ?? '');
+          if (!grant || form.get('client_id') !== DEVICE_CLIENT_ID) {
+            sendJson(res, 400, { error: 'invalid_grant' });
+            return;
+          }
+          sendJson(res, 200, {
+            access_token: await signAccessToken(
+              grant.profile,
+              form.get('resource') ?? grant.resource,
+            ),
+            token_type: 'Bearer',
+            expires_in: 300,
+          });
+          return;
+        }
         const basic = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
         if (req.headers.authorization !== `Basic ${basic}`) {
           sendJson(res, 401, { error: 'invalid_client' });
           return;
         }
-        const form = new URLSearchParams(await readBody(req));
         const code = form.get('code') ?? '';
         const grant = codes.get(code);
         codes.delete(code);
@@ -171,6 +279,16 @@ async function startProvider(): Promise<FakeProvider> {
             error: 'invalid_redirect_uri',
             error_description: 'redirect_uris must use https',
           });
+        } else if (body.token_endpoint_auth_method === 'none') {
+          // The device client: public, and held back until the admin turns its
+          // device flow on, as heautou does.
+          sendJson(res, 201, {
+            ...body,
+            grant_types: ['refresh_token'],
+            client_id: DEVICE_CLIENT_ID,
+            registration_access_token: DEVICE_RAT,
+            registration_client_uri: `${issuer}/reg/${DEVICE_CLIENT_ID}`,
+          });
         } else {
           sendJson(res, 201, {
             ...body,
@@ -180,7 +298,22 @@ async function startProvider(): Promise<FakeProvider> {
             registration_client_uri: `${issuer}/reg/${CLIENT_ID}`,
           });
         }
-      } else if (url.pathname === `/oidc/reg/${CLIENT_ID}` && req.method === 'DELETE') {
+      } else if (url.pathname === `/oidc/reg/${DEVICE_CLIENT_ID}` && req.method === 'GET') {
+        if (req.headers.authorization !== `Bearer ${DEVICE_RAT}`) {
+          sendJson(res, 401, { error: 'invalid_token' });
+          return;
+        }
+        sendJson(res, 200, {
+          client_id: DEVICE_CLIENT_ID,
+          grant_types: fake.deviceGrantOn
+            ? [DEVICE_CODE_GRANT, 'refresh_token']
+            : ['refresh_token'],
+        });
+      } else if (
+        (url.pathname === `/oidc/reg/${CLIENT_ID}` ||
+          url.pathname === `/oidc/reg/${DEVICE_CLIENT_ID}`) &&
+        req.method === 'DELETE'
+      ) {
         fake.deletions.push(req.headers.authorization);
         res.writeHead(fake.deleteStatus);
         res.end();
@@ -200,6 +333,26 @@ async function startProvider(): Promise<FakeProvider> {
     registrations: [],
     deletions: [],
     deleteStatus: 204,
+    deviceFlow: false,
+    deviceGrantOn: false,
+    approve(userCode) {
+      const device = devices.get(userCode);
+      if (!device) throw new Error(`no device is waiting with ${userCode}`);
+      device.approved = true;
+    },
+    async accessToken(claims = {}, header = {}) {
+      const alg = header.alg ?? 'RS256';
+      const jwt = new SignJWT({ client_id: DEVICE_CLIENT_ID, ...claims })
+        .setProtectedHeader({ alg, kid: 'k1', typ: header.typ ?? 'at+jwt' })
+        .setIssuer(typeof claims.iss === 'string' ? claims.iss : fake.issuer)
+        .setAudience(claims.aud ?? `${process.env.BETTER_AUTH_URL}/graphql`)
+        .setSubject(claims.sub ?? fake.profile.sub)
+        .setIssuedAt()
+        .setExpirationTime(claims.exp ?? '5m');
+      return alg === 'HS256'
+        ? jwt.sign(new TextEncoder().encode('a-shared-secret-eunomia-never-holds'))
+        : jwt.sign(privateKey);
+    },
     authorize(authorizeUrl) {
       const params = new URL(authorizeUrl).searchParams;
       expect(params.get('client_id')).toBe(CLIENT_ID);
@@ -239,8 +392,10 @@ async function boot(policy: { allowedEmails?: string[]; disableSignUp?: boolean 
   const gateway = createAuthGateway(host, db as never);
   const yoga = createApp(db as never, host, gateway);
   const sso = createSsoHandler(host, { allowedEmails: policy.allowedEmails });
+  const protectedResource = createProtectedResourceHandler(host);
   handler = (req, res) => {
     if (sso(req, res)) return;
+    if (protectedResource(req, res)) return;
     void yoga(req, res);
   };
 }
@@ -254,6 +409,9 @@ beforeEach(async () => {
   vi.stubEnv('APP_URL', '');
   vi.stubEnv('OIDC_ISSUER', '');
   vi.stubEnv('OIDC_CLIENT_ID', '');
+  vi.stubEnv('OIDC_DEVICE_CLIENT_ID', '');
+  vi.stubEnv('OIDC_API_AUDIENCE', '');
+  forgetDeviceClientCheck();
   // Logged refusals are expected here; keep them out of the run's output.
   vi.spyOn(console, 'error').mockImplementation(() => {});
   await boot();
@@ -395,6 +553,7 @@ describe('pairSso', () => {
       authorization: `Bearer ${SETUP_TOKEN}`,
       body: {
         client_name: 'eunomia',
+        client_uri: origin,
         redirect_uris: [`${origin}${SSO_CALLBACK_PATH}`],
         token_endpoint_auth_method: 'client_secret_basic',
         grant_types: ['authorization_code'],
@@ -610,102 +769,255 @@ describe('OIDC sign-in under a registration policy', () => {
   });
 });
 
-describe('agent sign-in', () => {
+/** Signs the provider's current person in once in a browser, so eunomia has their account row. */
+async function linkAccount(): Promise<{ token: string; userId: string }> {
+  const { location } = await signIn();
+  return (await ok(VERIFY, { token: location.searchParams.get('sso') })).verifyOneTimeToken;
+}
+
+/** `me` and the challenge header, for a bearer. */
+async function asBearer(token: string) {
+  const response = await fetch(`${origin}/graphql`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ query: '{ me { email } }' }),
+  });
+  const body = (await response.json()) as GraphQLResult;
+  return { me: body.data?.me ?? null, challenge: response.headers.get('www-authenticate') };
+}
+
+describe('the device client', () => {
+  it('is registered beside eunomia when the provider offers the device flow', async () => {
+    provider.deviceFlow = true;
+    await pairAnonymously();
+
+    expect(provider.registrations).toHaveLength(2);
+    expect(provider.registrations[1]).toEqual({
+      authorization: `Bearer ${SETUP_TOKEN}`,
+      body: {
+        client_name: 'eunomia agents',
+        client_uri: origin,
+        redirect_uris: [],
+        token_endpoint_auth_method: 'none',
+        grant_types: [DEVICE_CODE_GRANT, 'refresh_token'],
+        response_types: [],
+      },
+    });
+    expect(await readPairedOidc(db as never)).toMatchObject({
+      clientId: CLIENT_ID,
+      deviceClientId: DEVICE_CLIENT_ID,
+      deviceRegistrationAccessToken: DEVICE_RAT,
+      deviceRegistrationClientUri: `${provider.issuer}/reg/${DEVICE_CLIENT_ID}`,
+    });
+  });
+
+  it('is offered to agents only once the provider turns its device flow on', async () => {
+    provider.deviceFlow = true;
+    await pairAnonymously();
+    expect((await ok(DEVICE_SETUP)).ssoSetup.deviceClientId).toBeNull();
+
+    provider.deviceGrantOn = true;
+    forgetDeviceClientCheck();
+    expect((await ok(DEVICE_SETUP)).ssoSetup.deviceClientId).toBe(DEVICE_CLIENT_ID);
+  });
+
+  it('is not registered when the provider has no device flow', async () => {
+    await pairAnonymously();
+    expect(provider.registrations).toHaveLength(1);
+    expect((await readPairedOidc(db as never))?.deviceClientId).toBeNull();
+    expect((await ok(DEVICE_SETUP)).ssoSetup.deviceClientId).toBeNull();
+  });
+
+  it("is deleted with eunomia's own client on unpairing", async () => {
+    provider.deviceFlow = true;
+    await pairAnonymously();
+    const admin = await linkAccount();
+    await ok(UNPAIR, {}, admin.token);
+    expect(provider.deletions).toEqual([`Bearer ${RAT}`, `Bearer ${DEVICE_RAT}`]);
+  });
+
+  it('is OIDC_DEVICE_CLIENT_ID when the environment names the provider', async () => {
+    vi.stubEnv('OIDC_ISSUER', provider.issuer);
+    vi.stubEnv('OIDC_CLIENT_ID', CLIENT_ID);
+    expect((await ok(DEVICE_SETUP)).ssoSetup.deviceClientId).toBeNull();
+    vi.stubEnv('OIDC_DEVICE_CLIENT_ID', 'agents-by-hand');
+    expect((await ok(DEVICE_SETUP)).ssoSetup.deviceClientId).toBe('agents-by-hand');
+  });
+});
+
+describe('protected resource metadata', () => {
+  const metadata = async (path = PROTECTED_RESOURCE_PATH) => {
+    const response = await fetch(`${origin}${path}`);
+    expect(response.status).toBe(200);
+    return response.json();
+  };
+
+  it('names no authorization server without a provider', async () => {
+    expect(await metadata()).toEqual({
+      resource: `${origin}/graphql`,
+      authorization_servers: [],
+      bearer_methods_supported: ['header'],
+      resource_name: 'eunomia',
+    });
+  });
+
+  it('names the paired provider, at the well-known path and under the resource path', async () => {
+    await pairAnonymously();
+    for (const path of [PROTECTED_RESOURCE_PATH, `${PROTECTED_RESOURCE_PATH}/graphql`]) {
+      expect(await metadata(path)).toMatchObject({
+        resource: `${origin}/graphql`,
+        authorization_servers: [provider.issuer],
+      });
+    }
+  });
+});
+
+describe('provider access tokens', () => {
   beforeEach(pairAnonymously);
 
-  const VERIFIER = 'a-verifier-only-the-agent-knows-0123456789';
-  const VERIFY_AGENT =
-    'mutation ($token: String!, $verifier: String) { verifyOneTimeToken(token: $token, codeVerifier: $verifier) { token userId } }';
-  const agentQuery = (returnTo: string, verifier = VERIFIER) =>
-    `?return_to=${encodeURIComponent(returnTo)}&code_challenge=${s256(verifier)}`;
-
-  it('hands the token to the app, usable only with the verifier behind the challenge', async () => {
-    const { location } = await signIn(undefined, agentQuery('eunomia://sso'));
-    expect(`${location.protocol}//${location.host}${location.pathname}`).toBe('eunomia://sso');
-    const token = location.searchParams.get('sso') ?? '';
-
-    // Something that intercepted the redirect has the token but not the verifier.
-    expect(await failure(VERIFY_AGENT, { token })).toMatchObject({ code: 'BAD_USER_INPUT' });
-    expect(await failure(VERIFY_AGENT, { token, verifier: 'wrong' })).toMatchObject({
-      code: 'BAD_USER_INPUT',
+  it('sign in as the account that signed in through the provider', async () => {
+    await linkAccount();
+    expect(await asBearer(await provider.accessToken())).toEqual({
+      me: { email: 'ada@example.com' },
+      challenge: null,
     });
-    // And trying didn't spend it: the agent that asked still signs in.
-    const session = (await ok(VERIFY_AGENT, { token, verifier: VERIFIER })).verifyOneTimeToken;
-    expect((await ok('{ me { email } }', {}, session.token)).me.email).toBe('ada@example.com');
   });
 
-  it('hands it to a loopback port, as the desktop agent listens on', async () => {
-    const { location } = await signIn(undefined, agentQuery('http://127.0.0.1:53682/sso'));
-    expect(location.origin).toBe('http://127.0.0.1:53682');
-    expect(location.searchParams.get('sso')).toBeTruthy();
-  });
-
-  it('sends a refusal back to the app too', async () => {
-    const { location } = await signIn(
-      (back) => back.searchParams.set('state', 'forged'),
-      agentQuery('eunomia://sso'),
-    );
-    expect(location.protocol).toBe('eunomia:');
-    expect(location.searchParams.get('error')).toBeTruthy();
-    expect(location.searchParams.get('sso')).toBeNull();
-  });
-
-  it('refuses any other target, or one without a challenge', async () => {
-    for (const query of [
-      agentQuery('https://evil.example.com/steal'),
-      agentQuery('http://192.168.1.5:8080/sso'),
-      `?return_to=${encodeURIComponent('eunomia://sso')}`,
-    ]) {
-      const start = await fetch(`${origin}${SSO_START_PATH}${query}`, { redirect: 'manual' });
-      expect(start.status).toBe(400);
+  it('are nobody when anything about them is off, and say where to get a good one', async () => {
+    await linkAccount();
+    const refused = [
+      await provider.accessToken({ aud: 'https://another.example.com/graphql' }),
+      await provider.accessToken({ iss: 'https://evil.example.com/oidc' }),
+      await provider.accessToken({}, { typ: 'JWT' }),
+      await provider.accessToken({}, { alg: 'HS256' }),
+      await provider.accessToken({ exp: Math.floor(Date.now() / 1000) - 600 }),
+      // Someone the provider knows who never signed in to eunomia.
+      await provider.accessToken({ sub: 'never-signed-in' }),
+    ];
+    for (const token of refused) {
+      const { me, challenge } = await asBearer(token);
+      expect(me).toBeNull();
+      expect(challenge).toBe(
+        `Bearer error="invalid_token", resource_metadata="${origin}${PROTECTED_RESOURCE_PATH}"`,
+      );
     }
   });
 
-  it("does not let an abandoned agent sign-in capture the dashboard's next one", async () => {
-    // Started for the app, never finished...
-    const abandoned = await fetch(`${origin}${SSO_START_PATH}${agentQuery('eunomia://sso')}`, {
-      redirect: 'manual',
-    });
-    // ...then a plain dashboard sign-in in the same browser.
-    const start = await fetch(`${origin}${SSO_START_PATH}`, {
-      redirect: 'manual',
-      headers: { cookie: cookiesFrom(abandoned) },
-    });
-    expect(
-      start.headers.getSetCookie().some((c) => /eunomia_sso_return=;.*Max-Age=0/.test(c)),
-    ).toBe(true);
+  it("may register a device and upload to it, but not what is a session's alone", async () => {
+    await linkAccount();
+    const token = await provider.accessToken();
+    const { registerDevice } = await ok(
+      'mutation { registerDevice(name: "laptop", platform: "linux") { id } }',
+      {},
+      token,
+    );
+    const pings = [{ capturedAt: '2026-08-12T09:00:00.000Z', app: 'code', idleSeconds: 0 }];
+    await ok(
+      'mutation ($id: String!, $pings: [PingInput!]!) { recordPings(deviceId: $id, pings: $pings) }',
+      { id: registerDevice.id, pings },
+      token,
+    );
+
+    for (const sessionOnly of [
+      'mutation { createApiKey(name: "leak") { token } }',
+      'mutation { deviceSignInLink }',
+      '{ apiKeys { id } }',
+    ]) {
+      expect(await failure(sessionOnly, {}, token)).toMatchObject({ code: 'UNAUTHENTICATED' });
+    }
   });
 
-  it('refuses a token this server never minted, verifier or not', async () => {
-    expect(await failure(VERIFY_AGENT, { token: 'made-up', verifier: VERIFIER })).toMatchObject({
-      code: 'BAD_USER_INPUT',
-    });
+  it('are nobody once the provider is disconnected', async () => {
+    const admin = await linkAccount();
+    const token = await provider.accessToken();
+    await ok(UNPAIR, {}, admin.token);
+    expect(await asBearer(token)).toEqual({ me: null, challenge: null });
+  });
+});
+
+describe('agent device sign-in', () => {
+  beforeEach(async () => {
+    provider.deviceFlow = true;
+    provider.deviceGrantOn = true;
+    await pairAnonymously();
   });
 
-  it('provisions a device end to end, the way the agents do', async () => {
-    // What the setup screen asks the server it was pointed at.
-    const provider = await fetchSsoProvider(origin);
-    expect(provider).toEqual({ name: 'heautou', signInUrl: `${origin}${SSO_START_PATH}` });
+  /** What the setup screen does: find the provider, get a code, wait for the person to approve it. */
+  const deviceSignIn = async () => {
+    const signInWith = await fetchDeviceSignIn(origin);
+    expect(signInWith).toEqual({
+      providerName: 'heautou',
+      issuer: provider.issuer,
+      audience: `${origin}/graphql`,
+      clientId: DEVICE_CLIENT_ID,
+    });
+    const endpoints = await discoverProvider(signInWith!.issuer);
+    const code = await startDeviceAuthorization(
+      endpoints,
+      signInWith!.clientId,
+      signInWith!.audience,
+    );
+    const tokens = await pollDeviceToken(endpoints, signInWith!.clientId, code, {
+      // The person approves while the agent waits.
+      sleep: async () => provider.approve(code.userCode),
+    });
+    return {
+      kind: 'provider' as const,
+      ...tokens,
+      issuer: endpoints.issuer,
+      clientId: signInWith!.clientId,
+      audience: signInWith!.audience,
+      tokenEndpoint: endpoints.tokenEndpoint,
+    };
+  };
 
-    // What the shell does: open the start URL with its return target and
-    // challenge, then read the token off wherever the browser came back to.
-    const startUrl = new URL(ssoStartUrl(provider!.signInUrl, 'eunomia://sso', s256(VERIFIER)));
-    const { location } = await signIn(undefined, startUrl.search);
-    const token = ssoTokenFrom(location.toString());
+  it('provisions a device and uploads to it, the way the agents do', async () => {
+    await linkAccount();
+    const credential = await deviceSignIn();
 
     const device = await provisionDevice({
       serverUrl: origin,
-      sso: { token, codeVerifier: VERIFIER },
+      credential,
       name: 'phone',
       platform: 'android',
     });
-    expect(device.reKeyed).toBe(false);
-    // The device key works.
-    const me = await fetch(`${origin}/graphql`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': device.apiKey },
-      body: JSON.stringify({ query: '{ me { email } }' }),
-    });
-    expect(((await me.json()) as GraphQLResult).data?.me.email).toBe('ada@example.com');
+    expect(device.reconnected).toBe(false);
+
+    const tokens = createTokenSource(credential);
+    const ping = {
+      capturedAt: '2026-08-12T09:00:00.000Z',
+      app: 'code',
+      title: null,
+      context: null,
+      idleSeconds: 0,
+    };
+    expect(
+      await uploadBatch({ serverUrl: origin, deviceId: device.deviceId, tokens }, [ping]),
+    ).toEqual({ accepted: true, error: null });
+  });
+
+  it('refreshes an access token that is about to expire, and keeps the new one', async () => {
+    await linkAccount();
+    const credential = { ...(await deviceSignIn()), expiresAt: Date.now() - 1000 };
+    const saved: unknown[] = [];
+    const tokens = createTokenSource(credential, { save: (next) => void saved.push(next) });
+
+    const bearer = await tokens.bearer();
+    expect(bearer).not.toBe(credential.accessToken);
+    expect(saved).toHaveLength(1);
+    expect((await asBearer(bearer)).me).toEqual({ email: 'ada@example.com' });
+  });
+
+  it('says to sign in to the dashboard once when eunomia has never seen the account', async () => {
+    const credential = await deviceSignIn();
+    await expect(
+      provisionDevice({ serverUrl: origin, credential, name: 'phone', platform: 'android' }),
+    ).rejects.toThrow(/Sign in to the eunomia dashboard with your provider once/);
+  });
+
+  it('is not offered while the provider holds the device flow back', async () => {
+    provider.deviceGrantOn = false;
+    forgetDeviceClientCheck();
+    expect(await fetchDeviceSignIn(origin)).toBeNull();
   });
 });

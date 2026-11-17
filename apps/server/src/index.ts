@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { startReplayTimer } from './activity/replay.ts';
 import { startRollupTimer } from './activity/rollup.ts';
+import { deleteDeviceKeys } from './api-keys.ts';
 import { createApp, createContextFactory } from './app.ts';
 import { createAuthGateway } from './auth.ts';
 import { createAuthHost } from './auth-host.ts';
@@ -10,8 +11,9 @@ import { createSchema } from './graphql/schema.ts';
 import { checkHealth, VERSION } from './health.ts';
 import { storedSessionSecret } from './instance-secret.ts';
 import { createMcpHandler } from './mcp.ts';
-import { appUrl, oidcEnvProblem, oidcRedirectUri } from './oidc/config.ts';
+import { appUrl, oidcApiAudience, oidcEnvProblem, oidcRedirectUri } from './oidc/config.ts';
 import { createSsoHandler } from './oidc/http.ts';
+import { createProtectedResourceHandler } from './oidc/protected-resource.ts';
 import { hasUsers } from './oidc/settings.ts';
 import { registrationPolicyFromEnv } from './registration.ts';
 import { SetupCode, setupCodeBanner } from './setup-code.ts';
@@ -75,6 +77,16 @@ if (oidc) {
   console.log(
     `[auth] sign-in with ${oidc.name} (${oidc.issuer}); redirect URI ${oidcRedirectUri()}`,
   );
+  console.log(
+    `[auth] ${oidc.name}'s access tokens for ${oidcApiAudience()} are accepted as a bearer`,
+  );
+}
+
+// The agents sign in as their person now; a device key from before that is
+// revoked rather than left working.
+const deviceKeys = await deleteDeviceKeys(db);
+if (deviceKeys > 0) {
+  console.log(`[auth] revoked ${deviceKeys} device API key(s): agents now sign in instead`);
 }
 if (registration.allowedEmails.length > 0) {
   console.log(`[auth] accounts limited to ${registration.allowedEmails.join(', ')}`);
@@ -110,6 +122,7 @@ const schema = createSchema(db, gateway);
 const yoga = createApp(db, authHost, gateway, schema);
 const mcp = createMcpHandler(schema, createContextFactory(db, authHost));
 const sso = createSsoHandler(authHost, { allowedEmails: registration.allowedEmails });
+const protectedResource = createProtectedResourceHandler(authHost);
 
 // WEB_DIST points at the built dashboard (set in the container image); the
 // server then serves it on every non-/graphql path, so one origin hosts both
@@ -138,6 +151,8 @@ const server = createServer((req, res) => {
   }
   // Before the static handler too: the browser legs of an OIDC sign-in.
   if (sso(req, res)) return;
+  // And where an agent learns which provider issues tokens for this API.
+  if (protectedResource(req, res)) return;
   if (serveStatic && path !== yoga.graphqlEndpoint) {
     serveStatic(req, res);
     return;

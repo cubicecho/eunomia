@@ -1,17 +1,16 @@
 import {
-  ANDROID_SSO_RETURN,
-  base64Url,
+  type AgentCredential,
+  beginDeviceSignIn,
   currentPause,
+  type DeviceCode,
+  deviceSignInProvider,
+  type PendingDeviceSignIn,
   pause,
   resume,
-  type SsoCredential,
   type StoredConfig,
-  ssoStartUrl,
-  ssoTokenFrom,
 } from '@eunomia/agent';
 import * as Application from 'expo-application';
-import * as Crypto from 'expo-crypto';
-import * as WebBrowser from 'expo-web-browser';
+import { Linking } from 'react-native';
 import UsageEvents from '../../modules/usage-events';
 import {
   applyBackgroundSync,
@@ -24,6 +23,7 @@ import {
   getOutbox,
   loadConfig,
   loadPauses,
+  loadSavedConfig,
   pingLogPath,
   writeConfig,
   writePauses,
@@ -32,26 +32,31 @@ import { performSync } from '../sync.ts';
 import type { AgentHost, PauseState } from './types.ts';
 
 /**
- * Signs in through the server's OIDC provider in a Custom Tab, which comes
- * back to the app on its `eunomia://` scheme (app.json). Another app could
- * register that scheme too, so the sign-in is bound to a verifier only this
- * process holds — see packages/agent/src/sso.ts.
+ * The device sign-in in flight. Run in the app itself (no CORS on a phone):
+ * the provider's page opens in the browser, the person approves eunomia there,
+ * and they come back to the app, which has been waiting for the token.
  */
-async function ssoSignIn(signInUrl: string): Promise<SsoCredential> {
-  if (!/^https?:\/\//.test(signInUrl)) {
-    throw new Error('The server gave a sign-in address that is not a web page.');
+let pendingSignIn: PendingDeviceSignIn | null = null;
+
+async function startDeviceSignIn(serverUrl: string): Promise<DeviceCode> {
+  pendingSignIn?.cancel();
+  pendingSignIn = null;
+  const pending = await beginDeviceSignIn(serverUrl);
+  pendingSignIn = pending;
+  const link = pending.code.verificationUriComplete ?? pending.code.verificationUri;
+  // Only a web page goes to the OS to open.
+  if (/^https?:\/\//.test(link)) await Linking.openURL(link).catch(() => {});
+  return pending.code;
+}
+
+async function finishDeviceSignIn(): Promise<AgentCredential> {
+  const pending = pendingSignIn;
+  if (!pending) throw new Error('No sign-in is waiting. Start again.');
+  try {
+    return await pending.finish();
+  } finally {
+    if (pendingSignIn === pending) pendingSignIn = null;
   }
-  const codeVerifier = base64Url(await Crypto.getRandomBytesAsync(32));
-  const digest = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, codeVerifier, {
-    encoding: Crypto.CryptoEncoding.BASE64,
-  });
-  const challenge = digest.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const result = await WebBrowser.openAuthSessionAsync(
-    ssoStartUrl(signInUrl, ANDROID_SSO_RETURN, challenge),
-    ANDROID_SSO_RETURN,
-  );
-  if (result.type !== 'success') throw new Error('Sign-in cancelled.');
-  return { token: ssoTokenFrom(result.url), codeVerifier };
 }
 
 function pauseState(): PauseState {
@@ -81,17 +86,16 @@ export function createAndroidHost(): AgentHost {
       updates: true,
       externalDashboard: false,
       pause: true,
-      sso: true,
+      deviceSignIn: true,
     },
     version: Application.nativeApplicationVersion,
     platform: 'android',
     defaultDeviceName: `${Application.applicationName ?? 'eunomia'} phone`,
     pingLogPath: pingLogPath(),
     logPath: logPath(),
-    // Nothing on a phone supplies the connection from an environment.
-    envConfigured: false,
 
     loadConfig: async () => loadConfig(),
+    loadSavedConfig: async () => loadSavedConfig(),
     saveConfig: async (config: StoredConfig) => writeConfig(config),
 
     // The desktop agent applies a new config in its main process as it takes
@@ -127,6 +131,12 @@ export function createAndroidHost(): AgentHost {
       writePauses(resume(loadPauses(), Date.now()));
       return pauseState();
     },
-    ssoSignIn,
+    deviceSignInProvider: (serverUrl: string) => deviceSignInProvider(serverUrl),
+    startDeviceSignIn,
+    finishDeviceSignIn,
+    cancelDeviceSignIn: async () => {
+      pendingSignIn?.cancel();
+      pendingSignIn = null;
+    },
   };
 }

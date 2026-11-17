@@ -4,14 +4,13 @@ import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { bearer, genericOAuth, magicLink, oneTimeToken } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
-import { type KeyScope, scopesFrom } from './api-keys.ts';
+import { type KeyScope, keyMetadataDeviceId, scopesFrom } from './api-keys.ts';
 import type { AuthHost } from './auth-host.ts';
 import type { Db } from './db/client.ts';
 import { account, apikey, session, user, verification } from './db/schema.ts';
 import { type MagicLinkMessage, sendMagicLinkEmail } from './email.ts';
 import { badInput, forbidden } from './errors.ts';
 import { appUrl, OIDC_PROVIDER_ID, type OidcConfig, serverUrl } from './oidc/config.ts';
-import { releaseChallenge, verifierMatches } from './oidc/handoff.ts';
 import { claimFirstAdmin, hasUsers } from './oidc/settings.ts';
 import { emailAllowed, OPEN_REGISTRATION, type RegistrationPolicy } from './registration.ts';
 import type { SetupCode } from './setup-code.ts';
@@ -88,7 +87,8 @@ export function createAuth(db: Db, options: AuthOptions = {}) {
       disableSignUp: options.disableSignUp ?? false,
     },
     plugins: [
-      // Long-lived per-device agent tokens; sessions cover the dashboard.
+      // Integration keys for MCP clients and scripts (api-keys.ts). The agents
+      // sign in as their person instead: a provider access token, or a session.
       apiKey({ enableMetadata: true }),
       // The server is GraphQL-only (no better-auth REST routes, no cookies):
       // sign-in/sign-up mutations return the raw session token and clients
@@ -169,46 +169,21 @@ const stringClaim = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() !== '' ? value : undefined;
 
 /**
- * What an `x-api-key` resolves to. `deviceId` is set only for a device key — an
- * integration key issued from the dashboard authenticates as its owner and
- * nothing more. The two kinds and what separates them: src/api-keys.ts.
+ * What an `x-api-key` resolves to: an integration key issued from the
+ * dashboard, which authenticates as its owner and nothing more. The kinds of
+ * key there have been: src/api-keys.ts.
  */
 export interface KeyCredentials {
   userId: string;
   keyId: string;
-  deviceId: string | undefined;
   /** What an integration key was minted to do beyond reading. */
   scopes: KeyScope[];
 }
 
 /**
- * Mints the long-lived agent key for a freshly registered device. Server-side
- * call (no request headers), which is what lets us set the server-only
- * properties: the owning userId and rateLimitEnabled — the plugin's per-key
- * default of 10 requests/day would starve an agent pinging every ~10s.
- * Returns the plaintext key; only its hash is stored, so this is the one time
- * it exists.
- */
-export async function mintDeviceKey(
-  auth: Auth,
-  input: { userId: string; deviceId: string; name: string },
-): Promise<string> {
-  const created = await auth.api.createApiKey({
-    body: {
-      userId: input.userId,
-      name: input.name,
-      metadata: { deviceId: input.deviceId },
-      rateLimitEnabled: false,
-    },
-  });
-  return created.key;
-}
-
-/**
- * Mints an integration key: the same long-lived credential a device gets, minus
- * the device. Issued from the dashboard for anything else that talks to this
- * server — an MCP client, a script — so it carries no `deviceId` metadata and
- * can never stand in for an agent.
+ * Mints an integration key: a long-lived credential issued from the dashboard
+ * for anything other than an agent that talks to this server — an MCP client,
+ * a script.
  *
  * `expiresInDays` is better-auth's own window, and the plugin bounds it at
  * 1..365; omitted, the key does not expire. Returns the plaintext key — only
@@ -228,8 +203,8 @@ export async function mintUserKey(
       userId: input.userId,
       name: input.name,
       ...(input.scopes?.length ? { metadata: { scopes: input.scopes } } : {}),
-      // Same reason as a device key: the plugin's per-key default of 10
-      // requests/day would starve anything that actually polls.
+      // The plugin's per-key default of 10 requests/day would starve anything
+      // that actually polls.
       rateLimitEnabled: false,
       ...(input.expiresInDays === undefined
         ? {}
@@ -240,19 +215,23 @@ export async function mintUserKey(
 }
 
 /**
- * Resolves an `x-api-key` header value to its owner, and to the device it was
- * minted for when it is a device key. Invalid, disabled and expired keys all
- * resolve to null.
+ * Resolves an `x-api-key` header value to its owner. Invalid, disabled and
+ * expired keys all resolve to null, and so does a device key left over from
+ * before the agents signed in as their person: those are deleted at boot
+ * (api-keys.ts `deleteDeviceKeys`), and refused here should one outlive that.
  */
 export async function verifyApiKey(auth: Auth, key: string): Promise<KeyCredentials | null> {
   const result = await auth.api.verifyApiKey({ body: { key } });
   if (!result.valid || !result.key) return null;
-  const metadata = result.key.metadata as Record<string, unknown> | null;
-  const deviceId = metadata?.deviceId;
+  const metadata = result.key.metadata as Record<string, unknown> | string | null;
+  const isDeviceKey =
+    typeof metadata === 'string'
+      ? keyMetadataDeviceId(metadata) !== null
+      : typeof metadata?.deviceId === 'string';
+  if (isDeviceKey) return null;
   return {
     userId: result.key.referenceId,
     keyId: result.key.id,
-    deviceId: typeof deviceId === 'string' ? deviceId : undefined,
     scopes: scopesFrom(metadata),
   };
 }
@@ -263,17 +242,12 @@ export interface AuthSession {
   userId: string;
 }
 
-// Lifetime of a session minted from a device key. Short: the desktop mints a
-// fresh one every time the dashboard window opens, so nothing needs to last.
-const DEVICE_SESSION_SECONDS = 60 * 60;
-
 /**
  * The auth operations the GraphQL layer needs — the server exposes no
  * better-auth REST routes, so these are the only way auth is reached. Injected
  * into createSchema as an interface so tests can stub it.
  */
 export interface AuthGateway {
-  mintDeviceKey(input: { userId: string; deviceId: string; name: string }): Promise<string>;
   /**
    * Mints a device-less API key for the user. Only the minting goes through
    * better-auth, which owns the hashing; listing, renaming and revoking are
@@ -285,14 +259,6 @@ export interface AuthGateway {
     expiresInDays?: number | undefined;
     scopes?: KeyScope[] | undefined;
   }): Promise<{ id: string; key: string }>;
-  /**
-   * Opens a short-lived session for a device key's owner, so the desktop app
-   * can show the dashboard without a second sign-in. Not an escalation: the
-   * key already resolves to this userId and authorizes every user-scoped
-   * field — this only lets the embedded web view hold a revocable, expiring
-   * token instead of the key itself.
-   */
-  sessionForDevice(userId: string): Promise<AuthSession>;
   signUp(input: { email: string; password: string; name: string }): Promise<AuthSession>;
   signIn(input: { email: string; password: string }): Promise<AuthSession>;
   /**
@@ -310,7 +276,7 @@ export interface AuthGateway {
    * the dashboard's URL, for a session. Spent, expired and made-up tokens are
    * all BAD_USER_INPUT — the sign-in has to be started again.
    */
-  verifyOneTimeToken(token: string, codeVerifier?: string | null): Promise<AuthSession>;
+  verifyOneTimeToken(token: string): Promise<AuthSession>;
   /** Rebuilds the auth instance after the OIDC provider changed (a pairing, or its removal). */
   reloadSso(): Promise<void>;
   /** Whether a brand-new server is waiting for its setup code (see setup-code.ts). */
@@ -322,7 +288,8 @@ export interface AuthGateway {
   claimSetupCode(code: string, email: string): Promise<AuthSession>;
   /**
    * A magic link for this user's own address, handed to them rather than
-   * emailed: how a signed-in person signs an agent in without SMTP.
+   * emailed: how a signed-in person signs an agent in without SMTP, where the
+   * provider offers no device sign-in.
    */
   magicLinkFor(userId: string): Promise<string>;
 }
@@ -385,22 +352,7 @@ export function createAuthGateway(
   const setup = gatewayOptions.setupCode;
 
   return {
-    mintDeviceKey: (input) => mintDeviceKey(host.current(), input),
-
     mintUserKey: (input) => mintUserKey(host.current(), input),
-
-    async sessionForDevice(userId) {
-      const ctx = await host.current().$context;
-      // overrideAll: createSession spreads its default expiresAt *after* the
-      // override, so a plain override can't shorten the session.
-      const session = await ctx.internalAdapter.createSession(
-        userId,
-        false,
-        { expiresAt: new Date(Date.now() + DEVICE_SESSION_SECONDS * 1000) },
-        true,
-      );
-      return { token: session.token, userId };
-    },
 
     async requestMagicLink(email) {
       assertAllowed(email);
@@ -499,13 +451,7 @@ export function createAuthGateway(
       return true;
     },
 
-    async verifyOneTimeToken(token, codeVerifier) {
-      // An agent's sign-in is bound to the verifier it kept (oidc/handoff.ts).
-      // Checked first, so a wrong guess doesn't spend the real agent's token.
-      if (!verifierMatches(token, codeVerifier)) {
-        throw badInput('Invalid or expired sign-in. Sign in again.');
-      }
-      releaseChallenge(token);
+    async verifyOneTimeToken(token) {
       try {
         const result = await host
           .current()

@@ -2,20 +2,25 @@ import { hostname } from 'node:os';
 import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
 import {
+  type AgentCredential,
+  beginDeviceSignIn,
   DEFAULT_SYNC_INTERVAL_SECONDS,
+  deviceSignInProvider,
   MIN_SYNC_INTERVAL_SECONDS,
   normalizeServerUrl,
   provisionDevice,
   requestMagicLink,
   type StoredConfig,
+  verifyMagicLink,
 } from '@eunomia/agent';
-import { loadConfig, platformName, writeAgentConfig } from './config.ts';
+import { loadSavedConfig, platformName, writeAgentConfig } from './config.ts';
 
-// One-shot terminal flow (run with --provision): collect the answers, hand
-// them to provisionDevice, and write the userData config.json the tray agent
-// uploads with. Everything about how a device is claimed — the sign-in, the
-// register-or-re-key choice, disposing of the session — lives there, shared
-// with the setup window and the Android agent.
+// One-shot terminal flow (run with --provision): sign in, hand the answers to
+// provisionDevice, and write the userData config.json the tray agent uploads
+// with. How a device is claimed — keep-or-register — lives there, shared with
+// the setup window and the Android agent. Signing in is the provider's device
+// flow when the server offers it (a code and a link to open anywhere, which
+// suits a headless machine), or a sign-in link by email otherwise.
 
 // One shared readline interface for the whole flow: a fresh interface per
 // question would drop lines buffered on piped (non-tty) stdin. Hidden input
@@ -59,26 +64,38 @@ async function prompt(question: string, { hidden = false, fallback = '' } = {}):
 }
 
 /**
- * Requests a magic link for the email and returns something provisionDevice
- * can verify: either the token the server handed back directly
- * (UNSAFE_LOCAL_NETWORK deployments) or the link pasted from the inbox.
+ * Requests a magic link for the email and trades it for a session: either the
+ * token the server handed back directly (UNSAFE_LOCAL_NETWORK deployments) or
+ * the link pasted from the inbox.
  */
-async function magicLinkToken(serverUrl: string, email: string): Promise<string> {
-  const token = await requestMagicLink(serverUrl, email);
-  if (token) return token;
-  return prompt(`Sign-in link sent to ${email}. Paste the link (or token) here: `);
+async function signInWithLink(serverUrl: string): Promise<AgentCredential> {
+  const email = await prompt('Email: ');
+  const token =
+    (await requestMagicLink(serverUrl, email)) ??
+    (await prompt(`Sign-in link sent to ${email}. Paste the link (or token) here: `));
+  return { kind: 'session', token: await verifyMagicLink(serverUrl, token) };
+}
+
+/** The provider's device flow, in the terminal: print the code and link, then wait. */
+async function signInWithProvider(serverUrl: string): Promise<AgentCredential> {
+  const pending = await beginDeviceSignIn(serverUrl);
+  const { providerName, userCode, verificationUri, verificationUriComplete } = pending.code;
+  console.log(
+    `\nTo sign in with ${providerName}, open ${verificationUriComplete ?? verificationUri}`,
+  );
+  console.log(`and check it shows the code ${userCode}. Waiting for you to approve it…\n`);
+  return pending.finish();
 }
 
 export async function runProvisioning(dataDir: string): Promise<void> {
-  // What this install already is, if anything: re-running --provision on a
-  // provisioned machine should re-key its device, not register a twin.
-  const current = loadConfig(dataDir);
-  const defaultUrl =
-    current?.serverUrl ?? process.env.EUNOMIA_SERVER_URL ?? 'http://localhost:4000';
+  // What this install already is, if anything — even a config from before
+  // agents signed in as their person: running --provision again on a set-up
+  // machine keeps its device, and its settings, rather than registering a twin.
+  const current = loadSavedConfig(dataDir);
+  const defaultUrl = current?.serverUrl ?? 'http://localhost:4000';
   const serverUrl = normalizeServerUrl(
     await prompt(`Server URL [${defaultUrl}]: `, { fallback: defaultUrl }),
   );
-  const email = await prompt('Email: ');
   const defaultName = current?.deviceName ?? hostname();
   const name = await prompt(`Device name [${defaultName}]: `, { fallback: defaultName });
   const defaultInterval = current?.syncIntervalSeconds ?? DEFAULT_SYNC_INTERVAL_SECONDS;
@@ -91,29 +108,42 @@ export async function runProvisioning(dataDir: string): Promise<void> {
       ? Math.max(MIN_SYNC_INTERVAL_SECONDS, parsedInterval)
       : DEFAULT_SYNC_INTERVAL_SECONDS;
 
+  const provider = await deviceSignInProvider(serverUrl);
+  let credential: AgentCredential;
+  if (provider) {
+    const answer = await prompt(`Sign in with ${provider}? [Y/n, n for an email link]: `, {
+      fallback: 'y',
+    });
+    credential = /^n/i.test(answer)
+      ? await signInWithLink(serverUrl)
+      : await signInWithProvider(serverUrl);
+  } else {
+    credential = await signInWithLink(serverUrl);
+  }
+
   const provisioned = await provisionDevice({
     serverUrl,
-    tokenOrLink: await magicLinkToken(serverUrl, email),
+    credential,
     name,
     platform: platformName(),
     existing: current,
   });
 
   // deviceId/deviceName are recorded so a later reconnect — here or from the
-  // tray — re-keys this device instead of registering a duplicate. Privacy
-  // rules and the launch-at-login choice are the user's; they carry across.
+  // tray — keeps this device instead of registering a duplicate. Privacy rules
+  // and the launch-at-login choice are the user's; they carry across.
   const config: StoredConfig = {
     ...current,
     serverUrl: provisioned.serverUrl,
-    apiKey: provisioned.apiKey,
     deviceId: provisioned.deviceId,
+    credential,
     deviceName: name,
     syncIntervalSeconds,
   };
   const configPath = writeAgentConfig(dataDir, config);
 
   console.log(
-    `device ${provisioned.deviceId} ("${name}") ${provisioned.reKeyed ? 're-keyed' : 'registered'}`,
+    `device ${provisioned.deviceId} ("${name}") ${provisioned.reconnected ? 'reconnected' : 'registered'}`,
   );
   console.log(`config written to ${configPath} — start the agent normally to upload`);
 }

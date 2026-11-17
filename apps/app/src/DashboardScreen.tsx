@@ -1,17 +1,27 @@
-import { type StoredConfig, sessionFromDeviceKey } from '@eunomia/agent';
+import type { StoredConfig } from '@eunomia/agent';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Button, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { agentTokens } from './store.ts';
 import { ui } from './ui.tsx';
 
-// The dashboard on the phone: the server-hosted web app, signed in with a
-// session minted from this device's API key (sessionFromDeviceKey) — the same
-// hand-off the desktop tray does in its own BrowserWindow, so viewing the
-// dashboard never needs a second magic-link login. The long-lived API key never enters the page; only the short-lived
-// session token does, seeded into the origin's localStorage under the key the
-// dashboard reads (apps/web/src/api.ts).
+// The dashboard on the phone: the server-hosted web app, signed in as the
+// agent is — the same hand-off the desktop tray does in its own BrowserWindow,
+// so viewing the dashboard never needs a second sign-in. The page gets the
+// agent's bearer, seeded into the origin's localStorage under the key the
+// dashboard reads (apps/web/src/api.ts): a provider access token, which lives
+// minutes and is pushed in again each time the app refreshes it (the refresh
+// token never enters the page), or the session a sign-in link opened, which
+// signing out in the dashboard ends for the agent too.
 
 const TOKEN_KEY = 'eunomia.token';
+
+/**
+ * How often an open dashboard asks for the bearer, which refreshes a provider
+ * token nearing its expiry: the sync asks too, but on its own interval, which
+ * may be longer than the token lives.
+ */
+const KEEP_FRESH_MS = 30_000;
 
 /**
  * Seeds the token and reports back when it wasn't already there.
@@ -48,17 +58,26 @@ export function DashboardScreen({ config, onClose }: Props) {
 
   useEffect(() => {
     let live = true;
-    // Fresh token per open; expiry mid-view just shows the dashboard's own
-    // sign-in screen, and reopening recovers.
-    sessionFromDeviceKey(config.serverUrl, config.apiKey).then(
-      (minted) => live && setToken(minted),
+    const tokens = agentTokens(config);
+    tokens.bearer().then(
+      (bearer) => live && setToken(bearer),
       (err: unknown) => {
-        // Offline, revoked key, or a server that predates sessionFromDeviceKey.
+        // Offline at refresh time, or signed out at the provider.
         if (live) setError(err instanceof Error ? err.message : String(err));
       },
     );
+    // A refreshed token goes straight into the open page; the sync refreshes
+    // it while the dashboard is up.
+    const unsubscribe = tokens.subscribe((bearer) => {
+      if (!live) return;
+      setToken(bearer);
+      webview.current?.injectJavaScript(seedToken(bearer));
+    });
+    const keepFresh = setInterval(() => void tokens.bearer().catch(() => {}), KEEP_FRESH_MS);
     return () => {
       live = false;
+      unsubscribe();
+      clearInterval(keepFresh);
     };
   }, [config]);
 

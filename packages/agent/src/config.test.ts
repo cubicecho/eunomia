@@ -2,23 +2,47 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   parseConfig,
   parseConfigText,
+  parseSavedConfig,
   patchConfigText,
   type StoredConfig,
   serializeConfig,
 } from './config.ts';
 
-const connected: StoredConfig = { serverUrl: 'http://localhost:4000', apiKey: 'key' };
+const connected: StoredConfig = {
+  serverUrl: 'http://localhost:4000',
+  deviceId: 'dev_0',
+  credential: { kind: 'session', token: 'session' },
+};
 
 describe('parseConfig', () => {
-  it('keeps a config with both halves of the connection', () => {
+  it('keeps a config with the whole connection', () => {
     expect(parseConfig(connected)).toEqual(connected);
   });
 
+  it('keeps a provider sign-in whole', () => {
+    const credential = {
+      kind: 'provider' as const,
+      accessToken: 'a.b.c',
+      refreshToken: 'r',
+      expiresAt: 1_700_000_000_000,
+      issuer: 'https://id.example',
+      clientId: 'agents',
+      audience: 'http://localhost:4000/graphql',
+      tokenEndpoint: 'https://id.example/token',
+    };
+    expect(parseConfig({ ...connected, credential })).toEqual({ ...connected, credential });
+    // Half a provider sign-in can't refresh, so it is no sign-in at all.
+    expect(
+      parseConfig({ ...connected, credential: { ...credential, tokenEndpoint: 1 } }),
+    ).toBeNull();
+  });
+
   it('treats a half-configured file as no config at all', () => {
-    // Either half missing sends the shell to its setup screen rather than
+    // Any part missing sends the shell to its setup screen rather than
     // starting an agent that cannot reach anything.
     expect(parseConfig({ serverUrl: 'http://localhost:4000' })).toBeNull();
-    expect(parseConfig({ apiKey: 'key' })).toBeNull();
+    expect(parseConfig({ ...connected, deviceId: '' })).toBeNull();
+    expect(parseConfig({ ...connected, credential: { kind: 'session' } })).toBeNull();
     expect(parseConfig({})).toBeNull();
     expect(parseConfig(null)).toBeNull();
     expect(parseConfig('http://localhost:4000')).toBeNull();
@@ -27,7 +51,6 @@ describe('parseConfig', () => {
   it('carries the optional fields every shell may persist', () => {
     const full: StoredConfig = {
       ...connected,
-      deviceId: 'dev_1',
       deviceName: 'laptop',
       autostart: false,
       backgroundSync: true,
@@ -46,7 +69,7 @@ describe('parseConfig', () => {
     expect(
       parseConfig({
         ...connected,
-        deviceId: 7,
+        deviceName: 7,
         autostart: 'yes',
         syncIntervalSeconds: '900',
         logRetentionDays: '90',
@@ -132,5 +155,30 @@ describe('patchConfigText', () => {
 
   it('ends in a newline like a full write does', () => {
     expect(patchConfigText(null, { autostart: true }).endsWith('\n')).toBe(true);
+  });
+});
+
+describe('parseSavedConfig', () => {
+  it('keeps the device and settings of a config from before agents signed in', () => {
+    // An API-key config can't start an agent any more, but setting it up
+    // again should keep its device and the person's privacy rules.
+    const legacy = {
+      serverUrl: 'http://localhost:4000',
+      apiKey: 'old-device-key',
+      deviceId: 'dev_1',
+      deviceName: 'laptop',
+      ignoreApps: ['keepass'],
+    };
+    expect(parseConfig(legacy)).toBeNull();
+    expect(parseSavedConfig(legacy)).toEqual({
+      serverUrl: 'http://localhost:4000',
+      deviceId: 'dev_1',
+      deviceName: 'laptop',
+      ignoreApps: ['keepass'],
+    });
+  });
+
+  it('needs a server at least', () => {
+    expect(parseSavedConfig({ deviceId: 'dev_1' })).toBeNull();
   });
 });

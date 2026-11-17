@@ -5,6 +5,7 @@ import { fixedAuthHost } from '../src/auth-host.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 import type { RegistrationPolicy } from '../src/registration.ts';
+import { sessionContext } from './helpers/context.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
 // better-auth's own `disableSignUp` still emails a magic link to a stranger and
@@ -25,14 +26,7 @@ describe('registration policy', () => {
     });
   });
 
-  const anonymous = (): Context =>
-    ({
-      db,
-      userId: undefined,
-      deviceId: undefined,
-      keyId: undefined,
-      headers: new Headers(),
-    }) as Context;
+  const anonymous = (): Context => sessionContext(db, undefined);
 
   const makeSchema = (registration: RegistrationPolicy) =>
     createSchema(

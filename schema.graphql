@@ -697,11 +697,6 @@ type DaySummary {
   uncategorizedSeconds: Float!
 }
 
-type DeviceRegistration {
-  apiKey: String!
-  device: Devices!
-}
-
 """
 What a replay rebuilt: where it restarted the fold (null when the device's log
 had nothing to replay), how many pings it folded, and how many activities it
@@ -1370,16 +1365,14 @@ type Mutation {
   (after context and merge rules). Doesn't stop it being recorded from now on.
   """
   purgeApp(app: String!, context: String): AppPurge!
-  recordPing(app: String, capturedAt: String!, context: String, deviceId: String, idleSeconds: Int!, title: String): Activities
-  recordPings(deviceId: String, pings: [PingInput!]!): Int!
-  registerDevice(name: String!, platform: String!): DeviceRegistration!
+  recordPing(app: String, capturedAt: String!, context: String, deviceId: String!, idleSeconds: Int!, title: String): Activities
+  recordPings(deviceId: String!, pings: [PingInput!]!): Int!
+  registerDevice(name: String!, platform: String!): Devices!
   renameApiKey(id: String!, name: String!): ApiKey!
   renameDevice(id: String!, name: String!): Devices!
   replayDevice(from: String, id: String!): DeviceReplay!
   requestMagicLink(email: String!): MagicLinkRequest!
   revokeApiKey(id: String!): Boolean!
-  rotateDeviceKey(id: String!): DeviceRegistration!
-  sessionFromDeviceKey: AuthSession!
   setLlmSettings(apiKey: String, baseUrl: String!, model: String!): LlmSettings!
   setOnboarding(dismissed: Boolean, privacyReviewed: Boolean): Me!
   setRetention(days: Int): Me!
@@ -1397,7 +1390,7 @@ type Mutation {
   updateCategoryRule(appPattern: String, categoryId: String!, contextPattern: String, id: String!, priority: Int, titlePattern: String): CategoryRules!
   updateContextRule(appPattern: String, id: String!, priority: Int, titlePattern: String!): ContextRules!
   verifyMagicLink(token: String!): AuthSession!
-  verifyOneTimeToken(codeVerifier: String, token: String!): AuthSession!
+  verifyOneTimeToken(token: String!): AuthSession!
 }
 
 """Order by direction"""
@@ -1834,6 +1827,15 @@ How sign-in through an OIDC provider is set up, and whether the caller may chang
 type SsoSetup {
   """Whether the caller may pair a provider, or disconnect the paired one."""
   canPair: Boolean!
+
+  """
+  The public client an agent (desktop, Android) uses at the provider for the
+  device flow: OIDC_DEVICE_CLIENT_ID, or the one pairing registered once the
+  provider lets it use the device flow. Null when agents can't sign in that
+  way, and sign in with a link instead. The provider and the audience to ask
+  for are in `/.well-known/oauth-protected-resource`.
+  """
+  deviceClientId: String
 
   """The provider's issuer URL. Only for a caller who may pair."""
   issuer: String

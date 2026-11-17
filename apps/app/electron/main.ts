@@ -2,14 +2,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
-  type AgentConfig,
   BROWSER_APP,
   CHECK_INTERVAL_MS,
   createLocalFeed,
   createSampler,
   createSanitizer,
+  createTokenSourceCache,
   createUploader,
   currentPause,
+  deviceSignInProvider,
   hostOf,
   isPausedAt,
   logRetentionDays,
@@ -24,6 +25,7 @@ import {
   type Sampler,
   type StoredConfig,
   syncIntervalMs,
+  type TokenSource,
   type Uploader,
 } from '@eunomia/agent';
 import {
@@ -47,11 +49,12 @@ import {
 import type { PauseState } from '../src/host/types.ts';
 import { syncAutostart } from './autostart.ts';
 import {
-  isEnvConfigured,
   loadConfig,
   loadLocalApiConfig,
+  loadSavedConfig,
   platformName,
   saveAutostart,
+  saveCredential,
   writeAgentConfig,
 } from './config.ts';
 import { type AgentRuntime, registerAgentIpc } from './ipc.ts';
@@ -302,12 +305,26 @@ app.whenReady().then(async () => {
   let uploader: Uploader | undefined;
   let syncTimer: ReturnType<typeof setInterval> | undefined;
 
-  // Restartable: reconnecting to another server (or re-keying) swaps the
-  // uploader and its schedule in place. Anything already queued goes up to the
-  // new server — they're this machine's pings either way.
-  const startUploads = (cfg: AgentConfig): void => {
+  // One token source per sign-in, shared by the uploader and the dashboard
+  // window, so a provider token is refreshed by one of them at a time. A
+  // refreshed token is written back into config.json.
+  const tokenSources = createTokenSourceCache({
+    save: (credential) => {
+      saveCredential(dataDir, credential);
+      if (config) config = { ...config, credential };
+    },
+  });
+  const agentTokens = (cfg: StoredConfig): TokenSource => tokenSources(cfg.credential);
+
+  // Restartable: reconnecting to another server (or signing in again) swaps
+  // the uploader and its schedule in place. Anything already queued goes up to
+  // the new server — they're this machine's pings either way.
+  const startUploads = (cfg: StoredConfig): void => {
     if (syncTimer) clearInterval(syncTimer);
-    uploader = createUploader(cfg, outbox);
+    uploader = createUploader(
+      { serverUrl: cfg.serverUrl, deviceId: cfg.deviceId, tokens: agentTokens(cfg) },
+      outbox,
+    );
     const flush = () => void uploader?.flush().then(refreshTrayMenu);
     syncTimer = setInterval(flush, syncIntervalMs(cfg));
     flush(); // drain whatever a previous run left behind
@@ -315,7 +332,7 @@ app.whenReady().then(async () => {
   };
 
   // A finished setup, arriving from the agent window: onboarding while
-  // unprovisioned, or the "change server / API key" flow once provisioned.
+  // unprovisioned, or the "change server / sign in again" flow once provisioned.
   // Everything the new config touches is swapped in place — the agent is never
   // restarted, and anything already queued goes up to the new server.
   const applyConfig = (next: StoredConfig): void => {
@@ -328,12 +345,12 @@ app.whenReady().then(async () => {
     refreshTrayMenu();
   };
 
-  // Dashboard window: the server-hosted web app, signed in via the device
-  // key. Lazily imported like setup — the hot path never loads it.
+  // Dashboard window: the server-hosted web app, signed in as the agent is.
+  // Lazily imported like setup — the hot path never loads it.
   const showDashboard = async (): Promise<void> => {
     if (!config) return;
     const { openDashboard } = await import('./dashboard.ts');
-    await openDashboard(config);
+    await openDashboard(config.serverUrl, agentTokens(config));
   };
 
   // The question the tray could never answer: is it actually tracking? It used
@@ -490,7 +507,7 @@ app.whenReady().then(async () => {
         ...(config
           ? [
               { label: 'Open Dashboard', click: () => void showDashboard() },
-              { label: 'Change server / API key…', click: () => void openAgentWindow() },
+              { label: 'Change server / sign in again…', click: () => void openAgentWindow() },
               {
                 // Only offered once provisioned — that's also the only case
                 // where the agent registers a login item at startup, so an
@@ -538,16 +555,16 @@ app.whenReady().then(async () => {
         updates: false,
         externalDashboard: true,
         pause: true,
-        sso: true,
+        deviceSignIn: true,
       },
       version: agentVersion(),
       platform: platformName(),
       defaultDeviceName: hostname(),
       pingLogPath: pingLogDir(dataDir),
       logPath,
-      envConfigured: isEnvConfigured(),
     }),
     loadConfig: () => config,
+    loadSavedConfig: () => loadSavedConfig(dataDir),
     applyConfig,
     // status() over outbox.size where there is an uploader: same number, but
     // it's the one the tray is showing, so the two can't disagree.
@@ -565,14 +582,25 @@ app.whenReady().then(async () => {
     pauseState,
     pause: pauseFor,
     resume: resumeNow,
-    ssoSignIn: async (signInUrl) => {
-      const { signInWithBrowser } = await import('./sso.ts');
+    // The device flow runs here rather than in the renderer: the provider's
+    // endpoints answer this process, which no CORS rule reaches.
+    deviceSignInProvider: (serverUrl) => deviceSignInProvider(serverUrl),
+    startDeviceSignIn: async (serverUrl) => {
+      const { startDeviceSignIn } = await import('./device-sign-in.ts');
+      return startDeviceSignIn(serverUrl, (url) => shell.openExternal(url));
+    },
+    finishDeviceSignIn: async () => {
+      const { finishDeviceSignIn } = await import('./device-sign-in.ts');
       try {
-        return await signInWithBrowser(signInUrl, (url) => shell.openExternal(url));
+        return await finishDeviceSignIn();
       } finally {
         // The browser took focus; bring the setup window back for the result.
         await openAgentWindow();
       }
+    },
+    cancelDeviceSignIn: async () => {
+      const { cancelDeviceSignIn } = await import('./device-sign-in.ts');
+      cancelDeviceSignIn();
     },
   };
   registerAgentIpc(runtime, agentWindow);

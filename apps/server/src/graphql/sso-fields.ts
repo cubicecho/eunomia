@@ -4,9 +4,10 @@ import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
 import { badInput, forbidden } from '../errors.ts';
 import { oidcRedirectUri, SSO_START_PATH, serverUrl } from '../oidc/config.ts';
+import { deviceClientId } from '../oidc/device-client.ts';
 import { PairingError, PairingFailure, pair, unpair } from '../oidc/pairing.ts';
 import { effectiveOidc, hasUsers, isAdmin, type SsoSource } from '../oidc/settings.ts';
-import type { Context } from './context.ts';
+import { type Context, isSession } from './context.ts';
 
 // Pairing the instance with an OIDC provider from the dashboard (oidc/pairing.ts):
 // paste the setup URL the provider gave you, and its button appears on the
@@ -25,7 +26,7 @@ import type { Context } from './context.ts';
 
 async function canPair(db: Db, ctx: Context, source: SsoSource): Promise<boolean> {
   if (source === 'ENV') return false;
-  if (ctx.userId && !ctx.keyId && (await isAdmin(db, ctx.userId))) return true;
+  if (isSession(ctx) && ctx.userId && (await isAdmin(db, ctx.userId))) return true;
   return !(await hasUsers(db));
 }
 
@@ -39,6 +40,7 @@ async function ssoSetup(db: Db, ctx: Context) {
     issuer: mayPair ? (config?.issuer ?? null) : null,
     canPair: mayPair,
     redirectUri: oidcRedirectUri(),
+    deviceClientId: await deviceClientId(db, source),
   };
 }
 

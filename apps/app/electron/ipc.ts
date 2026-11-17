@@ -1,4 +1,4 @@
-import type { SsoCredential, StoredConfig } from '@eunomia/agent';
+import type { AgentCredential, DeviceCode, SavedConfig, StoredConfig } from '@eunomia/agent';
 import { type BrowserWindow, ipcMain, shell } from 'electron';
 import { type AgentBridge, BRIDGE_METHODS } from '../src/host/bridge.ts';
 import type { PauseState } from '../src/host/types.ts';
@@ -8,15 +8,16 @@ import type { PauseState } from '../src/host/types.ts';
 // the preload forwards by name, so a method with no handler is a call that
 // only fails once a user reaches the screen that makes it.
 //
-// Each handler checks the sender: these calls read the device API key's
-// neighbourhood and write the file the agent authenticates with, and the only
-// frame that may make them is the agent window's own.
+// Each handler checks the sender: these calls read and write the file the
+// agent's sign-in lives in, and the only frame that may make them is the agent
+// window's own.
 
 export interface AgentRuntime {
   dataDir: string;
   logPath: string;
   info(): unknown;
   loadConfig(): StoredConfig | null;
+  loadSavedConfig(): SavedConfig | null;
   /** Applies a finished setup: restarts uploads, autostart and sanitizing. */
   applyConfig(config: StoredConfig): void;
   pendingCount(): number;
@@ -29,8 +30,11 @@ export interface AgentRuntime {
   pauseState(): PauseState;
   pause(ms: number | null): PauseState;
   resume(): PauseState;
-  /** Signs in through the server's OIDC provider in the system browser (electron/sso.ts). */
-  ssoSignIn(signInUrl: string): Promise<SsoCredential>;
+  /** The provider's device flow (electron/device-sign-in.ts). */
+  deviceSignInProvider(serverUrl: string): Promise<string | null>;
+  startDeviceSignIn(serverUrl: string): Promise<DeviceCode>;
+  finishDeviceSignIn(): Promise<AgentCredential>;
+  cancelDeviceSignIn(): Promise<void>;
 }
 
 export function registerAgentIpc(runtime: AgentRuntime, owner: () => BrowserWindow | undefined) {
@@ -47,6 +51,7 @@ export function registerAgentIpc(runtime: AgentRuntime, owner: () => BrowserWind
 
   handle('info', () => runtime.info());
   handle('loadConfig', () => runtime.loadConfig());
+  handle('loadSavedConfig', () => runtime.loadSavedConfig());
   handle('saveConfig', (config: StoredConfig) => {
     runtime.applyConfig(config);
   });
@@ -75,13 +80,21 @@ export function registerAgentIpc(runtime: AgentRuntime, owner: () => BrowserWind
     return runtime.pause(ms);
   });
   handle('resume', () => runtime.resume());
-  handle('ssoSignIn', (signInUrl: unknown) => {
-    // This ends in shell.openExternal, so only a web address gets that far.
-    if (typeof signInUrl !== 'string' || !/^https?:\/\//.test(signInUrl)) {
-      throw new Error('ssoSignIn takes the http(s) sign-in address the server gave');
+  // The server URL is fetched from this process, so only a web address gets that far.
+  const serverUrlArg = (channel: string, serverUrl: unknown): string => {
+    if (typeof serverUrl !== 'string' || !/^https?:\/\//.test(serverUrl)) {
+      throw new Error(`${channel} takes the server's http(s) address`);
     }
-    return runtime.ssoSignIn(signInUrl);
-  });
+    return serverUrl;
+  };
+  handle('deviceSignInProvider', (serverUrl: unknown) =>
+    runtime.deviceSignInProvider(serverUrlArg('deviceSignInProvider', serverUrl)),
+  );
+  handle('startDeviceSignIn', (serverUrl: unknown) =>
+    runtime.startDeviceSignIn(serverUrlArg('startDeviceSignIn', serverUrl)),
+  );
+  handle('finishDeviceSignIn', () => runtime.finishDeviceSignIn());
+  handle('cancelDeviceSignIn', () => runtime.cancelDeviceSignIn());
 
   const missing = BRIDGE_METHODS.filter((name) => !registered.has(name));
   if (missing.length > 0) {

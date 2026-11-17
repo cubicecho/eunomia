@@ -10,6 +10,7 @@ import { categories, categoryRules, type Device, devices, user } from '../src/db
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 import { exactPattern } from '../src/llm/assist.ts';
+import { keyContext, sessionContext } from './helpers/context.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
@@ -122,7 +123,7 @@ describe('bring-your-own language model', () => {
   let db: Awaited<ReturnType<typeof createMigratedTestDb>>;
 
   const as = (userId: string | undefined, keyId?: string): Context =>
-    ({ db, userId, keyId, deviceId: undefined, headers: new Headers() }) as Context;
+    keyId && userId ? keyContext(db, userId, keyId) : sessionContext(db, userId);
 
   const run = (source: string, ctx: Context = as('admin')) =>
     graphql({ schema: createSchema(db as never, stubAuthGateway()), source, contextValue: ctx });

@@ -5,25 +5,58 @@ export {
   createRequester,
   createSdk,
   extractMagicToken,
-  fetchSsoProvider,
+  GraphQLRequestError,
   registerDevice,
   renameDevice,
   requestMagicLink,
-  rotateDeviceKey,
-  sessionFromDeviceKey,
   signOut,
+  UNAUTHENTICATED,
   verifyMagicLink,
-  verifyOneTimeToken,
+  withBearer,
 } from './api.ts';
 export {
+  isComplete,
   type LocalApiConfig,
   parseConfig,
   parseConfigText,
   parseLocalApiConfig,
+  parseSavedConfig,
+  parseSavedConfigText,
   patchConfigText,
+  type SavedConfig,
   type StoredConfig,
   serializeConfig,
 } from './config.ts';
+export {
+  type AgentCredential,
+  createTokenSource,
+  createTokenSourceCache,
+  parseCredential,
+  SignedOutError,
+  type TokenSource,
+  type TokenSourceOptions,
+} from './credential.ts';
+export {
+  DEVICE_CODE_GRANT,
+  type DeviceAuthorization,
+  DeviceFlowError,
+  type DeviceSignIn,
+  discoverProvider,
+  fetchDeviceSignIn,
+  type PollOptions,
+  type ProviderEndpoints,
+  pollDeviceToken,
+  refreshTokens,
+  startDeviceAuthorization,
+  type TokenSet,
+} from './device-flow.ts';
+export {
+  beginDeviceSignIn,
+  type DeviceCode,
+  type DeviceSignInOptions,
+  deviceSignInProvider,
+  type PendingDeviceSignIn,
+} from './device-sign-in.ts';
 export {
   createLocalApi,
   DEFAULT_LOCAL_API_PORT,
@@ -98,14 +131,6 @@ export {
   type SamplerStatus,
 } from './sampler.ts';
 export {
-  ANDROID_SSO_RETURN,
-  base64Url,
-  type SsoCredential,
-  ssoErrorMessage,
-  ssoStartUrl,
-  ssoTokenFrom,
-} from './sso.ts';
-export {
   initialSynthState,
   SYNTH_INTERVAL_MS,
   type SynthState,
@@ -118,5 +143,6 @@ export {
   type Uploader,
   type UploaderStatus,
   type UploadResult,
+  type UploadTarget,
   uploadBatch,
 } from './upload.ts';

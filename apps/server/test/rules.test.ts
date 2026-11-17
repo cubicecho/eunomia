@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { activities, devices, user } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { sessionContext } from './helpers/context.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
@@ -10,8 +11,7 @@ describe('auto-categorization rules', () => {
   let db: Awaited<ReturnType<typeof createMigratedTestDb>>;
   let schema: ReturnType<typeof createSchema>;
 
-  const asUser = (userId: string): Context =>
-    ({ db, userId, deviceId: 'device-1', keyId: undefined, headers: new Headers() }) as Context;
+  const asUser = (userId: string): Context => sessionContext(db, userId);
 
   const run = (source: string, userId = 'user-1') =>
     graphql({ schema, source, contextValue: asUser(userId) });
@@ -56,6 +56,7 @@ describe('auto-categorization rules', () => {
 
   const ping = (secondsAfterNoon: number, app: string, title?: string) =>
     data(`mutation { recordPing(
+      deviceId: "device-1",
       capturedAt: "2026-08-17T12:00:${String(secondsAfterNoon).padStart(2, '0')}.000Z",
       app: "${app}", ${title !== undefined ? `title: "${title}",` : ''} idleSeconds: 0
     ) { id categoryId categorySource } }`);
