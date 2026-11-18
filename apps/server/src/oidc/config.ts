@@ -62,6 +62,8 @@ export function oidcEnvProblem(env: NodeJS.ProcessEnv = process.env): string | n
     return 'OIDC_ISSUER and OIDC_CLIENT_ID go together: set both to sign in with an OIDC provider, or neither';
   }
   if (issuer && !URL.canParse(issuer)) return `OIDC_ISSUER is not a URL: ${issuer}`;
+  const audience = trimmed(env.OIDC_API_AUDIENCE);
+  if (audience && !URL.canParse(audience)) return `OIDC_API_AUDIENCE is not a URL: ${audience}`;
   const clientAuth = trimmed(env.OIDC_CLIENT_AUTH);
   if (clientAuth && !(OIDC_CLIENT_AUTH_METHODS as readonly string[]).includes(clientAuth)) {
     return `OIDC_CLIENT_AUTH must be one of ${OIDC_CLIENT_AUTH_METHODS.join(', ')}`;
@@ -92,4 +94,23 @@ export function appUrl(env: NodeJS.ProcessEnv = process.env): string {
 /** The redirect URI to register with the provider. */
 export function oidcRedirectUri(env: NodeJS.ProcessEnv = process.env): string {
   return `${serverUrl(env)}${SSO_CALLBACK_PATH}`;
+}
+
+/**
+ * What this server is called at the provider as an API: the `aud` a provider
+ * access token must carry to be accepted as a bearer (provider-tokens.ts), and
+ * the `resource` the protected-resource metadata names. An agent asks the
+ * provider for a token with this audience.
+ */
+export function oidcApiAudience(env: NodeJS.ProcessEnv = process.env): string {
+  return trimmed(env.OIDC_API_AUDIENCE) || `${serverUrl(env)}/graphql`;
+}
+
+/**
+ * The public client the operator named for the agents to use at the provider
+ * for the device flow, with OIDC_ISSUER. eunomia never uses it itself: it only
+ * tells the agents which one to ask for (device-client.ts).
+ */
+export function oidcDeviceClientId(env: NodeJS.ProcessEnv = process.env): string | null {
+  return trimmed(env.OIDC_DEVICE_CLIENT_ID) || null;
 }

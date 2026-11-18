@@ -66,8 +66,20 @@ window's own frame.
 
 `electron/dashboard.ts` shows **remote** content, so it stays fully sandboxed
 (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`) and gets
-one short-lived session token and nothing else. The long-lived device API key
-must never enter that renderer.
+the agent's bearer and nothing else: a provider access token (pushed in again
+on each refresh) or a link-opened session. The provider refresh token must
+never enter that renderer.
+
+## How the agent signs in
+
+As its person, never with a key of its own. When the server's provider lets
+agents use its device flow (`ssoSetup.deviceClientId`), setup shows a code,
+opens the provider's page, and waits for the token (`@eunomia/agent`
+device-flow.ts); otherwise a sign-in link is traded for a session. The device
+flow runs in the shell, not the renderer (`startDeviceSignIn` /
+`finishDeviceSignIn` on the host): Electron does it in the main process, where
+no CORS rule reaches. Every caller in a process shares one token source
+(`createTokenSourceCache`), so two refreshes never race on one refresh token.
 
 ## Where things live
 

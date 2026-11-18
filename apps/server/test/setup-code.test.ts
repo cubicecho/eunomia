@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Auth, createAuth, createAuthGateway } from '../src/auth.ts';
 import { fixedAuthHost } from '../src/auth-host.ts';
 import { user } from '../src/db/schema.ts';
-import type { Context } from '../src/graphql/context.ts';
+import { type Context, Credential } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
 import { storedSessionSecret } from '../src/instance-secret.ts';
 import type { RegistrationPolicy } from '../src/registration.ts';
@@ -166,7 +166,7 @@ describe('device sign-in link', () => {
       contextValue: {
         db,
         userId: undefined,
-        deviceId: undefined,
+        credential: undefined,
         keyId: undefined,
         headers: new Headers(),
         ...who,
@@ -174,7 +174,7 @@ describe('device sign-in link', () => {
     });
 
   it("hands a signed-in person a link for their own address, and doesn't email it", async () => {
-    const result = await link({ userId: 'u1' });
+    const result = await link({ userId: 'u1', credential: Credential.Session });
     expect(result.errors).toBeUndefined();
     const url = new URL((result.data as { deviceSignInLink: string }).deviceSignInLink);
     const token = url.searchParams.get('token');
@@ -188,10 +188,11 @@ describe('device sign-in link', () => {
     expect(verified.user.id).toBe('u1');
   });
 
-  it('is refused to API keys and to nobody', async () => {
-    expect((await link({ userId: 'u1', keyId: 'k1' })).errors?.[0]?.extensions?.code).toBe(
-      'UNAUTHENTICATED',
-    );
+  it('is refused to API keys, provider tokens and nobody', async () => {
+    for (const credential of [Credential.ApiKey, Credential.ProviderToken]) {
+      const refused = await link({ userId: 'u1', credential, keyId: 'k1' });
+      expect(refused.errors?.[0]?.extensions?.code).toBe('UNAUTHENTICATED');
+    }
     expect((await link({})).errors?.[0]?.extensions?.code).toBe('UNAUTHENTICATED');
   });
 });

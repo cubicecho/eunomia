@@ -1,5 +1,6 @@
 import type { Db } from '../db/client.ts';
-import { DEFAULT_OIDC_NAME, oidcRedirectUri } from './config.ts';
+import { DEFAULT_OIDC_NAME, oidcRedirectUri, serverUrl } from './config.ts';
+import { DEVICE_CODE_GRANT, forgetDeviceClientCheck } from './device-client.ts';
 import { clearPairedOidc, type PairedOidc, readPairedOidc, savePairedOidc } from './settings.ts';
 
 // Pairing with an OIDC provider by pasting one URL, instead of copying a client
@@ -10,7 +11,16 @@ import { clearPairedOidc, type PairedOidc, readPairedOidc, savePairedOidc } from
 //
 // eunomia reads the issuer's discovery document, registers itself at its
 // registration endpoint with the token (RFC 7591), and keeps the client it gets
-// back. Unpairing deletes that client at the provider (RFC 7592).
+// back. When the provider offers the device flow (RFC 8628), eunomia registers
+// a second, public client with the same token, for the agents (desktop,
+// Android) to sign in with; a provider that allows the token once refuses it,
+// and pairing goes on without one. The provider may hold that client's device
+// flow back until its admin turns it on (device-client.ts checks). Unpairing
+// deletes both clients at the provider (RFC 7592).
+//
+// eunomia also registers its own address as `client_uri`. Under it, eunomia
+// serves its protected resource metadata (protected-resource.ts), where heautou
+// finds eunomia's API to offer its admin.
 //
 // The token is a credential: it is sent once, to the endpoint the issuer names,
 // and never logged or stored.
@@ -50,6 +60,10 @@ export interface SetupUrl {
 
 /** What eunomia asks the provider to call it. */
 const CLIENT_NAME = 'eunomia';
+/** What eunomia asks the provider to call the agents' device client. */
+const DEVICE_CLIENT_NAME = 'eunomia agents';
+/** The grant a device client keeps its token fresh with. */
+const REFRESH_TOKEN_GRANT = 'refresh_token';
 
 /** How long pairing waits on the provider before calling it unreachable. */
 const TIMEOUT_MS = 10_000;
@@ -110,8 +124,15 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 const text = (value: unknown): string | null =>
   typeof value === 'string' && value !== '' ? value : null;
 
+/** What pairing needs from a provider's discovery document. */
+interface Discovery {
+  registrationEndpoint: string;
+  /** Whether the provider offers the device flow, and so whether to register a device client. */
+  hasDeviceFlow: boolean;
+}
+
 /** The issuer's registration endpoint, once its discovery document has been checked as the issuer's own. */
-async function discover(issuer: string): Promise<string> {
+async function discover(issuer: string): Promise<Discovery> {
   const response = await call(`${issuer}/.well-known/openid-configuration`, {
     headers: { accept: 'application/json' },
   });
@@ -130,17 +151,82 @@ async function discover(issuer: string): Promise<string> {
       'This provider does not support pairing. Set OIDC_ISSUER and OIDC_CLIENT_ID in the environment instead.',
     );
   }
-  return endpoint;
+  // A provider that lists no grant types is taken at its device endpoint's word.
+  const grants = Array.isArray(doc.grant_types_supported) ? doc.grant_types_supported : null;
+  const hasDeviceFlow =
+    text(doc.device_authorization_endpoint) !== null &&
+    (grants === null || grants.includes(DEVICE_CODE_GRANT));
+  return { registrationEndpoint: endpoint, hasDeviceFlow };
 }
 
 function clientMetadata() {
   return {
     client_name: CLIENT_NAME,
+    client_uri: serverUrl(),
     redirect_uris: [oidcRedirectUri()],
     token_endpoint_auth_method: 'client_secret_basic',
     grant_types: ['authorization_code'],
     response_types: ['code'],
   };
+}
+
+/** What eunomia asks its device client to be registered as: public, no redirect, the device flow. */
+function deviceClientMetadata() {
+  return {
+    client_name: DEVICE_CLIENT_NAME,
+    client_uri: serverUrl(),
+    redirect_uris: [],
+    token_endpoint_auth_method: 'none',
+    grant_types: [DEVICE_CODE_GRANT, REFRESH_TOKEN_GRANT],
+    response_types: [],
+  };
+}
+
+/** The device client a provider registered. */
+interface DeviceRegistration {
+  clientId: string;
+  registrationAccessToken: string | null;
+  registrationClientUri: string | null;
+}
+
+/**
+ * Registers the device client with the setup URL's token, after eunomia's own
+ * client. Never fails the pairing: a provider that allows the token once, or
+ * won't hold a device client, leaves the agents to OIDC_DEVICE_CLIENT_ID or a
+ * sign-in link. Returns null when the provider registered none.
+ */
+async function registerDeviceClient(
+  endpoint: string,
+  token: string,
+): Promise<DeviceRegistration | null> {
+  try {
+    const response = await call(endpoint, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify(deviceClientMetadata()),
+    });
+    if (!response.ok) {
+      console.warn(
+        `[auth] the OIDC provider answered ${response.status} to registering a device client`,
+      );
+      return null;
+    }
+    const body = await json(response);
+    const clientId = text(body.client_id);
+    if (clientId === null) return null;
+    return {
+      clientId,
+      registrationAccessToken: text(body.registration_access_token),
+      registrationClientUri: text(body.registration_client_uri),
+    };
+  } catch {
+    console.warn('[auth] could not register a device client with the OIDC provider');
+    return null;
+  }
 }
 
 /** Turns a failed registration call into what to tell the admin. */
@@ -178,7 +264,7 @@ async function refusal(response: Response): Promise<PairingError> {
  */
 export async function pair(db: Db, setupUrl: string): Promise<PairedOidc> {
   const setup = parseSetupUrl(setupUrl);
-  const endpoint = await discover(setup.issuer);
+  const { registrationEndpoint: endpoint, hasDeviceFlow } = await discover(setup.issuer);
   const response = await call(endpoint, {
     method: 'POST',
     headers: {
@@ -197,6 +283,7 @@ export async function pair(db: Db, setupUrl: string): Promise<PairedOidc> {
       `The provider registered ${CLIENT_NAME} but sent back no client id.`,
     );
   }
+  const device = hasDeviceFlow ? await registerDeviceClient(endpoint, setup.token) : null;
   const paired: PairedOidc = {
     issuer: setup.issuer,
     clientId,
@@ -209,37 +296,50 @@ export async function pair(db: Db, setupUrl: string): Promise<PairedOidc> {
     name: setup.name,
     registrationAccessToken: text(body.registration_access_token),
     registrationClientUri: text(body.registration_client_uri),
+    deviceClientId: device?.clientId ?? null,
+    deviceRegistrationAccessToken: device?.registrationAccessToken ?? null,
+    deviceRegistrationClientUri: device?.registrationClientUri ?? null,
   };
   await savePairedOidc(db, paired);
+  forgetDeviceClientCheck();
   return paired;
 }
 
 /**
- * Deletes eunomia's client at the provider and forgets the pairing. Returns
- * whether the provider confirmed the client is gone. The pairing is forgotten
- * even when the provider can't be reached, so an admin is never stuck with a
- * provider they want gone; its own admin can remove the client on their side.
+ * Deletes eunomia's clients at the provider and forgets the pairing. Returns
+ * whether the provider confirmed eunomia's own client is gone. The pairing is
+ * forgotten even when the provider can't be reached, so an admin is never stuck
+ * with a provider they want gone; its own admin can remove the clients on
+ * their side.
  */
 export async function unpair(db: Db): Promise<boolean> {
   const paired = await readPairedOidc(db);
   if (!paired) return true;
-  let removed = false;
-  if (paired.registrationClientUri && paired.registrationAccessToken) {
-    try {
-      const response = await fetch(paired.registrationClientUri, {
-        method: 'DELETE',
-        headers: { authorization: `Bearer ${paired.registrationAccessToken}` },
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-      // A 401 or a 404: the client is already gone, which is what was wanted.
-      removed = response.ok || response.status === 401 || response.status === 404;
-      if (!removed) {
-        console.warn(`[auth] OIDC provider answered ${response.status} to deleting the client`);
-      }
-    } catch (error) {
-      console.warn('[auth] could not reach the OIDC provider to delete the client:', error);
-    }
-  }
+  const removed = await deleteClient(paired.registrationClientUri, paired.registrationAccessToken);
+  // The device client goes too; whether it did is the provider's admin's to tidy.
+  await deleteClient(paired.deviceRegistrationClientUri, paired.deviceRegistrationAccessToken);
   await clearPairedOidc(db);
+  forgetDeviceClientCheck();
   return removed;
+}
+
+/** Deletes a client at the provider (RFC 7592). Whether it confirmed it is gone; false with no way to ask. */
+async function deleteClient(uri: string | null, token: string | null): Promise<boolean> {
+  if (!uri || !token) return false;
+  try {
+    const response = await fetch(uri, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    // A 401 or a 404: the client is already gone, which is what was wanted.
+    const removed = response.ok || response.status === 401 || response.status === 404;
+    if (!removed) {
+      console.warn(`[auth] OIDC provider answered ${response.status} to deleting a client`);
+    }
+    return removed;
+  } catch (error) {
+    console.warn('[auth] could not reach the OIDC provider to delete a client:', error);
+    return false;
+  }
 }

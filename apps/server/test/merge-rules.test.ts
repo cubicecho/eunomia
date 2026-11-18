@@ -3,8 +3,8 @@ import { graphql } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { rollupActivities } from '../src/activity/rollup.ts';
 import { activities, devices, summaries, user } from '../src/db/schema.ts';
-import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { sessionContext } from './helpers/context.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
@@ -16,13 +16,7 @@ describe('merging entries', () => {
     graphql({
       schema,
       source,
-      contextValue: {
-        db,
-        userId,
-        deviceId: 'device-1',
-        keyId: undefined,
-        headers: new Headers(),
-      } as Context,
+      contextValue: sessionContext(db, userId),
     });
 
   const data = async (source: string, userId = 'user-1') => {
@@ -58,6 +52,7 @@ describe('merging entries', () => {
 
   const ping = (secondsAfterNoon: number, app: string, context?: string) =>
     data(`mutation { recordPing(
+      deviceId: "device-1",
       capturedAt: "2026-08-17T12:00:${String(secondsAfterNoon).padStart(2, '0')}.000Z",
       app: "${app}", ${context !== undefined ? `context: "${context}",` : ''} idleSeconds: 0
     ) { id app context } }`);

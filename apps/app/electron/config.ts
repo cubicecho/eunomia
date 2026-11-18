@@ -1,11 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  type AgentConfig,
+  type AgentCredential,
   type LocalApiConfig,
   parseConfigText,
   parseLocalApiConfig,
+  parseSavedConfigText,
   patchConfigText,
+  type SavedConfig,
   type StoredConfig,
   serializeConfig,
 } from '@eunomia/agent';
@@ -17,64 +19,35 @@ import {
 const configPath = (dataDir: string): string => join(dataDir, 'config.json');
 
 /**
- * Env vars win; otherwise config.json in userData:
- * {"serverUrl": ..., "apiKey": ..., "syncIntervalSeconds"?: ...,
- *  "ignoreApps"?: [regex...], "redactApps"?: [regex...],
+ * config.json in userData:
+ * {"serverUrl": ..., "deviceId": ..., "credential": {...}, "deviceName"?: ...,
+ *  "syncIntervalSeconds"?: ..., "ignoreApps"?: [regex...], "redactApps"?: [regex...],
  *  "captureLevel"?: "app" | "context" | "title", "autostart"?: bool,
- *  "logRetentionDays"?: number, "deviceId"?: ..., "deviceName"?: ...,
+ *  "logRetentionDays"?: number,
  *  "localApi"?: {"enabled"?: bool, "port"?: number, "activityWatch"?: bool}}.
- * EUNOMIA_SYNC_INTERVAL_SECONDS overrides the interval in either case.
+ * EUNOMIA_SYNC_INTERVAL_SECONDS overrides the interval. There is no
+ * environment for the connection itself: an agent signs in as its person, in
+ * the setup window or with --provision, and keeps what it signed in with here.
  */
 export function loadConfig(dataDir: string): StoredConfig | null {
-  const env = envConfig();
-  const config = env ? withLocalPrefs(env, dataDir) : readConfig(dataDir);
+  const config = parseConfigText(readRaw(dataDir), configPath(dataDir));
   if (!config) return null;
   const envSeconds = Number(process.env.EUNOMIA_SYNC_INTERVAL_SECONDS);
   if (Number.isFinite(envSeconds) && envSeconds > 0) config.syncIntervalSeconds = envSeconds;
   return config;
 }
 
-/**
- * True when EUNOMIA_SERVER_URL + EUNOMIA_API_KEY are supplying the config: a
- * config.json written by the setup screen applies to the running agent but is
- * ignored the next time it starts, so the UI says so.
- */
-export function isEnvConfigured(): boolean {
-  return envConfig() !== null;
-}
-
-function envConfig(): AgentConfig | null {
-  const envUrl = process.env.EUNOMIA_SERVER_URL;
-  const envKey = process.env.EUNOMIA_API_KEY;
-  if (envUrl && envKey) return { serverUrl: envUrl, apiKey: envKey };
-  return null;
+/** What config.json holds even when it can't start an agent (see SavedConfig). */
+export function loadSavedConfig(dataDir: string): SavedConfig | null {
+  return parseSavedConfigText(readRaw(dataDir));
 }
 
 /**
- * Env vars supply the server connection, not the whole config: launch at login
- * and how much ping log to keep are this machine's choices, so they still apply
- * when they do.
+ * Writes a refreshed sign-in into config.json, leaving everything else in the
+ * file as it is.
  */
-function withLocalPrefs(config: AgentConfig, dataDir: string): StoredConfig {
-  const raw = readRaw(dataDir);
-  if (raw === null) return config;
-  try {
-    const parsed = JSON.parse(raw) as {
-      autostart?: unknown;
-      logRetentionDays?: unknown;
-      localApi?: unknown;
-    };
-    const prefs: StoredConfig = { ...config };
-    const localApi = parseLocalApiConfig(parsed.localApi);
-    if (localApi) prefs.localApi = localApi;
-    if (typeof parsed.autostart === 'boolean') prefs.autostart = parsed.autostart;
-    if (typeof parsed.logRetentionDays === 'number') {
-      prefs.logRetentionDays = parsed.logRetentionDays;
-    }
-    return prefs;
-  } catch {
-    return config;
-  }
+export function saveCredential(dataDir: string, credential: AgentCredential): void {
+  writeFileSync(configPath(dataDir), patchConfigText(readRaw(dataDir), { credential }));
 }
 
 /**
@@ -96,15 +69,11 @@ const readRaw = (dataDir: string): string | null => {
   return existsSync(path) ? readFileSync(path, 'utf8') : null;
 };
 
-function readConfig(dataDir: string): StoredConfig | null {
-  return parseConfigText(readRaw(dataDir), configPath(dataDir));
-}
-
 /**
  * Persists the launch-at-login choice, leaving the rest of config.json exactly
  * as it is — the file also holds the server connection, the device identity,
  * and privacy rules this toggle has no business rewriting. Writes a file
- * holding only this when there isn't one yet (env-configured installs).
+ * holding only this when there isn't one yet.
  */
 export function saveAutostart(dataDir: string, autostart: boolean): void {
   writeFileSync(configPath(dataDir), patchConfigText(readRaw(dataDir), { autostart }));

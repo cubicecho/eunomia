@@ -1,4 +1,5 @@
-import { type AgentConfig, createDeviceSdk, GraphQLRequestError } from './api.ts';
+import { GraphQLRequestError, withBearer } from './api.ts';
+import { SignedOutError, type TokenSource } from './credential.ts';
 import type { Outbox } from './outbox.ts';
 import { FLUSH_BATCH_SIZE, type Ping } from './ping.ts';
 
@@ -15,13 +16,22 @@ export interface UploadResult {
   accepted: boolean;
   /** Why the batch was kept. Null when accepted; shown in the agent's UI. */
   error: string | null;
+  /** True when the batch was kept because the agent has to sign in again. */
+  signedOut?: boolean;
+}
+
+/** Where uploads go, and as whom. */
+export interface UploadTarget {
+  serverUrl: string;
+  deviceId: string;
+  tokens: TokenSource;
 }
 
 /**
  * Decides the fate of a batch from whatever the upload threw.
  *
  * A GraphQL failure is HTTP 200 with the error in the body, so "the request
- * succeeded" proves nothing: a revoked device key answers 200, and treating
+ * succeeded" proves nothing: a refused bearer answers 200, and treating
  * that as success discarded the pings permanently while the agent kept
  * reporting that it was uploading.
  *
@@ -32,7 +42,16 @@ export interface UploadResult {
  */
 export function classifyFailure(error: unknown): UploadResult {
   const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof SignedOutError) {
+    console.error('upload stopped:', message);
+    return { accepted: false, error: message, signedOut: true };
+  }
   const code = error instanceof GraphQLRequestError ? error.code : null;
+  if (code === 'UNAUTHENTICATED') {
+    // Kept, like any other refusal, until the person signs in again.
+    console.error('upload refused:', message);
+    return { accepted: false, error: 'Signed out. Open setup and sign in again.', signedOut: true };
+  }
   if (code !== null && PERMANENT_CODES.has(code)) {
     // Retrying can't fix this batch, and keeping it would wedge everything
     // queued behind it.
@@ -49,11 +68,12 @@ export function classifyFailure(error: unknown): UploadResult {
  * The server folds the whole batch inside one transaction holding the device's
  * fold lock, so it lands whole or not at all — which is why a batch kept after
  * a timeout can be re-sent without double-counting the pings that did land.
- * The device is inferred server-side from the API key.
  */
-export async function uploadBatch(config: AgentConfig, batch: Ping[]): Promise<UploadResult> {
+export async function uploadBatch(target: UploadTarget, batch: Ping[]): Promise<UploadResult> {
   try {
-    await createDeviceSdk(config).RecordPings({ pings: batch });
+    await withBearer(target.serverUrl, target.tokens, (sdk) =>
+      sdk.RecordPings({ deviceId: target.deviceId, pings: batch }),
+    );
     return { accepted: true, error: null };
   } catch (error) {
     return classifyFailure(error);
@@ -68,6 +88,8 @@ export interface UploaderStatus {
   error: string | null;
   /** Epoch ms of the last batch the server took, or null if none yet. */
   lastUploadAt: number | null;
+  /** True while uploads are stopped until the person signs in again. */
+  signedOut: boolean;
 }
 
 /**
@@ -81,9 +103,10 @@ export interface Uploader {
   status(): UploaderStatus;
 }
 
-export function createUploader(config: AgentConfig, outbox: Outbox): Uploader {
+export function createUploader(target: UploadTarget, outbox: Outbox): Uploader {
   let flushing = false;
   let error: string | null = null;
+  let signedOut = false;
   let lastUploadAt: number | null = null;
   return {
     async flush(): Promise<void> {
@@ -92,20 +115,23 @@ export function createUploader(config: AgentConfig, outbox: Outbox): Uploader {
       try {
         while (outbox.size > 0) {
           const batch = outbox.peek(FLUSH_BATCH_SIZE);
-          const result = await uploadBatch(config, batch);
+          const result = await uploadBatch(target, batch);
           if (!result.accepted) {
             error = result.error;
+            signedOut = result.signedOut === true;
             return; // keep the batch — retry on the next tick
           }
           outbox.drop(batch.length);
           lastUploadAt = Date.now();
           error = null;
+          signedOut = false;
         }
         error = null;
+        signedOut = false;
       } finally {
         flushing = false;
       }
     },
-    status: () => ({ pending: outbox.size, error, lastUploadAt }),
+    status: () => ({ pending: outbox.size, error, lastUploadAt, signedOut }),
   };
 }

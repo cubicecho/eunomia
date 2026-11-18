@@ -4,6 +4,7 @@ import { createAuth, createAuthGateway } from '../src/auth.ts';
 import { fixedAuthHost } from '../src/auth-host.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { sessionContext } from './helpers/context.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
 // End-to-end auth over GraphQL only — the server mounts no better-auth REST
@@ -23,14 +24,7 @@ describe('graphql auth flow', () => {
     schema = createSchema(db as never, createAuthGateway(fixedAuthHost(auth), db as never));
   });
 
-  const anonymous = (): Context =>
-    ({
-      db,
-      userId: undefined,
-      deviceId: undefined,
-      keyId: undefined,
-      headers: new Headers(),
-    }) as Context;
+  const anonymous = (): Context => sessionContext(db, undefined);
 
   const bearerHeaders = (token: string) => new Headers({ authorization: `Bearer ${token}` });
 

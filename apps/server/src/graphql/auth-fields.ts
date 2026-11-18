@@ -2,10 +2,11 @@ import type { MutationResolvers } from '@eunomia/gql/resolvers';
 import type { AuthGateway } from '../auth.ts';
 import { rateLimited, unauthenticated } from '../errors.ts';
 import { createRateLimiter } from '../rate-limit.ts';
+import { isSession } from './context.ts';
 
 // Auth is GraphQL too — the server mounts no better-auth REST routes. Every
 // field here is `accept` in the permissions map (they ARE the login flow),
-// except sessionFromDeviceKey, which device keys alone may call.
+// except deviceSignInLink, which a signed-in session alone may call.
 
 // Login is unauthenticated, so its cost is borne by whoever can reach the
 // port. Per-address first (that's the mailbombing target), then a total across
@@ -46,7 +47,7 @@ export function authFields(auth: AuthGateway) {
       if (!allLogins.allow('*')) {
         throw rateLimited('Too many sign-in attempts; try again in a few minutes');
       }
-      return auth.verifyOneTimeToken(args.token, args.codeVerifier);
+      return auth.verifyOneTimeToken(args.token);
     },
     claimSetupCode: (_source, args) => {
       // ~59 bits of code and the overall budget: guessing it is hopeless.
@@ -56,13 +57,9 @@ export function authFields(auth: AuthGateway) {
       return auth.claimSetupCode(args.code, args.email);
     },
     deviceSignInLink: (_source, _args, ctx) => {
-      if (!ctx.userId || ctx.keyId) throw unauthenticated();
+      if (!isSession(ctx) || !ctx.userId) throw unauthenticated();
       return auth.magicLinkFor(ctx.userId);
     },
     signOut: (_source, _args, ctx) => auth.signOut(ctx.headers),
-    sessionFromDeviceKey: (_source, _args, ctx) => {
-      if (!ctx.deviceId || !ctx.userId) throw unauthenticated();
-      return auth.sessionForDevice(ctx.userId);
-    },
   } satisfies MutationResolvers;
 }

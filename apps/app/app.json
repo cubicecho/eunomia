@@ -38,8 +38,7 @@
     "plugins": [
       "expo-background-task",
       "./plugins/with-cleartext-traffic",
-      "./plugins/with-package-visibility",
-      "expo-web-browser"
+      "./plugins/with-package-visibility"
     ],
     "extra": {
       "eas": {

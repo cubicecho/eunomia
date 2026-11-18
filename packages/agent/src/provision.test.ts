@@ -1,27 +1,42 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AgentCredential } from './credential.ts';
 import { normalizeServerUrl, provisionDevice } from './provision.ts';
 
-// The register-or-re-key decision is the whole point of this module — getting
+// The keep-or-register decision is the whole point of this module — getting
 // it wrong leaves half a machine's history on a device nothing uploads to any
 // more — so the server calls are stubbed and the assertions are about which
 // ones were made.
-vi.mock('./api.ts', () => ({
-  verifyMagicLink: vi.fn(async () => 'session-token'),
-  verifyOneTimeToken: vi.fn(async () => 'sso-session-token'),
-  registerDevice: vi.fn(async () => ({ deviceId: 'new-device', apiKey: 'new-key' })),
-  rotateDeviceKey: vi.fn(async () => ({ deviceId: 'old-device', apiKey: 'rotated-key' })),
-  renameDevice: vi.fn(async () => {}),
-  signOut: vi.fn(async () => {}),
-}));
+vi.mock('./api.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api.ts')>();
+  return {
+    ...actual,
+    registerDevice: vi.fn(async () => 'new-device'),
+    renameDevice: vi.fn(async () => {}),
+  };
+});
 
 const api = await import('./api.ts');
 
+const session: AgentCredential = { kind: 'session', token: 'session-token' };
+const provider: AgentCredential = {
+  kind: 'provider',
+  accessToken: 'header.payload.sig',
+  refreshToken: 'refresh',
+  expiresAt: Date.now() + 300_000,
+  issuer: 'https://id.example',
+  clientId: 'agents',
+  audience: 'http://server:4000/graphql',
+  tokenEndpoint: 'https://id.example/token',
+};
+
 const input = {
   serverUrl: 'http://server:4000',
-  tokenOrLink: 'token',
+  credential: session,
   name: 'laptop',
   platform: 'linux',
 };
+
+const existing = { serverUrl: 'http://server:4000', deviceId: 'old-device', deviceName: 'laptop' };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -40,8 +55,7 @@ describe('provisionDevice', () => {
     expect(result).toEqual({
       serverUrl: 'http://server:4000',
       deviceId: 'new-device',
-      apiKey: 'new-key',
-      reKeyed: false,
+      reconnected: false,
     });
     expect(api.registerDevice).toHaveBeenCalledWith(
       'http://server:4000',
@@ -49,97 +63,74 @@ describe('provisionDevice', () => {
       'laptop',
       'linux',
     );
-    expect(api.rotateDeviceKey).not.toHaveBeenCalled();
+    expect(api.renameDevice).not.toHaveBeenCalled();
   });
 
-  it('re-keys the device this install already owns', async () => {
-    const result = await provisionDevice({
-      ...input,
-      existing: { serverUrl: 'http://server:4000', deviceId: 'old-device', deviceName: 'laptop' },
-    });
+  it('keeps the device this install already owns, renaming it as asked', async () => {
+    const result = await provisionDevice({ ...input, name: 'desk', existing });
 
     expect(result).toEqual({
       serverUrl: 'http://server:4000',
       deviceId: 'old-device',
-      apiKey: 'rotated-key',
-      reKeyed: true,
+      reconnected: true,
     });
-    expect(api.registerDevice).not.toHaveBeenCalled();
-    // Same name as before: nothing to rename.
-    expect(api.renameDevice).not.toHaveBeenCalled();
-  });
-
-  it('renames before re-keying when the name changed', async () => {
-    await provisionDevice({
-      ...input,
-      name: 'work laptop',
-      existing: { serverUrl: 'http://server:4000', deviceId: 'old-device', deviceName: 'laptop' },
-    });
-
     expect(api.renameDevice).toHaveBeenCalledWith(
       'http://server:4000',
       'session-token',
       'old-device',
-      'work laptop',
+      'desk',
     );
-    expect(api.rotateDeviceKey).toHaveBeenCalled();
+    expect(api.registerDevice).not.toHaveBeenCalled();
   });
 
-  it('re-keys across spellings of the same server', async () => {
+  it('signs in with a provider token as the bearer', async () => {
+    await provisionDevice({ ...input, credential: provider, existing });
+    expect(api.renameDevice).toHaveBeenCalledWith(
+      'http://server:4000',
+      'header.payload.sig',
+      'old-device',
+      'laptop',
+    );
+  });
+
+  it('matches the server however its URL was spelled', async () => {
     const result = await provisionDevice({
       ...input,
       serverUrl: 'http://server:4000/',
-      existing: { serverUrl: ' http://server:4000 ', deviceId: 'old-device', deviceName: 'laptop' },
+      existing: { ...existing, serverUrl: ' http://server:4000// ' },
     });
-
-    expect(result.reKeyed).toBe(true);
-    expect(result.serverUrl).toBe('http://server:4000');
+    expect(result.reconnected).toBe(true);
   });
 
-  it('registers when pointed at a different server', async () => {
+  it('registers on another server rather than keeping a device it never saw', async () => {
     const result = await provisionDevice({
       ...input,
-      existing: { serverUrl: 'http://other:4000', deviceId: 'old-device', deviceName: 'laptop' },
+      existing: { ...existing, serverUrl: 'http://elsewhere:4000' },
     });
-
-    expect(result.reKeyed).toBe(false);
-    expect(api.registerDevice).toHaveBeenCalled();
+    expect(result.reconnected).toBe(false);
+    expect(api.renameDevice).not.toHaveBeenCalled();
   });
 
-  it('registers when the existing config predates device ids', async () => {
-    const result = await provisionDevice({
-      ...input,
-      existing: { serverUrl: 'http://server:4000' },
-    });
-
-    expect(result.reKeyed).toBe(false);
-  });
-
-  it('disposes of the session even when provisioning fails', async () => {
-    vi.mocked(api.registerDevice).mockRejectedValueOnce(new Error('name taken'));
-
-    await expect(provisionDevice(input)).rejects.toThrow('name taken');
-    expect(api.signOut).toHaveBeenCalledWith('http://server:4000', 'session-token');
-  });
-});
-
-describe('provisionDevice with an OIDC sign-in', () => {
-  it('trades the token and its verifier for the session, not a magic link', async () => {
-    await provisionDevice({
-      serverUrl: 'http://server:4000',
-      sso: { token: 'ott', codeVerifier: 'verifier' },
-      name: 'laptop',
-      platform: 'linux',
-    });
-
-    expect(api.verifyOneTimeToken).toHaveBeenCalledWith('http://server:4000', 'ott', 'verifier');
-    expect(api.verifyMagicLink).not.toHaveBeenCalled();
-    expect(api.registerDevice).toHaveBeenCalledWith(
-      'http://server:4000',
-      'sso-session-token',
-      'laptop',
-      'linux',
+  it('registers again when the kept device is gone', async () => {
+    vi.mocked(api.renameDevice).mockRejectedValueOnce(
+      new api.GraphQLRequestError('Unknown device', 'NOT_FOUND'),
     );
-    expect(api.signOut).toHaveBeenCalledWith('http://server:4000', 'sso-session-token');
+    const result = await provisionDevice({ ...input, existing });
+    expect(result).toMatchObject({ deviceId: 'new-device', reconnected: false });
+  });
+
+  it('passes on any other failure rather than registering a twin', async () => {
+    vi.mocked(api.renameDevice).mockRejectedValueOnce(new Error('offline'));
+    await expect(provisionDevice({ ...input, existing })).rejects.toThrow('offline');
+    expect(api.registerDevice).not.toHaveBeenCalled();
+  });
+
+  it('says to sign in to the dashboard once when the server does not know the provider account', async () => {
+    vi.mocked(api.registerDevice).mockRejectedValueOnce(
+      new api.GraphQLRequestError('Not signed in', 'UNAUTHENTICATED'),
+    );
+    await expect(provisionDevice({ ...input, credential: provider })).rejects.toThrow(
+      /Sign in to the eunomia dashboard with your provider once/,
+    );
   });
 });

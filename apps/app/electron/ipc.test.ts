@@ -31,7 +31,12 @@ function stubRuntime() {
     dataDir: '/data',
     logPath: '/data/agent.log',
     info: vi.fn(() => ({ platform: 'linux' })),
-    loadConfig: vi.fn(() => ({ serverUrl: 'https://eunomia.example', apiKey: 'k' })),
+    loadConfig: vi.fn(() => ({
+      serverUrl: 'https://eunomia.example',
+      deviceId: 'd1',
+      credential: { kind: 'session' as const, token: 's' },
+    })),
+    loadSavedConfig: vi.fn(() => ({ serverUrl: 'https://eunomia.example', deviceId: 'd1' })),
     applyConfig: vi.fn(),
     pendingCount: vi.fn(() => 3),
     flush: vi.fn(async () => ({ pending: 1, uploadError: 'offline' })),
@@ -42,7 +47,15 @@ function stubRuntime() {
     pauseState: vi.fn(() => ({ paused: false, until: null })),
     pause: vi.fn((ms: number | null) => ({ paused: true, until: ms === null ? null : 1000 + ms })),
     resume: vi.fn(() => ({ paused: false, until: null })),
-    ssoSignIn: vi.fn(async () => ({ token: 'ott', codeVerifier: 'v' })),
+    deviceSignInProvider: vi.fn(async () => 'heautou'),
+    startDeviceSignIn: vi.fn(async () => ({
+      providerName: 'heautou',
+      userCode: 'ABCD-EFGH',
+      verificationUri: 'https://id.example/device',
+      verificationUriComplete: null,
+    })),
+    finishDeviceSignIn: vi.fn(async () => ({ kind: 'session' as const, token: 's2' })),
+    cancelDeviceSignIn: vi.fn(async () => undefined),
   } satisfies AgentRuntime & Record<string, unknown>;
 }
 
@@ -95,7 +108,11 @@ describe('registerAgentIpc', () => {
     expect(handlerFor('pendingCount')(fromAgent)).toBe(3);
     expect(handlerFor('readLog')(fromAgent)).toBe('a line');
 
-    const config = { serverUrl: 'https://elsewhere.example', apiKey: 'k2' };
+    const config = {
+      serverUrl: 'https://elsewhere.example',
+      deviceId: 'd2',
+      credential: { kind: 'session', token: 's2' },
+    };
     handlerFor('saveConfig')(fromAgent, config);
     expect(runtime.applyConfig).toHaveBeenCalledWith(config);
 
@@ -127,14 +144,18 @@ describe('registerAgentIpc', () => {
     });
   });
 
-  it('opens only a web address for SSO sign-in', async () => {
-    expect(await handlerFor('ssoSignIn')(fromAgent, 'https://e.example/sso/oidc')).toEqual({
-      token: 'ott',
-      codeVerifier: 'v',
+  it('starts a device sign-in only against a web address', async () => {
+    expect(await handlerFor('startDeviceSignIn')(fromAgent, 'https://e.example')).toMatchObject({
+      userCode: 'ABCD-EFGH',
     });
     for (const bad of ['file:///etc/passwd', 'javascript:alert(1)', 42, undefined]) {
-      expect(() => handlerFor('ssoSignIn')(fromAgent, bad)).toThrow(/http\(s\)/);
+      expect(() => handlerFor('startDeviceSignIn')(fromAgent, bad)).toThrow(/http\(s\)/);
+      expect(() => handlerFor('deviceSignInProvider')(fromAgent, bad)).toThrow(/http\(s\)/);
     }
-    expect(runtime.ssoSignIn).toHaveBeenCalledTimes(1);
+    expect(runtime.startDeviceSignIn).toHaveBeenCalledTimes(1);
+    expect(await handlerFor('finishDeviceSignIn')(fromAgent)).toEqual({
+      kind: 'session',
+      token: 's2',
+    });
   });
 });

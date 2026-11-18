@@ -1,22 +1,28 @@
 import type { KeyScope } from '../api-keys.ts';
 import type { Db } from '../db/client.ts';
 
+/** What a request proved who it is with. */
+export const Credential = {
+  /** A person, on a better-auth session: the dashboard, or an agent signed in by a link. */
+  Session: 'session',
+  /** An integration key issued from the dashboard: an MCP client, a script. */
+  ApiKey: 'apiKey',
+  /** An access token the OIDC provider issued for this API: an agent that ran the device flow. */
+  ProviderToken: 'providerToken',
+} as const;
+export type Credential = (typeof Credential)[keyof typeof Credential];
+
 export interface Context {
   db: Db;
-  /** Authenticated dashboard user (session) or key owner (API key), if any. */
+  /** Who the request is: the session's user, the key's owner, or the token's account. */
   userId: string | undefined;
-  /**
-   * The `apikey` row the request authenticated with. Set for both kinds of API
-   * key and never for a session — which is what lets the permissions layer
-   * keep key management to signed-in humans, so a leaked key cannot mint
-   * itself a successor that outlives being revoked.
-   */
+  /** What they proved it with; undefined for nobody. */
+  credential: Credential | undefined;
+  /** The `apikey` row the request authenticated with. Set only for an integration key. */
   keyId: string | undefined;
-  /** Set only when the request authenticated with a *device* API key. */
-  deviceId: string | undefined;
   /**
    * What the request's integration key was minted to do beyond reading
-   * (api-keys.ts KEY_SCOPES). Absent for sessions and keys without any.
+   * (api-keys.ts KEY_SCOPES). Absent for everything else.
    */
   keyScopes?: KeyScope[] | undefined;
   /** Original request headers — signOut needs them to find the session to revoke. */
@@ -27,3 +33,14 @@ export interface Context {
    */
   signal?: AbortSignal | undefined;
 }
+
+/**
+ * Whether the request is a person on a session. An integration key and a
+ * provider token both act as their user on every row, but a key that could
+ * mint keys could mint its own successor, and a token that could would leave a
+ * credential behind that outlives it and the provider's say over it — so
+ * issuing and withdrawing credentials, and the other session-only fields, stay
+ * with the human who signs in.
+ */
+export const isSession = (ctx: Pick<Context, 'userId' | 'credential'>): boolean =>
+  Boolean(ctx.userId) && ctx.credential === Credential.Session;

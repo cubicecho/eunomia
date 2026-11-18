@@ -24,17 +24,10 @@ const MAX_BATCH = 500;
 
 type Device = typeof devices.$inferSelect;
 
-/**
- * Resolves the device a ping batch belongs to, or throws.
- *
- * deviceId is optional because a device API key already identifies the device;
- * sessions (or keys acting on another owned device) pass it explicitly.
- */
-async function resolveDevice(db: Db, ctx: Context, deviceId?: string | null): Promise<Device> {
+/** Resolves the device a ping batch belongs to — one of the caller's own — or throws. */
+async function resolveDevice(db: Db, ctx: Context, deviceId: string): Promise<Device> {
   const userId = requireUser(ctx);
-  const id = deviceId ?? ctx.deviceId;
-  if (!id) throw badInput('No device: pass deviceId or use a device API key');
-  return requireOwned(db, devices, id, userId, 'Unknown device');
+  return requireOwned(db, devices, deviceId, userId, 'Unknown device');
 }
 
 /**

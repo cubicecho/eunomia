@@ -1,4 +1,4 @@
-import { type Ping, uploadBatch } from '@eunomia/agent';
+import { createTokenSource, type Ping, uploadBatch } from '@eunomia/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { type Auth, createAuth, createAuthGateway } from '../src/auth.ts';
@@ -98,41 +98,6 @@ describe('graphql over http', () => {
     expect(body.errors?.[0]?.extensions?.code).toBe('INTERNAL_SERVER_ERROR');
   });
 
-  it('trades a device key for a session token the dashboard accepts', async () => {
-    // The desktop webview flow: the agent holds only an x-api-key, exchanges
-    // it for a bearer session, and the embedded dashboard runs on that.
-    const token = await signIn();
-    const reg = await query(
-      'mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }',
-      {
-        authorization: `Bearer ${token}`,
-      },
-    );
-    const apiKey = (reg.body.data!.registerDevice as { apiKey: string }).apiKey;
-
-    const minted = await query('mutation { sessionFromDeviceKey { token userId } }', {
-      'x-api-key': apiKey,
-    });
-    const session = minted.body.data?.sessionFromDeviceKey as { token: string; userId: string };
-    expect(session.token).toBeTruthy();
-
-    const devices = await query('{ devices { name } }', {
-      authorization: `Bearer ${session.token}`,
-    });
-    expect(devices.body.errors).toBeUndefined();
-    expect(devices.body.data?.devices).toEqual([{ name: 'desk' }]);
-  });
-
-  it('refuses to mint a session for anything but a device key', async () => {
-    // A stolen bearer token must not be able to breed fresh sessions.
-    const bearer = { authorization: `Bearer ${await signIn()}` };
-    for (const headers of [bearer, undefined]) {
-      const { body } = await query('mutation { sessionFromDeviceKey { token } }', headers);
-      expect(body.data).toBeNull();
-      expect(body.errors?.[0]?.extensions?.code).toBe('UNAUTHENTICATED');
-    }
-  });
-
   // The two ends of the upload contract meeting: the agent's real uploadBatch,
   // its committed operation document, and this server. Both directions of
   // "was the batch taken?" were once decided wrongly, and each mistake lost or
@@ -141,9 +106,25 @@ describe('graphql over http', () => {
   describe('agent uploads', () => {
     afterEach(() => vi.unstubAllGlobals());
 
-    const asAgent = (apiKey: string) => {
+    /** An agent signed in with a sign-in link: a session bearer, naming its device. */
+    const asAgent = (token: string, deviceId: string) => {
       vi.stubGlobal('fetch', (url: string, init: RequestInit) => app.fetch(url, init));
-      return { serverUrl: 'http://server.test', apiKey };
+      return {
+        serverUrl: 'http://server.test',
+        deviceId,
+        tokens: createTokenSource({ kind: 'session', token }),
+      };
+    };
+
+    /** Signs in and registers a device, as setup does. */
+    const provision = async (name: string, platform: string) => {
+      const token = await signIn();
+      const reg = await query(
+        `mutation { registerDevice(name: "${name}", platform: "${platform}") { id } }`,
+        { authorization: `Bearer ${token}` },
+      );
+      const { id } = reg.body.data!.registerDevice as { id: string };
+      return { token, id, bearer: { authorization: `Bearer ${token}` } };
     };
 
     const idle = (capturedAt: string): Ping => ({
@@ -154,27 +135,23 @@ describe('graphql over http', () => {
       idleSeconds: 600,
     });
 
-    it('retries a batch a bad key rejected, rather than dropping it', async () => {
+    it('keeps a batch a refused bearer was turned away with, rather than dropping it', async () => {
       // The shape that used to lose data: HTTP 200 with the refusal in the
       // body, which the agent read as success and discarded the pings for.
-      const result = await uploadBatch(asAgent('revoked-or-never-valid'), [
+      const result = await uploadBatch(asAgent('signed-out-or-never-valid', 'device-1'), [
         idle('2026-08-10T09:00:00Z'),
       ]);
 
-      expect(result).toEqual({ accepted: false, error: 'Not authenticated' });
+      expect(result).toMatchObject({ accepted: false, signedOut: true });
     });
 
     it('accepts a batch of idle pings instead of retrying it forever', async () => {
       // recordPings answers 0 — an hour away from the keyboard, not a failure.
       // Reading it as one stalled the outbox: the batch came back forever and
       // every later ping queued behind it.
-      const reg = await query(
-        'mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }',
-        { authorization: `Bearer ${await signIn()}` },
-      );
-      const { apiKey } = reg.body.data!.registerDevice as { apiKey: string };
+      const { token, id } = await provision('desk', 'linux');
 
-      const result = await uploadBatch(asAgent(apiKey), [
+      const result = await uploadBatch(asAgent(token, id), [
         idle('2026-08-10T09:00:00Z'),
         idle('2026-08-10T09:00:10Z'),
       ]);
@@ -183,18 +160,13 @@ describe('graphql over http', () => {
     });
 
     it('records a batch in one call and folds it as if the pings arrived apart', async () => {
-      const bearer = { authorization: `Bearer ${await signIn()}` };
-      const reg = await query(
-        'mutation { registerDevice(name: "desk", platform: "linux") { apiKey } }',
-        bearer,
-      );
-      const { apiKey } = reg.body.data!.registerDevice as { apiKey: string };
+      const { token, id, bearer } = await provision('desk', 'linux');
 
       const at = (seconds: number) =>
         new Date(Date.parse('2026-08-10T09:00:00Z') + seconds * 1000).toISOString();
       const active = (seconds: number): Ping => ({ ...idle(at(seconds)), idleSeconds: 0 });
 
-      const result = await uploadBatch(asAgent(apiKey), [active(0), active(10), active(20)]);
+      const result = await uploadBatch(asAgent(token, id), [active(0), active(10), active(20)]);
       expect(result).toEqual({ accepted: true, error: null });
 
       // One activity, and the elapsed time between the pings accrued to it —
@@ -204,13 +176,8 @@ describe('graphql over http', () => {
     });
 
     it('keeps recording from a device whose clock runs hours fast', async () => {
-      const bearer = { authorization: `Bearer ${await signIn()}` };
-      const reg = await query(
-        'mutation { registerDevice(name: "skewed", platform: "windows") { apiKey } }',
-        bearer,
-      );
-      const { apiKey } = reg.body.data!.registerDevice as { apiKey: string };
-      const agent = asAgent(apiKey);
+      const { token, id, bearer } = await provision('skewed', 'windows');
+      const agent = asAgent(token, id);
       const active = (capturedAt: string): Ping => ({ ...idle(capturedAt), idleSeconds: 0 });
 
       // A Windows box that booted against a mis-set RTC reports the future.

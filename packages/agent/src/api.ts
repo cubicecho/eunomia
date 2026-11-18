@@ -4,11 +4,15 @@
 // Pure fetch — nothing here may touch node, electron, or react-native APIs.
 
 import { getSdk, type Requester, type Sdk } from '@eunomia/gql/agent';
+import type { AgentCredential, TokenSource } from './credential.ts';
 import type { PrivacyConfig } from './privacy.ts';
 
 export interface AgentConfig extends PrivacyConfig {
   serverUrl: string;
-  apiKey: string;
+  /** The device this install registered as; every upload names it. */
+  deviceId: string;
+  /** Who the agent signs in as (credential.ts). */
+  credential: AgentCredential;
   /** Seconds between server syncs. Defaults to DEFAULT_SYNC_INTERVAL_SECONDS (see ping.ts). */
   syncIntervalSeconds?: number;
 }
@@ -65,12 +69,26 @@ export function createSdk(serverUrl: string, token?: string): Sdk {
   return getSdk(createRequester(serverUrl, token));
 }
 
+/** The server's code for a bearer it does not accept. */
+export const UNAUTHENTICATED = 'UNAUTHENTICATED';
+
 /**
- * The SDK an agent runs on: authenticated by its device API key, which also
- * tells the server which device every ping belongs to.
+ * Runs one call with the token source's bearer, and once more with a
+ * refreshed one if the server refused it: a provider token can be refused a
+ * little before the expiry it carries (a revoked grant, a clock off).
  */
-export function createDeviceSdk(config: AgentConfig): Sdk {
-  return getSdk(requesterWithHeaders(config.serverUrl, { 'x-api-key': config.apiKey }));
+export async function withBearer<R>(
+  serverUrl: string,
+  tokens: TokenSource,
+  call: (sdk: Sdk) => Promise<R>,
+): Promise<R> {
+  try {
+    return await call(createSdk(serverUrl, await tokens.bearer()));
+  } catch (error) {
+    const refused = error instanceof GraphQLRequestError && error.code === UNAUTHENTICATED;
+    if (!refused || !(await tokens.recover())) throw error;
+    return call(createSdk(serverUrl, await tokens.bearer()));
+  }
 }
 
 // Accepts either the full emailed link (…/?token=xyz) or the bare token.
@@ -98,79 +116,29 @@ export async function verifyMagicLink(serverUrl: string, tokenOrLink: string): P
   return result.token;
 }
 
-/** The server's OIDC provider: what to call it and where sign-in starts. Null when it has none. */
-export async function fetchSsoProvider(
-  serverUrl: string,
-): Promise<{ name: string; signInUrl: string } | null> {
-  const { ssoSetup } = await createSdk(serverUrl).SsoSetup();
-  return ssoSetup.name && ssoSetup.signInUrl
-    ? { name: ssoSetup.name, signInUrl: ssoSetup.signInUrl }
-    : null;
-}
-
-/** Trades the token an OIDC sign-in handed back, and the verifier it is bound to, for a session. */
-export async function verifyOneTimeToken(
-  serverUrl: string,
-  token: string,
-  codeVerifier: string,
-): Promise<string> {
-  const { verifyOneTimeToken: result } = await createSdk(serverUrl).VerifyOneTimeToken({
-    token,
-    codeVerifier,
-  });
-  return result.token;
-}
-
 export async function registerDevice(
   serverUrl: string,
-  sessionToken: string,
+  bearer: string,
   name: string,
   platform: string,
-): Promise<{ deviceId: string; apiKey: string }> {
-  const { registerDevice: result } = await createSdk(serverUrl, sessionToken).RegisterDevice({
+): Promise<string> {
+  const { registerDevice: device } = await createSdk(serverUrl, bearer).RegisterDevice({
     name,
     platform,
   });
-  return { deviceId: result.device.id, apiKey: result.apiKey };
-}
-
-/**
- * Issues a fresh API key for a device that already exists, revoking the old
- * one. How an agent re-keys itself without registering a second device — which
- * would strand its history on the first one.
- */
-export async function rotateDeviceKey(
-  serverUrl: string,
-  sessionToken: string,
-  deviceId: string,
-): Promise<{ deviceId: string; apiKey: string }> {
-  const { rotateDeviceKey: result } = await createSdk(serverUrl, sessionToken).RotateDeviceKey({
-    id: deviceId,
-  });
-  return { deviceId: result.device.id, apiKey: result.apiKey };
+  return device.id;
 }
 
 export async function renameDevice(
   serverUrl: string,
-  sessionToken: string,
+  bearer: string,
   deviceId: string,
   name: string,
 ): Promise<void> {
-  await createSdk(serverUrl, sessionToken).RenameDevice({ id: deviceId, name });
+  await createSdk(serverUrl, bearer).RenameDevice({ id: deviceId, name });
 }
 
-/**
- * Trades the device API key for a short-lived dashboard session token — how
- * the desktop opens the web dashboard without a second sign-in. The key never
- * leaves this call; only the expiring session token reaches the web view.
- */
-export async function sessionFromDeviceKey(serverUrl: string, apiKey: string): Promise<string> {
-  const sdk = getSdk(requesterWithHeaders(serverUrl, { 'x-api-key': apiKey }));
-  const { sessionFromDeviceKey: result } = await sdk.SessionFromDeviceKey({});
-  return result.token;
-}
-
-/** Best-effort: the agent runs on the API key, the session is disposable. */
+/** Best-effort: signs a session out, so a link-signed-in agent leaves nothing behind. */
 export async function signOut(serverUrl: string, sessionToken: string): Promise<void> {
   await createSdk(serverUrl, sessionToken)
     .SignOut({})

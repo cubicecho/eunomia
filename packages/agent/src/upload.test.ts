@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { type AgentConfig, GraphQLRequestError } from './api.ts';
+import { GraphQLRequestError } from './api.ts';
+import { createTokenSource } from './credential.ts';
 import { memoryLogStore } from './memory-store.ts';
 import { Outbox } from './outbox.ts';
 import type { Ping } from './ping.ts';
-import { classifyFailure, createUploader } from './upload.ts';
+import { classifyFailure, createUploader, type UploadTarget } from './upload.ts';
 
 // A GraphQL server answers 200 with the error in the body, so "the request
 // succeeded" says nothing about whether the pings landed. Getting this wrong
-// silently discarded every ping a revoked device key uploaded.
+// silently discarded every ping a refused agent uploaded.
 
 const ping = (n: number): Ping => ({
   capturedAt: new Date(n).toISOString(),
@@ -17,13 +18,22 @@ const ping = (n: number): Ping => ({
   idleSeconds: 0,
 });
 
-const config: AgentConfig = { serverUrl: 'http://server.test', apiKey: 'k' };
+const config: UploadTarget = {
+  serverUrl: 'http://server.test',
+  deviceId: 'dev_1',
+  tokens: createTokenSource({ kind: 'session', token: 'session' }),
+};
 
 describe('classifyFailure', () => {
-  it('keeps a batch the server refused', () => {
+  it('keeps a batch the server refused, and says to sign in again', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(
       classifyFailure(new GraphQLRequestError('Not authenticated', 'UNAUTHENTICATED')),
-    ).toEqual({ accepted: false, error: 'Not authenticated' });
+    ).toEqual({
+      accepted: false,
+      error: 'Signed out. Open setup and sign in again.',
+      signedOut: true,
+    });
   });
 
   it('drops a batch that is unfixably malformed', () => {
@@ -60,7 +70,7 @@ describe('createUploader', () => {
   // fetchMock.mock.calls[n][1].body readable without a cast.
   const respond = (body: unknown) =>
     vi.fn(
-      async (_url: unknown, _init: { body: string }) =>
+      async (_url: unknown, _init: { body: string; headers: Record<string, string> }) =>
         new Response(JSON.stringify(body), { status: 200 }),
     );
 
@@ -80,8 +90,9 @@ describe('createUploader', () => {
     expect(outbox.size).toBe(2);
     expect(uploader.status()).toEqual({
       pending: 2,
-      error: 'Not authenticated',
+      error: 'Signed out. Open setup and sign in again.',
       lastUploadAt: null,
+      signedOut: true,
     });
 
     // And it keeps trying: the next tick re-sends the same batch.
@@ -101,7 +112,8 @@ describe('createUploader', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
     expect(body.query).toContain('recordPings');
-    expect(body.variables.pings).toEqual([ping(1), ping(2)]);
+    expect(body.variables).toEqual({ deviceId: 'dev_1', pings: [ping(1), ping(2)] });
+    expect(fetchMock.mock.calls[0]![1].headers.authorization).toBe('Bearer session');
     expect(outbox.size).toBe(0);
   });
 

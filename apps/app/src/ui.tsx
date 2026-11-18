@@ -103,6 +103,14 @@ export const ui = StyleSheet.create({
   dim: { opacity: 0.4 },
   button: { marginTop: 22 },
   error: { color: '#d33', marginTop: 12 },
+  /** A code the person checks against another screen: a device sign-in's user code. */
+  code: {
+    fontSize: 28,
+    fontWeight: '600',
+    fontFamily: 'monospace',
+    letterSpacing: 4,
+    marginBottom: 20,
+  },
   /** A full-width caution paragraph — warn is a right-aligned value in a Row. */
   notice: { color: '#b3261e', marginBottom: 16 },
   warn: { color: '#b3261e', flexShrink: 1, textAlign: 'right' },

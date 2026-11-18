@@ -21,14 +21,13 @@ const info: HostInfo = {
     updates: false,
     externalDashboard: true,
     pause: true,
-    sso: true,
+    deviceSignIn: true,
   },
   version: '0.1.0',
   platform: 'linux',
   defaultDeviceName: 'desk',
   pingLogPath: '/data/pings',
   logPath: '/data/agent.log',
-  envConfigured: false,
 };
 
 /** A bridge that answers every method and records what it was asked. */
@@ -93,15 +92,21 @@ describe('createElectronHost', () => {
     globalThis.eunomia = bridge;
     const host = await createElectronHost();
 
-    const config: StoredConfig = { serverUrl: 'https://eunomia.example', apiKey: 'k' };
+    const config: StoredConfig = {
+      serverUrl: 'https://eunomia.example',
+      deviceId: 'd1',
+      credential: { kind: 'session', token: 's' },
+    };
     calls.length = 0;
     await host.saveConfig(config);
+    await host.startDeviceSignIn?.('https://eunomia.example');
     await host.setAutostart?.(true);
     await host.pause?.(30 * 60_000);
     await host.pause?.(null);
 
     expect(calls).toEqual([
       ['saveConfig', [config]],
+      ['startDeviceSignIn', ['https://eunomia.example']],
       ['setAutostart', [true]],
       ['pause', [30 * 60_000]],
       ['pause', [null]],

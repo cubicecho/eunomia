@@ -11,6 +11,7 @@ import {
 } from '../src/db/schema.ts';
 import type { Context } from '../src/graphql/context.ts';
 import { createSchema } from '../src/graphql/schema.ts';
+import { keyContext, sessionContext } from './helpers/context.ts';
 import { stubAuthGateway } from './helpers/stub-auth.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
@@ -20,14 +21,7 @@ describe('authorization scoping', () => {
 
   // null = anonymous caller (an explicit undefined would trigger the 'user-1'
   // default parameter and silently run the query authenticated).
-  const asUser = (userId: string | null): Context =>
-    ({
-      db,
-      userId: userId ?? undefined,
-      deviceId: undefined,
-      keyId: undefined,
-      headers: new Headers(),
-    }) as Context;
+  const asUser = (userId: string | null): Context => sessionContext(db, userId ?? undefined);
 
   const run = (source: string, userId: string | null = 'user-1') =>
     graphql({ schema, source, contextValue: asUser(userId) });
@@ -220,7 +214,7 @@ describe('authorization scoping', () => {
       'mutation { applyCategoryRules }',
       'mutation { updateCategory(id: "cat-1", name: "Mine now") { id } }',
       'mutation { assignEntry(app: "firefox", categoryId: "cat-1", from: "2026-08-17", to: "2026-08-18") }',
-      'mutation { registerDevice(name: "x", platform: "linux") { apiKey } }',
+      'mutation { registerDevice(name: "x", platform: "linux") { id } }',
     ]) {
       const result = await run(source, null);
       expect(result.errors?.[0]?.message).toBe('Not authenticated');
@@ -244,7 +238,7 @@ describe('authorization scoping', () => {
       timeZone: 'Asia/Tokyo',
       effectiveTimeZone: 'Asia/Tokyo',
     });
-    const viaKey = { ...asUser('user-1'), keyId: 'key-1' } as Context;
+    const viaKey = keyContext(db, 'user-1', 'key-1');
     const keyed = await graphql({ schema, source, contextValue: viaKey });
     expect((keyed.data as any).me.id).toBe('user-1');
   });
@@ -275,7 +269,7 @@ describe('authorization scoping', () => {
     expect((await set({ dismissed: true }, asUser(null))).errors?.[0]?.message).toBe(
       'Not authenticated',
     );
-    const viaKey = { ...asUser('user-1'), keyId: 'key-1' } as Context;
+    const viaKey = keyContext(db, 'user-1', 'key-1');
     expect((await set({ dismissed: true }, viaKey)).errors?.[0]?.message).toBe('Not authenticated');
 
     // One flag at a time: the omitted one stays as it was.
@@ -311,7 +305,7 @@ describe('authorization scoping', () => {
 
     expect((await set('Asia/Tokyo', asUser(null))).errors?.[0]?.message).toBe('Not authenticated');
     // A key acts as its owner everywhere else, but not here.
-    const viaKey = { ...asUser('user-1'), keyId: 'key-1' } as Context;
+    const viaKey = keyContext(db, 'user-1', 'key-1');
     expect((await set('Asia/Tokyo', viaKey)).errors?.[0]?.message).toBe('Not authenticated');
     const zones = async () =>
       (await db.select({ id: user.id, timeZone: user.timeZone }).from(user)).sort((a, b) =>
@@ -362,7 +356,7 @@ describe('authorization scoping', () => {
 
     expect((await replay('device-1', asUser(null))).errors?.[0]?.message).toBe('Not authenticated');
     // An API key — even the device's own — can't rewrite its history.
-    const viaKey = { ...asUser('user-1'), keyId: 'key-1', deviceId: 'device-1' } as Context;
+    const viaKey = keyContext(db, 'user-1', 'key-1');
     expect((await replay('device-1', viaKey)).errors?.[0]?.message).toBe('Not authenticated');
     // Someone else's device is as unknown as a device that doesn't exist.
     const theirs = await replay('device-2', asUser('user-1'));
@@ -402,8 +396,8 @@ describe('authorization scoping', () => {
     // A key authenticates as its owner, but can't walk out with the history —
     // neither an integration key nor a device's own.
     for (const viaKey of [
-      { ...asUser('user-1'), keyId: 'key-1' },
-      { ...asUser('user-1'), keyId: 'key-1', deviceId: 'device-1' },
+      keyContext(db, 'user-1', 'key-1'),
+      keyContext(db, 'user-1', 'key-1'),
     ] as Context[]) {
       for (const format of ['BUNDLE', 'ACTIVITYWATCH', 'SUMMARIES_CSV']) {
         const refused = await exportAs(viaKey, { format });
@@ -454,8 +448,8 @@ describe('authorization scoping', () => {
     expect(anonymous.errors?.[0]?.message).toBe('Not authenticated');
     // A key can record pings, but not write a history in wholesale.
     for (const viaKey of [
-      { ...asUser('user-1'), keyId: 'key-1' },
-      { ...asUser('user-1'), keyId: 'key-1', deviceId: 'device-1' },
+      keyContext(db, 'user-1', 'key-1'),
+      keyContext(db, 'user-1', 'key-1'),
     ] as Context[]) {
       const refused = await importAs(viaKey, rescueTime({ deviceId: 'device-1' }));
       expect(refused.errors?.[0]?.message).toBe('Not authenticated');
@@ -514,8 +508,8 @@ describe('authorization scoping', () => {
       graphql({ schema, source, variableValues, contextValue });
     // A key of each kind — an integration key and a device's own.
     const keys = [
-      { ...asUser('user-1'), keyId: 'key-1' },
-      { ...asUser('user-1'), keyId: 'key-1', deviceId: 'device-1' },
+      keyContext(db, 'user-1', 'key-1'),
+      keyContext(db, 'user-1', 'key-1'),
     ] as Context[];
     const activityIds = async () =>
       (await db.select({ id: activities.id }).from(activities)).map((row) => row.id).sort();

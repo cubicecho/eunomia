@@ -16,7 +16,7 @@ import {
 } from '../llm/settings.ts';
 import { isAdmin } from '../oidc/settings.ts';
 import { addDays, agentQueryFields, window } from './agent-fields.ts';
-import type { Context } from './context.ts';
+import { type Context, isSession } from './context.ts';
 import { requireUser } from './guards.ts';
 import { liveDayBounds, parseRange } from './summaries.ts';
 
@@ -36,7 +36,7 @@ const BAD_BASE_URL =
 
 async function settingsFor(db: Db, ctx: Context) {
   const { config, source } = await effectiveLlm(db);
-  const admin = Boolean(ctx.userId && !ctx.keyId && (await isAdmin(db, ctx.userId)));
+  const admin = Boolean(isSession(ctx) && ctx.userId && (await isAdmin(db, ctx.userId)));
   return {
     source,
     baseUrl: config?.baseUrl ?? null,
@@ -87,7 +87,7 @@ async function endpointToList(
   args: { baseUrl?: string | null; apiKey?: string | null },
 ): Promise<LlmConfig> {
   if (args.baseUrl == null) {
-    if (!ctx.userId || ctx.keyId || !(await isAdmin(db, ctx.userId))) {
+    if (!isSession(ctx) || !ctx.userId || !(await isAdmin(db, ctx.userId))) {
       throw forbidden('Only the admin can list the language model’s models.');
     }
     return requireModel(db);
@@ -256,7 +256,7 @@ async function requireEditor(db: Db, ctx: Context): Promise<void> {
   if (source === 'ENV') {
     throw forbidden("The language model is set by LLM_BASE_URL in the server's environment.");
   }
-  if (!ctx.userId || ctx.keyId || !(await isAdmin(db, ctx.userId))) {
+  if (!isSession(ctx) || !ctx.userId || !(await isAdmin(db, ctx.userId))) {
     throw forbidden('Only the admin can change the language model.');
   }
 }

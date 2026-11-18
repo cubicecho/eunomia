@@ -1,19 +1,28 @@
-import { type AgentConfig, sessionFromDeviceKey } from '@eunomia/agent';
+import type { TokenSource } from '@eunomia/agent';
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { preloadPath } from './preload-path.ts';
 
-// The dashboard window: the server-hosted web app, signed in with a session
-// minted from the device key (sessionFromDeviceKey), so viewing the dashboard
-// never needs a second magic-link login. Unlike the agent window this shows
-// remote content, so the renderer is fully sandboxed and the long-lived API
-// key never enters it — only the short-lived session token crosses over, via
-// sync IPC answered exclusively for this window's own frame (see
-// dashboard-preload.cjs).
+// The dashboard window: the server-hosted web app, signed in as the agent is,
+// so viewing the dashboard never needs a second sign-in. Unlike the agent
+// window this shows remote content, so the renderer is fully sandboxed and
+// gets the agent's bearer and nothing else, via sync IPC answered exclusively
+// for this window's own frame (see dashboard-preload.cjs): a provider access
+// token, which lives minutes and is pushed in again each time the agent
+// refreshes it (the refresh token never leaves this process), or the session a
+// sign-in link opened, which signing out in the dashboard ends for the agent
+// too.
 
 let openWindow: BrowserWindow | undefined;
 let opening = false;
 
-export async function openDashboard(config: AgentConfig): Promise<void> {
+/**
+ * How often an open dashboard asks for the bearer, which refreshes a provider
+ * token nearing its expiry: uploads ask too, but on the sync interval, which
+ * may be longer than the token lives.
+ */
+const KEEP_FRESH_MS = 30_000;
+
+export async function openDashboard(serverUrl: string, tokens: TokenSource): Promise<void> {
   if (openWindow) {
     openWindow.focus();
     return;
@@ -22,16 +31,14 @@ export async function openDashboard(config: AgentConfig): Promise<void> {
   opening = true;
 
   try {
-    // Fresh token per open; expiry mid-view just shows the dashboard's own
-    // sign-in screen, and reopening the window recovers.
     let token: string;
     try {
-      token = await sessionFromDeviceKey(config.serverUrl, config.apiKey);
+      token = await tokens.bearer();
     } catch (error) {
-      // Offline, revoked key, or a server that predates sessionFromDeviceKey.
+      // Offline at refresh time, or signed out at the provider.
       dialog.showErrorBox(
         'eunomia',
-        `Could not open the dashboard at ${config.serverUrl}:\n${
+        `Could not open the dashboard at ${serverUrl}:\n${
           error instanceof Error ? error.message : String(error)
         }`,
       );
@@ -58,17 +65,25 @@ export async function openDashboard(config: AgentConfig): Promise<void> {
       event.returnValue = event.sender === win.webContents ? token : null;
     };
     ipcMain.on('dashboard:token', handleToken);
+    // The agent refreshes its token while the window is open (each upload
+    // asks for one); the page reads it per request, so storing the new one is
+    // all it takes.
+    const unsubscribe = tokens.subscribe((next) => {
+      token = next;
+      if (!win.isDestroyed()) win.webContents.send('dashboard:token-refreshed', next);
+    });
+    const keepFresh = setInterval(() => void tokens.bearer().catch(() => {}), KEEP_FRESH_MS);
     win.on('closed', () => {
       openWindow = undefined;
       ipcMain.removeListener('dashboard:token', handleToken);
+      unsubscribe();
+      clearInterval(keepFresh);
     });
 
-    await win.loadURL(config.serverUrl).catch((error: unknown) => {
+    await win.loadURL(serverUrl).catch((error: unknown) => {
       dialog.showErrorBox(
         'eunomia',
-        `Could not load ${config.serverUrl}:\n${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `Could not load ${serverUrl}:\n${error instanceof Error ? error.message : String(error)}`,
       );
       if (!win.isDestroyed()) win.close();
     });

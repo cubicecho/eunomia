@@ -20,6 +20,14 @@ export interface PairedOidc {
   /** RFC 7592: the credential that deletes the client at the provider. */
   registrationAccessToken: string | null;
   registrationClientUri: string | null;
+  /**
+   * The public client registered beside it for the agents to run the device
+   * flow with (device-client.ts), and what reads or deletes it. Null when the
+   * provider registered none.
+   */
+  deviceClientId: string | null;
+  deviceRegistrationAccessToken: string | null;
+  deviceRegistrationClientUri: string | null;
 }
 
 export async function readPairedOidc(db: Db): Promise<PairedOidc | null> {
@@ -34,6 +42,9 @@ export async function readPairedOidc(db: Db): Promise<PairedOidc | null> {
     name: row.name,
     registrationAccessToken: row.registrationAccessToken,
     registrationClientUri: row.registrationClientUri,
+    deviceClientId: row.deviceClientId,
+    deviceRegistrationAccessToken: row.deviceRegistrationAccessToken,
+    deviceRegistrationClientUri: row.deviceRegistrationClientUri,
   };
 }
 

@@ -2,25 +2,22 @@ import type { MutationResolvers } from '@eunomia/gql/resolvers';
 import { and, eq, inArray } from 'drizzle-orm';
 import { mergeDeviceHistory } from '../activity/merge.ts';
 import { replayDevice } from '../activity/replay.ts';
-import { revokeDeviceKeys } from '../api-keys.ts';
-import type { AuthGateway } from '../auth.ts';
 import type { Db } from '../db/client.ts';
 import { devices } from '../db/schema.ts';
 import { badInput, notFound } from '../errors.ts';
 import { requireOwned, requireUser } from './guards.ts';
 
-// Device lifecycle: register, rename, re-key, merge, delete. The generated
-// device CRUD is deliberately not exposed — every one of these does something
-// to the API keys or the history that a raw insert/update wouldn't.
+// Device lifecycle: register, rename, merge, delete. The generated device CRUD
+// is deliberately not exposed — every one of these does something to the
+// history that a raw insert/update wouldn't.
 //
-// The keys these mint carry a deviceId in their metadata, which is what makes
-// them device keys rather than the integration keys the dashboard issues; both
-// kinds and the difference are in src/api-keys.ts.
+// A device holds no credential of its own: its agent signs in as its person
+// (a provider access token, or a session from a sign-in link) and names the
+// device on every upload. Revoking an agent is the provider's (or signing the
+// session out); deleting the device here refuses its uploads from then on.
 
-export function deviceFields(db: Db, auth: AuthGateway) {
+export function deviceFields(db: Db) {
   return {
-    // The plaintext API key exists only in this response (the server stores a
-    // hash), so DeviceRegistration carries it exactly once.
     registerDevice: async (_source, args, ctx) => {
       const userId = requireUser(ctx);
       const [row] = await db
@@ -32,8 +29,7 @@ export function deviceFields(db: Db, auth: AuthGateway) {
           platform: args.platform as 'windows' | 'macos' | 'linux' | 'android',
         })
         .returning();
-      const apiKey = await auth.mintDeviceKey({ userId, deviceId: row!.id, name: args.name });
-      return { device: row!, apiKey };
+      return row!;
     },
     renameDevice: async (_source, args, ctx) => {
       const userId = requireUser(ctx);
@@ -45,26 +41,11 @@ export function deviceFields(db: Db, auth: AuthGateway) {
         .returning();
       return updated!;
     },
-    // A fresh API key for a device that already exists — how an agent
-    // recovers from a revoked or lost key without re-registering, which
-    // would strand its history on an orphaned device row. The old keys are
-    // revoked here, so an agent still holding one stops uploading.
-    rotateDeviceKey: async (_source, args, ctx) => {
-      const userId = requireUser(ctx);
-      const device = await requireOwned(db, devices, args.id, userId, 'Unknown device');
-      await revokeDeviceKeys(db, userId, device.id);
-      const apiKey = await auth.mintDeviceKey({
-        userId,
-        deviceId: device.id,
-        name: device.name,
-      });
-      return { device, apiKey };
-    },
     // Folds one device into another and retires it — the fix for the same
     // machine registered twice. Everything the source recorded becomes the
     // target's, so the history survives what deleteDevice would have
     // cascaded away. Merge the duplicate INTO the device whose agent is
-    // still running: only the source's key is revoked.
+    // still running: the source's agent is refused from then on.
     mergeDevice: async (_source, args, ctx) => {
       const userId = requireUser(ctx);
       if (args.id === args.intoId) throw badInput('Pick a different device to merge into');
@@ -79,7 +60,6 @@ export function deviceFields(db: Db, auth: AuthGateway) {
       if (!source || !target) throw notFound('Unknown device');
 
       await mergeDeviceHistory(db, source.id, target.id);
-      await revokeDeviceKeys(db, userId, source.id);
       await db.delete(devices).where(eq(devices.id, source.id));
 
       // The merged device is as recently seen as the more recent of the two.
@@ -102,13 +82,11 @@ export function deviceFields(db: Db, auth: AuthGateway) {
       const result = await replayDevice(db, device.id, { from });
       return { ...result, from: result.from?.toISOString() ?? null };
     },
-    // True when the device was deleted. Its activities cascade away, and its
-    // API keys are revoked (only hashes are stored, so deleting the rows is a
-    // full revocation) — the agent's next upload gets rejected.
+    // True when the device was deleted. Its activities cascade away, and the
+    // agent's next upload naming it gets rejected.
     deleteDevice: async (_source, args, ctx) => {
       const userId = requireUser(ctx);
       const device = await requireOwned(db, devices, args.id, userId, 'Unknown device');
-      await revokeDeviceKeys(db, userId, device.id);
       await db.delete(devices).where(eq(devices.id, device.id));
       return true;
     },

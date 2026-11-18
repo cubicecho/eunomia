@@ -322,7 +322,7 @@ export function StatusScreen({
       <Text style={ui.section}>Actions</Text>
       <MenuItem label="Open dashboard" detail={config.serverUrl} onPress={onOpenDashboard} />
       <MenuItem
-        label="Change server / API key…"
+        label="Change server / sign in again…"
         detail="Move this device to another server, or re-key it"
         onPress={onChangeServer}
       />

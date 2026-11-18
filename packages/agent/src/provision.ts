@@ -1,25 +1,17 @@
-import {
-  registerDevice,
-  renameDevice,
-  rotateDeviceKey,
-  signOut,
-  verifyMagicLink,
-  verifyOneTimeToken,
-} from './api.ts';
-import type { SsoCredential } from './sso.ts';
+import { GraphQLRequestError, registerDevice, renameDevice, UNAUTHENTICATED } from './api.ts';
+import type { AgentCredential } from './credential.ts';
 
 // The one place that decides how an agent becomes (or stays) a device on a
 // server. Desktop's setup window, `npm run provision`, and the Android setup
-// screen all differ in how they sign in — a magic-link token, or what an OIDC
-// sign-in in the system browser handed back; from there on the steps are
-// identical, and every copy of them was a chance for one platform to drift
-// into registering duplicate devices.
+// screen all differ in how they sign in — the provider's device flow, or a
+// sign-in link; from there on the steps are identical, and every copy of them
+// was a chance for one platform to drift into registering duplicate devices.
 
 /**
  * What an already-provisioned install knows about itself — the subset of its
- * config that decides whether this is a re-key or a first registration.
- * `deviceId` is absent in configs written before re-keying existed, and in
- * those the flow falls back to registering.
+ * config that decides whether this is a reconnect or a first registration.
+ * Read from configs of every age, including ones from before agents signed in
+ * as their person (which held an API key instead).
  */
 export interface DeviceIdentity {
   serverUrl: string;
@@ -29,10 +21,8 @@ export interface DeviceIdentity {
 
 export interface ProvisionInput {
   serverUrl: string;
-  /** The magic-link token, or the whole link pasted from an inbox. Or `sso`, not both. */
-  tokenOrLink?: string | undefined;
-  /** What an OIDC sign-in handed back (sso.ts). */
-  sso?: SsoCredential | undefined;
+  /** What the agent signed in with. */
+  credential: AgentCredential;
   /** What this device should be called on the server. */
   name: string;
   /** 'windows' | 'macos' | 'linux' | 'android'. */
@@ -45,58 +35,68 @@ export interface ProvisionResult {
   /** The normalized server URL — write this to the config, not the raw input. */
   serverUrl: string;
   deviceId: string;
-  apiKey: string;
-  /** True when an existing device was re-keyed instead of a new one registered. */
-  reKeyed: boolean;
+  /** True when the device this install already had was kept instead of a new one registered. */
+  reconnected: boolean;
 }
 
 /**
  * Trailing slashes and stray whitespace make two spellings of one server, and
- * the re-key check below is an equality test — so both sides go through here.
+ * the reconnect check below is an equality test — so both sides go through here.
  */
 export function normalizeServerUrl(serverUrl: string): string {
   return serverUrl.trim().replace(/\/+$/, '');
 }
 
+const bearerOf = (credential: AgentCredential): string =>
+  credential.kind === 'provider' ? credential.accessToken : credential.token;
+
 /**
- * Signs in (a magic-link token, or an OIDC sign-in's) and puts this machine on the server, then
- * disposes of the session — agents authenticate with the returned device API
- * key, never a session.
+ * What to tell the person when the server refuses a fresh provider token: it
+ * verified at the provider, but eunomia has no account that ever signed in
+ * through it, and it only maps a token to one that has (never by email).
+ */
+const NOT_LINKED =
+  "eunomia doesn't know this account yet. Sign in to the eunomia dashboard with your provider once, then try again.";
+
+/**
+ * Puts this machine on the server as the person the credential signs in as.
  *
  * Registering is the fallback, not the default: an install that already owns a
- * device on this server re-keys that device (rotateDeviceKey), because
+ * device on this server keeps it (renaming it when asked to), because
  * registering a twin strands half this machine's history on a device nothing
  * uploads to any more. That is what mergeDevice exists to repair, and not
- * creating the duplicate is better than repairing it.
+ * creating the duplicate is better than repairing it. A device that is gone,
+ * or someone else's, is NOT_FOUND to the rename, and a new one is registered.
  */
 export async function provisionDevice(input: ProvisionInput): Promise<ProvisionResult> {
   const serverUrl = normalizeServerUrl(input.serverUrl);
   const name = input.name.trim();
-  const session = input.sso
-    ? await verifyOneTimeToken(serverUrl, input.sso.token, input.sso.codeVerifier)
-    : await verifyMagicLink(serverUrl, input.tokenOrLink ?? '');
-
-  // Same server and a device we already own: keep its identity.
+  const bearer = bearerOf(input.credential);
   const existing = input.existing;
-  const reKeyId =
+  const keepId =
     existing?.deviceId && normalizeServerUrl(existing.serverUrl) === serverUrl
       ? existing.deviceId
       : null;
 
   try {
-    if (reKeyId) {
-      if (name !== (existing?.deviceName ?? '')) {
-        await renameDevice(serverUrl, session, reKeyId, name);
+    if (keepId) {
+      try {
+        await renameDevice(serverUrl, bearer, keepId, name);
+        return { serverUrl, deviceId: keepId, reconnected: true };
+      } catch (error) {
+        if (!(error instanceof GraphQLRequestError) || error.code !== 'NOT_FOUND') throw error;
       }
-      const rotated = await rotateDeviceKey(serverUrl, session, reKeyId);
-      return { serverUrl, ...rotated, reKeyed: true };
     }
-    const registered = await registerDevice(serverUrl, session, name, input.platform);
-    return { serverUrl, ...registered, reKeyed: false };
-  } finally {
-    // Best-effort by design (signOut swallows): the work above is already
-    // committed on the server, so a failure to tidy up the session must not
-    // turn a successful provision into a failed one.
-    await signOut(serverUrl, session);
+    const deviceId = await registerDevice(serverUrl, bearer, name, input.platform);
+    return { serverUrl, deviceId, reconnected: false };
+  } catch (error) {
+    if (
+      input.credential.kind === 'provider' &&
+      error instanceof GraphQLRequestError &&
+      error.code === UNAUTHENTICATED
+    ) {
+      throw new Error(NOT_LINKED);
+    }
+    throw error;
   }
 }

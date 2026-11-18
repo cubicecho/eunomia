@@ -219,20 +219,18 @@ type Mutation {
   requestMagicLink(email: String!): MagicLinkRequest!
   verifyMagicLink(token: String!): AuthSession!
   signOut: Boolean!
-  sessionFromDeviceKey: AuthSession!
   # The last leg of an OIDC sign-in: the one-time token the callback put on the
   # dashboard's URL (`/?sso=`), for a session. Single use, and only for a few
-  # minutes; BAD_USER_INPUT once spent or expired. An agent that started the
-  # sign-in with a `code_challenge` (to get the token back in the app rather
-  # than the dashboard) must send the verifier behind it.
-  verifyOneTimeToken(token: String!, codeVerifier: String): AuthSession!
+  # minutes; BAD_USER_INPUT once spent or expired.
+  verifyOneTimeToken(token: String!): AuthSession!
   # Creates the first account on a brand-new server, with the setup code the
   # server printed to its log, and signs it in. No email is sent. FORBIDDEN
   # once any account exists; BAD_USER_INPUT for a wrong code.
   claimSetupCode(code: String!, email: String!): AuthSession!
   # A sign-in link for the caller's own address, returned rather than emailed:
-  # paste it into an agent's setup screen to sign it in without SMTP. Expires
-  # in 15 minutes, single use. Signed-in sessions only.
+  # paste it into an agent's setup screen to sign it in without SMTP, on a
+  # server whose provider offers no device sign-in. Expires in 15 minutes,
+  # single use. Signed-in sessions only.
   deviceSignInLink: String!
   # Pairs the instance with the provider a setup URL names
   # (`<issuer>#setup=<token>&name=<name>`), registering eunomia there through
@@ -241,8 +239,9 @@ type Mutation {
   # provider would not pair; FORBIDDEN for anyone else, or when OIDC_ISSUER
   # names the provider; CONFLICT when one is paired already.
   pairSso(setupUrl: String!): SsoSetup!
-  # Deletes eunomia's client at the paired provider and stops offering it.
-  # Accounts stay. Same rule as pairSso.
+  # Deletes eunomia's clients at the paired provider and stops offering it.
+  # Accounts stay; agents signed in through it are refused from then on. Same
+  # rule as pairSso.
   unpairSso: SsoSetup!
   # Points the instance at an OpenAI-compatible endpoint (an Ollama at
   # http://localhost:11434/v1, LM Studio, vLLM, a hosted API) for rule
@@ -286,11 +285,11 @@ type Mutation {
   """
   deleteAccount(email: String!): Boolean!
 
-  # Devices. registerDevice and rotateDeviceKey are the only fields that ever
-  # return an API key, and only at the moment it is minted.
-  registerDevice(name: String!, platform: String!): DeviceRegistration!
+  # Devices. An agent signs in as its person (a provider access token from the
+  # device flow, or a session from a sign-in link) and registers the machine
+  # it runs on once; from then on it names the device on every upload.
+  registerDevice(name: String!, platform: String!): Devices!
   renameDevice(id: String!, name: String!): Devices!
-  rotateDeviceKey(id: String!): DeviceRegistration!
   mergeDevice(id: String!, intoId: String!): Devices!
   # Rebuilds the device's activities and summaries from its raw ping log, from
   # the nearest seam at or before `from` (an ISO timestamp; omitted = the
@@ -305,16 +304,17 @@ type Mutation {
   renameApiKey(id: String!, name: String!): ApiKey!
   revokeApiKey(id: String!): Boolean!
 
-  # Ingestion — the fields the agents call continuously.
+  # Ingestion — the fields the agents call continuously, naming the device
+  # (one of the caller's own) the pings came from.
   recordPing(
-    deviceId: String
+    deviceId: String!
     capturedAt: String!
     app: String
     title: String
     context: String
     idleSeconds: Int!
   ): Activities
-  recordPings(deviceId: String, pings: [PingInput!]!): Int!
+  recordPings(deviceId: String!, pings: [PingInput!]!): Int!
 
   # Categories, and the two mutations that move time between them by hand.
   "`kind` defaults to neutral."
@@ -477,6 +477,14 @@ type SsoSetup {
   canPair: Boolean!
   "The redirect URI to register with a provider by hand, for an OIDC_ISSUER setup."
   redirectUri: String!
+  """
+  The public client an agent (desktop, Android) uses at the provider for the
+  device flow: OIDC_DEVICE_CLIENT_ID, or the one pairing registered once the
+  provider lets it use the device flow. Null when agents can't sign in that
+  way, and sign in with a link instead. The provider and the audience to ask
+  for are in `/.well-known/oauth-protected-resource`.
+  """
+  deviceClientId: String
 }
 
 # Session payload for signUp/signIn: the raw token goes back as
@@ -491,12 +499,6 @@ type AuthSession {
 type MagicLinkRequest {
   ok: Boolean!
   token: String
-}
-
-# The API key is returned exactly once, here.
-type DeviceRegistration {
-  device: Devices!
-  apiKey: String!
 }
 
 """

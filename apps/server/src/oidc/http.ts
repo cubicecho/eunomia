@@ -9,14 +9,6 @@ import {
   SSO_START_PATH,
   serverUrl,
 } from './config.ts';
-import {
-  bindChallenge,
-  type ReturnTarget,
-  returnCookie,
-  returnFromCookie,
-  returnFromQuery,
-  withParam,
-} from './handoff.ts';
 
 // The two legs of an OIDC sign-in that can't be GraphQL, because the browser
 // has to be sent somewhere: out to the provider, and back from it. Both are
@@ -29,10 +21,8 @@ import {
 // browser lands on the dashboard as `/?sso=<one-time token>`, which the
 // dashboard swaps for a session over GraphQL (verifyOneTimeToken).
 //
-// An agent signing in from the system browser starts with
-// `?return_to=…&code_challenge=…` instead, and the token goes back to it rather
-// than to the dashboard (handoff.ts says which targets are allowed and how the
-// token is bound to the agent that asked).
+// The agents never come through here: they run the provider's device flow and
+// send its access token as their bearer (provider-tokens.ts).
 
 /** What the dashboard is told, as `/?error=`, when something here went wrong before better-auth could say. */
 export const SsoError = {
@@ -61,32 +51,18 @@ export function createSsoHandler(host: AuthHost, options: SsoHandlerOptions = {}
     if (req.method !== 'GET' || (path !== SSO_START_PATH && path !== SSO_CALLBACK_PATH)) {
       return false;
     }
-    const query = new URL(req.url ?? '/', 'http://eunomia').searchParams;
+    if (host.oidc() === null) {
+      redirect(res, failedUrl(SsoError.Off));
+      return true;
+    }
     if (path === SSO_START_PATH) {
-      // Asked for, but not a target an agent may use: refused outright rather
-      // than quietly sent to the dashboard, which is not who asked.
-      if (query.has('return_to') && !returnFromQuery(query)) {
-        res.writeHead(400, { 'content-type': 'text/plain' });
-        res.end('return_to must be the eunomia app or a loopback port, with a code_challenge');
-        return true;
-      }
-      const target = returnFromQuery(query);
-      if (host.oidc() === null) {
-        redirect(res, failedUrl(SsoError.Off, target));
-        return true;
-      }
-      start(host.current(), req, res, target).catch((error: unknown) =>
-        fail(res, SsoError.SignInFailed, error, target),
+      start(host.current(), req, res).catch((error: unknown) =>
+        fail(res, SsoError.SignInFailed, error),
       );
       return true;
     }
-    const target = returnFromCookie(req.headers.cookie);
-    if (host.oidc() === null) {
-      redirect(res, failedUrl(SsoError.Off, target));
-      return true;
-    }
-    callback(host.current(), req, res, options, target).catch((error: unknown) =>
-      fail(res, SsoError.CallbackFailed, error, target),
+    callback(host.current(), req, res, options).catch((error: unknown) =>
+      fail(res, SsoError.CallbackFailed, error),
     );
     return true;
   };
@@ -106,12 +82,7 @@ function toHeaders(raw: IncomingMessage['headers']): Headers {
  * it to this browser), the PKCE verifier and the nonce, and says where the
  * provider's authorize page is.
  */
-async function start(
-  auth: Auth,
-  req: IncomingMessage,
-  res: ServerResponse,
-  target: ReturnTarget | null,
-): Promise<void> {
+async function start(auth: Auth, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const { headers, response } = await auth.api.signInSocial({
     body: {
       provider: OIDC_PROVIDER_ID,
@@ -124,9 +95,7 @@ async function start(
   });
   const url = response && 'url' in response ? response.url : undefined;
   if (!url) throw new Error('better-auth returned no authorize URL');
-  // Always written, so a dashboard sign-in in this browser clears whatever an
-  // abandoned agent sign-in left behind.
-  appendCookies(res, [...(headers?.getSetCookie() ?? []), returnCookie(target)]);
+  appendCookies(res, headers?.getSetCookie() ?? []);
   redirect(res, url);
 }
 
@@ -140,7 +109,6 @@ async function callback(
   req: IncomingMessage,
   res: ServerResponse,
   options: SsoHandlerOptions,
-  target: ReturnTarget | null,
 ): Promise<void> {
   const request = new Request(new URL(req.url ?? '/', serverUrl()), {
     method: 'GET',
@@ -159,8 +127,6 @@ async function callback(
       .getSetCookie()
       .filter((cookie) => !sessionCookies.has(cookie.slice(0, cookie.indexOf('=')))),
   );
-  // Spent either way, once the provider has answered.
-  if (target) appendCookies(res, [returnCookie(null)]);
 
   const location = response.headers.get('location');
   if (!location) {
@@ -168,7 +134,6 @@ async function callback(
       res,
       SsoError.CallbackFailed,
       new Error(`better-auth's callback answered ${response.status} with no redirect`),
-      target,
     );
     return;
   }
@@ -176,12 +141,7 @@ async function callback(
   const session = response.headers.get('set-auth-token');
   if (!session) {
     // A refusal: better-auth is sending the browser back with its error code.
-    if (target) {
-      const code = new URL(location, appUrl()).searchParams.get('error');
-      redirect(res, failedUrl(code ?? SsoError.CallbackFailed, target));
-    } else {
-      redirect(res, location);
-    }
+    redirect(res, location);
     return;
   }
   const bearer = new Headers({ authorization: `Bearer ${session}` });
@@ -192,13 +152,12 @@ async function callback(
   const opened = await auth.api.getSession({ headers: bearer });
   if (opened && !emailAllowed(opened.user.email, options.allowedEmails ?? [])) {
     await auth.api.signOut({ headers: bearer });
-    redirect(res, failedUrl(SsoError.NotAllowed, target));
+    redirect(res, failedUrl(SsoError.NotAllowed));
     return;
   }
 
   const { token } = await auth.api.generateOneTimeToken({ headers: bearer });
-  bindChallenge(token, target?.challenge ?? null);
-  redirect(res, withParam(target?.to ?? new URL(location, appUrl()).toString(), 'sso', token));
+  redirect(res, withParam(new URL(location, appUrl()).toString(), 'sso', token));
 }
 
 function appendCookies(res: ServerResponse, cookies: string[]): void {
@@ -210,19 +169,21 @@ function redirect(res: ServerResponse, location: string): void {
   res.end();
 }
 
-/** Where a failed sign-in goes: back to the agent that asked, or to the dashboard. */
-function failedUrl(code: string, target: ReturnTarget | null = null): string {
-  return withParam(target?.to ?? `${appUrl()}/`, 'error', code);
+/** `url` with one query parameter set. */
+function withParam(url: string, name: string, value: string): string {
+  const next = new URL(url);
+  next.searchParams.set(name, value);
+  return next.toString();
+}
+
+/** Where a failed sign-in goes: the dashboard, which says so. */
+function failedUrl(code: string): string {
+  return withParam(`${appUrl()}/`, 'error', code);
 }
 
 /** Logs a failure and sends the browser back, saying signing in failed. */
-function fail(
-  res: ServerResponse,
-  code: string,
-  error: unknown,
-  target: ReturnTarget | null,
-): void {
+function fail(res: ServerResponse, code: string, error: unknown): void {
   console.error(`[auth] OIDC ${code}:`, error);
   if (res.headersSent) return;
-  redirect(res, failedUrl(code, target));
+  redirect(res, failedUrl(code));
 }

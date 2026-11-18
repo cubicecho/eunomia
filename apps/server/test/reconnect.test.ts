@@ -1,8 +1,8 @@
 import {
+  createTokenSource,
+  provisionDevice,
   registerDevice,
-  renameDevice,
   requestMagicLink,
-  rotateDeviceKey,
   uploadBatch,
   verifyMagicLink,
 } from '@eunomia/agent';
@@ -12,9 +12,9 @@ import { createAuth, createAuthGateway } from '../src/auth.ts';
 import { fixedAuthHost } from '../src/auth-host.ts';
 import { createMigratedTestDb } from './helpers/test-db.ts';
 
-// The agent side of "change server / API key" (desktop tray → setup window),
-// driven through the shared @eunomia/agent calls the desktop actually makes
-// rather than through hand-written queries: sign in, re-key the device this
+// The agent side of "change server / sign in again" (desktop tray → setup
+// window), driven through the shared @eunomia/agent calls the desktop actually
+// makes rather than through hand-written queries: sign in, keep the device this
 // machine already owns, keep uploading. Global fetch is pointed at the Yoga
 // app, so the generated SDK's documents are checked against the real schema.
 
@@ -59,20 +59,37 @@ describe('agent reconnect', () => {
     idleSeconds: 0,
   };
 
-  it('re-keys the device it already owns instead of registering a twin', async () => {
-    const first = await registerDevice(serverUrl, await signIn(), 'laptop', 'linux');
+  it('keeps the device it already owns instead of registering a twin', async () => {
+    const firstSession = await signIn();
+    const deviceId = await registerDevice(serverUrl, firstSession, 'laptop', 'linux');
 
-    const session = await signIn();
-    await renameDevice(serverUrl, session, first.deviceId, 'work laptop');
-    const rotated = await rotateDeviceKey(serverUrl, session, first.deviceId);
-    expect(rotated.deviceId).toBe(first.deviceId);
+    const token = await signIn();
+    const again = await provisionDevice({
+      serverUrl: `${serverUrl}/`,
+      credential: { kind: 'session', token },
+      name: 'work laptop',
+      platform: 'linux',
+      existing: { serverUrl, deviceId, deviceName: 'laptop' },
+    });
+    expect(again).toEqual({ serverUrl, deviceId, reconnected: true });
 
-    // The agent keeps uploading under the new key; the old one is dead.
-    expect(await uploadBatch({ serverUrl, apiKey: rotated.apiKey }, [ping])).toEqual({
+    const tokens = createTokenSource({ kind: 'session', token });
+    expect(await uploadBatch({ serverUrl, deviceId, tokens }, [ping])).toEqual({
       accepted: true,
       error: null,
     });
-    const stale = await uploadBatch({ serverUrl, apiKey: first.apiKey }, [ping]);
-    expect(stale.accepted).toBe(false);
+  });
+
+  it('registers a new device when the one it remembers is gone', async () => {
+    const token = await signIn();
+    const fresh = await provisionDevice({
+      serverUrl,
+      credential: { kind: 'session', token },
+      name: 'laptop',
+      platform: 'linux',
+      existing: { serverUrl, deviceId: 'deleted-device', deviceName: 'laptop' },
+    });
+    expect(fresh.reconnected).toBe(false);
+    expect(fresh.deviceId).not.toBe('deleted-device');
   });
 });

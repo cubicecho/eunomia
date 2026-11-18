@@ -1,4 +1,5 @@
 import {
+  createTokenSourceCache,
   initialSynthState,
   logRetentionDays,
   Outbox,
@@ -6,14 +7,17 @@ import {
   type PingLogStore,
   parseConfigText,
   parsePauses,
+  parseSavedConfigText,
+  type SavedConfig,
   type StoredConfig,
   type SynthState,
   serializeConfig,
+  type TokenSource,
 } from '@eunomia/agent';
 import { Directory, File, Paths } from 'expo-file-system';
 
 // Document-directory persistence, mirroring the desktop agent's userData
-// layout: config.json (server + device API key), pings/ (the append-only ping
+// layout: config.json (server, device and sign-in), pings/ (the append-only ping
 // log and its upload cursor), sync-state.json (checkpoint the synthesizer
 // resumes from), pauses.json (off-the-record windows the next sync still has to
 // honour).
@@ -52,8 +56,31 @@ export function loadConfig(): StoredConfig | null {
   return parseConfigText(file.exists ? file.textSync() : null);
 }
 
+/** What config.json holds even when it can't start an agent (see SavedConfig). */
+export function loadSavedConfig(): SavedConfig | null {
+  const file = new File(Paths.document, CONFIG_FILE);
+  return parseSavedConfigText(file.exists ? file.textSync() : null);
+}
+
 export function writeConfig(config: StoredConfig): void {
   new File(Paths.document, CONFIG_FILE).write(serializeConfig(config));
+}
+
+/**
+ * The one token source for this app's sign-in, shared by the sync (foreground
+ * and background) and the dashboard so a provider token is only ever
+ * refreshed by one of them at a time. A refreshed token is written back to
+ * config.json, re-read first so a setting changed meanwhile isn't undone.
+ */
+const tokenSources = createTokenSourceCache({
+  save: (credential) => {
+    const current = loadConfig();
+    if (current) writeConfig({ ...current, credential });
+  },
+});
+
+export function agentTokens(config: StoredConfig): TokenSource {
+  return tokenSources(config.credential);
 }
 
 /** How far back the first sync reaches into the OS usage log. */

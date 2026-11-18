@@ -2,7 +2,7 @@ import type { AgentHost } from './types.ts';
 
 // `expo start --web` in a plain browser. The web target exists to be the
 // Electron renderer — a browser has no focused-window API, no usage log and
-// nowhere to keep an API key, so there is no agent here to drive. Rather than
+// nowhere to keep a sign-in, so there is no agent here to drive. Rather than
 // crash on the first native call, the host reports every capability off and
 // the status screen says where this UI is supposed to run. The dashboard a
 // browser visitor actually wants is apps/web, served by the server at /.
@@ -24,15 +24,15 @@ export function createUnsupportedHost(): AgentHost {
       updates: false,
       externalDashboard: false,
       pause: false,
-      sso: false,
+      deviceSignIn: false,
     },
     version: null,
     platform: 'linux',
     defaultDeviceName: 'this browser',
     pingLogPath: '',
     logPath: '',
-    envConfigured: false,
     loadConfig: async () => null,
+    loadSavedConfig: async () => null,
     saveConfig: unavailable,
     pendingCount: async () => 0,
     syncNow: unavailable,
